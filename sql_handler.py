@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def get_db_connection():
+def get_database_connection():
     """Context manager for database connections with automatic cleanup."""
     conn = None
     try:
@@ -111,7 +111,7 @@ def init_database() -> bool:
     TODO: Add database health checks and monitoring
     """
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
 
             # Session state table with better schema
@@ -243,7 +243,7 @@ def _migrate_database(cursor) -> None:
 def is_participant_activated(participant_id: str) -> bool:
     """Check if participant has an active session from moderator."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -264,7 +264,7 @@ def is_participant_activated(participant_id: str) -> bool:
 def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
     """Get the latest moderator settings for a participant."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -296,7 +296,7 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
 def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any]]:
     """Get the latest submitted response from the responses table."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -331,7 +331,7 @@ def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any
 def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]:
     """Get the latest subject response for a participant from session_state table."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -397,7 +397,7 @@ def update_session_state(
         return False
 
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
 
             # Use UPSERT (INSERT OR REPLACE) for atomic operation
@@ -447,7 +447,7 @@ def save_response(
             import json
             extra_data_json = json.dumps(extra_data)
 
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -483,7 +483,7 @@ def get_participant_responses(
 ) -> pd.DataFrame:
     """Get all responses for a participant as a DataFrame."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             query = """
                 SELECT * FROM responses 
                 WHERE participant_id = ?
@@ -504,7 +504,7 @@ def get_participant_responses(
 def clear_participant_session(participant_id: str) -> bool:
     """Clear all session state for a participant (reset)."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -525,7 +525,7 @@ def clear_participant_session(participant_id: str) -> bool:
 def get_all_participants() -> list:
     """Get list of all participants who have session data."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -545,7 +545,7 @@ def get_all_participants() -> list:
 def get_database_stats() -> Dict[str, int]:
     """Get database statistics for monitoring."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
 
             # Count active sessions
@@ -574,7 +574,7 @@ def get_database_stats() -> Dict[str, int]:
 def get_response_with_concentrations(response_id: int) -> Optional[Dict[str, Any]]:
     """Get a specific response including parsed concentration data."""
     try:
-        with get_db_connection() as conn:
+        with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
