@@ -57,82 +57,78 @@ def create_session(moderator_name: str = "Moderator") -> str:
     session_code = generate_session_code()
     
     # Ensure uniqueness by checking database
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    # Create sessions table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            session_code TEXT PRIMARY KEY,
-            moderator_name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1,
-            subject_connected BOOLEAN DEFAULT 0,
-            experiment_config TEXT DEFAULT '{}',
-            current_phase TEXT DEFAULT 'waiting'
-        )
-    """)
-    
-    # Check if code already exists, regenerate if necessary
-    while True:
-        cursor.execute("SELECT session_code FROM sessions WHERE session_code = ?", (session_code,))
-        if cursor.fetchone() is None:
-            break
-        session_code = generate_session_code()
-    
-    # Insert new session
-    cursor.execute("""
-        INSERT INTO sessions (session_code, moderator_name, current_phase)
-        VALUES (?, ?, 'waiting')
-    """, (session_code, moderator_name))
-    
-    conn.commit()
-    conn.close()
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Create sessions table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_code TEXT PRIMARY KEY,
+                moderator_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                subject_connected BOOLEAN DEFAULT 0,
+                experiment_config TEXT DEFAULT '{}',
+                current_phase TEXT DEFAULT 'waiting'
+            )
+        """)
+        
+        # Check if code already exists, regenerate if necessary
+        while True:
+            cursor.execute("SELECT session_code FROM sessions WHERE session_code = ?", (session_code,))
+            if cursor.fetchone() is None:
+                break
+            session_code = generate_session_code()
+        
+        # Insert new session
+        cursor.execute("""
+            INSERT INTO sessions (session_code, moderator_name, current_phase)
+            VALUES (?, ?, 'waiting')
+        """, (session_code, moderator_name))
+        
+        conn.commit()
     
     return session_code
 
 
 def join_session(session_code: str) -> bool:
     """Join an existing session as subject. Returns True if successful."""
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    # Check if session exists and is active
-    cursor.execute("""
-        SELECT session_code, is_active FROM sessions 
-        WHERE session_code = ? AND is_active = 1
-    """, (session_code,))
-    
-    result = cursor.fetchone()
-    if result:
-        # Mark subject as connected
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Check if session exists and is active
         cursor.execute("""
-            UPDATE sessions 
-            SET subject_connected = 1, last_activity = CURRENT_TIMESTAMP
-            WHERE session_code = ?
+            SELECT session_code, is_active FROM sessions 
+            WHERE session_code = ? AND is_active = 1
         """, (session_code,))
-        conn.commit()
-        conn.close()
-        return True
+        
+        result = cursor.fetchone()
+        if result:
+            # Mark subject as connected
+            cursor.execute("""
+                UPDATE sessions 
+                SET subject_connected = 1, last_activity = CURRENT_TIMESTAMP
+                WHERE session_code = ?
+            """, (session_code,))
+            conn.commit()
+            return True
     
-    conn.close()
     return False
 
 
 def get_session_info(session_code: str) -> Optional[Dict[str, Any]]:
     """Get session information."""
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT session_code, moderator_name, created_at, last_activity, 
-               is_active, subject_connected, experiment_config, current_phase
-        FROM sessions WHERE session_code = ?
-    """, (session_code,))
-    
-    result = cursor.fetchone()
-    conn.close()
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT session_code, moderator_name, created_at, last_activity, 
+                   is_active, subject_connected, experiment_config, current_phase
+            FROM sessions WHERE session_code = ?
+        """, (session_code,))
+        
+        result = cursor.fetchone()
     
     if result:
         return {
@@ -150,59 +146,56 @@ def get_session_info(session_code: str) -> Optional[Dict[str, Any]]:
 
 def update_session_activity(session_code: str, phase: str = None, config: str = None):
     """Update session last activity and optionally phase/config."""
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    updates = ["last_activity = CURRENT_TIMESTAMP"]
-    params = []
-    
-    if phase:
-        updates.append("current_phase = ?")
-        params.append(phase)
-    
-    if config:
-        updates.append("experiment_config = ?")
-        params.append(config)
-    
-    params.append(session_code)
-    
-    cursor.execute(f"""
-        UPDATE sessions SET {', '.join(updates)}
-        WHERE session_code = ?
-    """, params)
-    
-    conn.commit()
-    conn.close()
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        updates = ["last_activity = CURRENT_TIMESTAMP"]
+        params = []
+        
+        if phase:
+            updates.append("current_phase = ?")
+            params.append(phase)
+        
+        if config:
+            updates.append("experiment_config = ?")
+            params.append(config)
+        
+        params.append(session_code)
+        
+        cursor.execute(f"""
+            UPDATE sessions SET {', '.join(updates)}
+            WHERE session_code = ?
+        """, params)
+        
+        conn.commit()
 
 
 def cleanup_old_sessions(hours: int = 24):
     """Clean up sessions older than specified hours."""
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        UPDATE sessions SET is_active = 0 
-        WHERE last_activity < datetime('now', '-{} hours')
-    """.format(hours))
-    
-    conn.commit()
-    conn.close()
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE sessions SET is_active = 0 
+            WHERE last_activity < datetime('now', '-{} hours')
+        """.format(hours))
+        
+        conn.commit()
 
 
 def get_active_sessions() -> list:
     """Get list of active sessions for admin purposes."""
-    conn = get_database_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT session_code, moderator_name, created_at, subject_connected, current_phase
-        FROM sessions 
-        WHERE is_active = 1 
-        ORDER BY created_at DESC
-    """)
-    
-    results = cursor.fetchall()
-    conn.close()
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT session_code, moderator_name, created_at, subject_connected, current_phase
+            FROM sessions 
+            WHERE is_active = 1 
+            ORDER BY created_at DESC
+        """)
+        
+        results = cursor.fetchall()
     
     return [{
         'session_code': row[0],
