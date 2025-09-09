@@ -149,6 +149,22 @@ def init_database() -> bool:
             """
             )
 
+            # Multi-device sessions table
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    session_code TEXT PRIMARY KEY,
+                    moderator_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    subject_connected BOOLEAN DEFAULT 0,
+                    experiment_config TEXT DEFAULT '{}',
+                    current_phase TEXT DEFAULT 'waiting'
+                )
+            """
+            )
+
             # Create indices for better performance
             cursor.execute(
                 """
@@ -161,6 +177,13 @@ def init_database() -> bool:
                 """
                 CREATE INDEX IF NOT EXISTS idx_responses_participant 
                 ON responses(participant_id, created_at DESC)
+            """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_sessions_activity 
+                ON sessions(is_active, last_activity DESC)
             """
             )
 
