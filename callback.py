@@ -508,9 +508,9 @@ def create_ingredient_sliders(
                     step=1.0,
                     min_value=0.0,
                     max_value=100.0,
-                    slider_color='#3b82f6',  # Blue color matching the theme
-                    track_color='#e2e8f0',   # Light gray track
-                    thumb_color='#1e40af'    # Darker blue thumb
+                    slider_color="#3b82f6",  # Blue color matching the theme
+                    track_color="#e2e8f0",  # Light gray track
+                    thumb_color="#1e40af",  # Darker blue thumb
                 )
 
                 # Show position as percentage (what subject sees)
@@ -518,7 +518,10 @@ def create_ingredient_sliders(
 
         # Submit button (this will be moved to questionnaire later)
         submitted = st.form_submit_button(
-            "🔄 Update Mixture", type="primary", use_container_width=True
+            "🔄 Update Mixture",
+            type="primary",
+            use_container_width=True,
+            key=f"update_mixture_{participant_id}",
         )
 
         if submitted:
@@ -527,7 +530,9 @@ def create_ingredient_sliders(
     return None
 
 
-def start_trial(user_type: str, participant_id: str, method: str, num_ingredients: int = 2) -> bool:
+def start_trial(
+    user_type: str, participant_id: str, method: str, num_ingredients: int = 2
+) -> bool:
     """
     Initialize a new trial with random starting position.
 
@@ -545,7 +550,12 @@ def start_trial(user_type: str, participant_id: str, method: str, num_ingredient
 
         # Update database
         success = update_session_state(
-            user_type=user_type, participant_id=participant_id, method=method, x=x, y=y, num_ingredients=num_ingredients
+            user_type=user_type,
+            participant_id=participant_id,
+            method=method,
+            x=x,
+            y=y,
+            num_ingredients=num_ingredients,
         )
 
         if success:
@@ -913,7 +923,10 @@ def render_questionnaire(
         # Determine button text based on context
         button_text = "🏁 Final Response" if show_final_response else "Continue"
         submitted = st.form_submit_button(
-            button_text, type="primary", use_container_width=True
+            button_text,
+            type="primary",
+            use_container_width=True,
+            key=f"submit_{instance_key}",
         )
 
         if submitted:

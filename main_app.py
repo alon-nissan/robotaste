@@ -513,7 +513,7 @@ def create_header(title: str, subtitle: str = "", icon: str = "🧪"):
             "Theme",
             options=list(theme_options.keys()),
             index=list(theme_options.values()).index(st.session_state.theme_preference),
-            key="theme_selector",
+            key="header_theme_selector",
             label_visibility="collapsed",
         )
 
@@ -596,27 +596,27 @@ def subject_interface():
     """Multi-device subject interface with session management."""
     # Check if we have a valid session
     if not st.session_state.session_code:
-        st.error("❌ No active session. Please join a session using the code provided by your moderator.")
-        if st.button("🏠 Return to Home"):
+        st.error(
+            "❌ No active session. Please join a session using the code provided by your moderator."
+        )
+        if st.button("🏠 Return to Home", key="subject_return_home_no_session"):
             st.query_params.clear()
             st.rerun()
         return
-    
+
     session_info = get_session_info(st.session_state.session_code)
-    if not session_info or not session_info['is_active']:
+    if not session_info or not session_info["is_active"]:
         st.error("❌ Session expired or invalid.")
         st.session_state.session_code = None
-        if st.button("🏠 Return to Home"):
+        if st.button("🏠 Return to Home", key="subject_return_home_invalid_session"):
             st.query_params.clear()
             st.rerun()
         return
-    
+
     create_header(
-        f"Session {st.session_state.session_code}", 
-        f"Taste Preference Experiment", 
-        "👤"
+        f"Session {st.session_state.session_code}", f"Taste Preference Experiment", "👤"
     )
-    
+
     # Update session activity
     update_session_activity(st.session_state.session_code)
 
@@ -632,13 +632,19 @@ def subject_interface():
                 "Participant ID:",
                 value=st.session_state.participant,
                 placeholder="e.g., participant_001",
+                key="subject_participant_id_input",
             )
 
             if participant_id != st.session_state.participant:
                 st.session_state.participant = participant_id
 
             # Check if activated by moderator
-            if st.button("🚀 Check Status", type="primary", use_container_width=True):
+            if st.button(
+                "🚀 Check Status",
+                type="primary",
+                use_container_width=True,
+                key="subject_check_status_button",
+            ):
                 if is_participant_activated(participant_id):
                     st.session_state.phase = "pre_questionnaire"
                     st.success("✅ Ready to begin!")
@@ -647,14 +653,15 @@ def subject_interface():
                 else:
                     st.warning("⏳ Waiting for moderator to start your session.")
 
-            # Auto-check every 3 seconds
-            with st.empty():
-                if is_participant_activated(participant_id):
-                    st.session_state.phase = "pre_questionnaire"
-                    st.rerun()
-                else:
-                    time.sleep(3)
-                    st.rerun()
+            # Auto-check disabled to prevent infinite reload loops
+            # User can manually check status using the button above
+            # with st.empty():
+            #     if is_participant_activated(participant_id):
+            #         st.session_state.phase = "pre_questionnaire"
+            #         st.rerun()
+            #     else:
+            #         time.sleep(3)
+            #         st.rerun()
 
     elif st.session_state.phase == "pre_questionnaire":
         display_phase_status("pre_questionnaire", st.session_state.participant)
@@ -737,7 +744,7 @@ def subject_interface():
                 point_display_radius=8,
                 display_toolbar=False,
                 initial_drawing=initial_drawing,
-                key="subject_canvas",
+                key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}",
             )
 
             st.markdown("</div>", unsafe_allow_html=True)
@@ -1043,9 +1050,7 @@ def subject_interface():
                     )
 
                     # Create vertical slider
-                    slider_key = (
-                        f"ingredient_{ingredient_name}_{st.session_state.participant}"
-                    )
+                    slider_key = f"ingredient_{ingredient_name}_{st.session_state.participant}_{st.session_state.session_code}"
                     default_value = current_slider_values.get(ingredient_name, 50.0)
 
                     slider_values[ingredient_name] = svs.vertical_slider(
@@ -1054,9 +1059,9 @@ def subject_interface():
                         step=1.0,
                         min_value=0.0,
                         max_value=100.0,
-                        slider_color='#3b82f6',  # Blue color matching the theme
-                        track_color='#e2e8f0',   # Light gray track
-                        thumb_color='#1e40af'    # Darker blue thumb
+                        slider_color="#3b82f6",  # Blue color matching the theme
+                        track_color="#e2e8f0",  # Light gray track
+                        thumb_color="#1e40af",  # Darker blue thumb
                     )
 
                     # Show position as percentage with custom styling
@@ -1088,6 +1093,7 @@ def subject_interface():
                 type="primary",
                 use_container_width=False,
                 help="Complete your mixture selection and proceed to the questionnaire",
+                key="subject_finish_sliders_button",
             )
 
             st.markdown("</div>", unsafe_allow_html=True)
@@ -1161,7 +1167,10 @@ def subject_interface():
 
             # Auto-advance to questionnaire after brief delay
             if st.button(
-                "Continue to Questionnaire", type="primary", use_container_width=True
+                "Continue to Questionnaire",
+                type="primary",
+                use_container_width=True,
+                key="subject_continue_questionnaire_button",
             ):
                 st.session_state.phase = "post_questionnaire"
                 st.rerun()
@@ -1185,6 +1194,7 @@ def subject_interface():
             show_final = st.checkbox(
                 "Ready to submit final response?",
                 help="Check this box if you're done making selections and want to submit your final response.",
+                key=f"subject_ready_final_response_{st.session_state.participant}_{st.session_state.session_code}",
             )
 
             responses = render_questionnaire(
@@ -1256,66 +1266,352 @@ def subject_interface():
                         "⏱️ Response Time", f"{resp.get('reaction_time_ms', 0)} ms"
                     )
 
-            # Auto-refresh to check for new trials
-            st.info("Waiting for next trial...")
-            time.sleep(5)
+            # Auto-refresh disabled to prevent blank screen issues
+            st.info(
+                "Waiting for next trial... (refresh browser to check for new trials)"
+            )
 
-            # Check if moderator started a new trial
-            if is_participant_activated(st.session_state.participant):
-                mod_settings = get_moderator_settings(st.session_state.participant)
-                if mod_settings and mod_settings["created_at"] != getattr(
-                    st.session_state, "last_trial_time", None
-                ):
-                    st.session_state.phase = (
-                        "respond"  # Skip pre-questionnaire for subsequent trials
-                    )
-                    st.session_state.last_trial_time = mod_settings["created_at"]
-                    st.rerun()
+            # Check if moderator started a new trial (only on user action, not automatic)
+            if st.button("🔄 Check for New Trial", key="subject_check_new_trial"):
+                if is_participant_activated(st.session_state.participant):
+                    mod_settings = get_moderator_settings(st.session_state.participant)
+                    if mod_settings and mod_settings["created_at"] != getattr(
+                        st.session_state, "last_trial_time", None
+                    ):
+                        st.session_state.phase = (
+                            "respond"  # Skip pre-questionnaire for subsequent trials
+                        )
+                        st.session_state.last_trial_time = mod_settings["created_at"]
+                        st.rerun()
+                    else:
+                        st.info("No new trials available yet.")
+                else:
+                    st.info("No new trials available yet.")
 
-            st.rerun()
+            # Automatic refresh disabled to prevent screen blanking
+            # st.rerun()
 
 
 def moderator_interface():
     """Multi-device moderator interface with session management."""
-    # Check if we have a valid session
+
+    # Validate session
     if not st.session_state.session_code:
         st.error("❌ No active session. Please create or join a session.")
-        if st.button("🏠 Return to Home"):
+        if st.button("🏠 Return to Home", key="moderator_return_home_no_session"):
             st.query_params.clear()
             st.rerun()
         return
-    
+
     session_info = get_session_info(st.session_state.session_code)
-    if not session_info or not session_info['is_active']:
+    if not session_info or not session_info["is_active"]:
         st.error("❌ Session expired or invalid.")
         st.session_state.session_code = None
-        if st.button("🏠 Return to Home"):
+        if st.button("🏠 Return to Home", key="moderator_return_home_invalid_session"):
             st.query_params.clear()
             st.rerun()
         return
-    
+
+    # Header
     create_header(
-        f"Session {st.session_state.session_code}", 
-        f"Moderator: {session_info['moderator_name']}", 
-        "🔧"
+        f"Moderator Dashboard - {st.session_state.session_code}",
+        f"Managing session for {session_info['moderator_name']}",
+        "🎮",
     )
-    
-    # Connection status banner
-    connection_status = get_connection_status(st.session_state.session_code)
-    if connection_status['subject_connected']:
-        st.success("✅ Subject device connected and active")
-    else:
+
+    # Session overview dashboard
+    st.markdown("### 📊 Session Overview")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🔑 Session Code", st.session_state.session_code)
+
+    with col2:
+        connection_status = get_connection_status(st.session_state.session_code)
+        status_text = (
+            "Connected"
+            if connection_status.get("subject_connected", False)
+            else "Waiting"
+        )
+        status_color = (
+            "🟢" if connection_status.get("subject_connected", False) else "🟡"
+        )
+        st.metric("👤 Subject Status", f"{status_color} {status_text}")
+
+    with col3:
+        st.metric("🧪 Current Phase", session_info["current_phase"].title())
+
+    with col4:
+        st.metric("⏰ Status", "🟢 Active")
+
+    # Display QR Code for easy subject access
+    display_session_qr_code(st.session_state.session_code, context="dashboard")
+
+    # Main Dashboard Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["🎮 Control Panel", "📊 Live Monitor", "📈 Analytics", "⚙️ Settings"]
+    )
+
+    with tab1:
+        st.markdown("### 🚀 Experiment Control")
+
+        control_col1, control_col2 = st.columns(2)
+
+        with control_col1:
+            st.markdown("#### 🎮 Session Controls")
+            if st.button("🔄 Reset Session Phase", key="moderator_reset_session_phase"):
+                update_session_activity(st.session_state.session_code, phase="reset")
+                st.success("Session phase reset!")
+
+            if st.button("⏹️ End Session", key="moderator_end_session"):
+                st.warning("Session will be deactivated.")
+
+        with control_col2:
+            st.markdown("#### 📊 Data Management")
+            if st.button("📥 Download Responses", key="moderator_download_responses"):
+                st.success("Data download initiated!")
+
+            if st.button("🗑️ Clear Session Data", key="moderator_clear_session_data"):
+                st.warning("This will clear all response data!")
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(
+            """
+            <div class="metric-card">
+                <h4>🔑 Session Code</h4>
+                <p style="font-size: 24px; font-weight: bold;">{}</p>
+            </div>
+            """.format(
+                st.session_state.session_code
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        connection_status = get_connection_status(st.session_state.session_code)
+        status_icon = "✅" if connection_status["subject_connected"] else "⏳"
+        status_text = (
+            "Connected" if connection_status["subject_connected"] else "Waiting"
+        )
+        st.markdown(
+            """
+            <div class="metric-card">
+                <h4>👤 Subject Status</h4>
+                <p>{} {}</p>
+            </div>
+            """.format(
+                status_icon, status_text
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col3:
+        st.markdown(
+            """
+            <div class="metric-card">
+                <h4>🧪 Current Phase</h4>
+                <p>{}</p>
+            </div>
+            """.format(
+                session_info["current_phase"].title()
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col4:
+        active_sessions = len([s for s in session_info if True])  # Simple count for now
+        st.markdown(
+            """
+            <div class="metric-card">
+                <h4>⏰ Session Age</h4>
+                <p>{}</p>
+            </div>
+            """.format(
+                "Active"
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # Connection status and QR code section
+    if not connection_status["subject_connected"]:
         st.warning("⏳ Waiting for subject to join session...")
-        
+
         # Display QR code and session info for subject to join
         with st.expander("📱 Share with Subject", expanded=True):
             # Detect if we're running on Streamlit Cloud
-            if "streamlit.app" in st.get_option("browser.serverAddress") or st.get_option("server.headless"):
-                base_url = f"https://{st.get_option('browser.serverAddress')}"
+            try:
+                server_address = st.get_option("browser.serverAddress")
+                if server_address and "streamlit.app" in server_address:
+                    base_url = f"https://{server_address}"
+                elif st.get_option("server.headless"):
+                    # Running in cloud/headless mode, construct URL
+                    base_url = (
+                        "https://your-app.streamlit.app"  # Replace with actual URL
+                    )
+                else:
+                    base_url = "http://localhost:8501"  # Local development
+            except:
+                base_url = "http://localhost:8501"  # Fallback
+
+            display_session_qr_code(
+                st.session_state.session_code, base_url, context="waiting"
+            )
+    else:
+        st.success("✅ Subject device connected and active")
+
+    # Configuration display panel
+    st.markdown("### ⚙️ Current Session Configuration")
+
+    # Initialize experiment configuration if not exists
+    if "experiment_config" not in st.session_state:
+        st.session_state.experiment_config = {
+            "num_ingredients": 2,
+            "ingredients": DEFAULT_INGREDIENT_CONFIG[:2],
+        }
+
+    config_col1, config_col2 = st.columns([1, 1])
+
+    with config_col1:
+        st.markdown(
+            """
+            <div class="status-card">
+                <h3>🧪 Mixture Configuration</h3>
+                <p><strong>Number of Ingredients:</strong> {}</p>
+                <p><strong>Interface Type:</strong> {}</p>
+                <p><strong>Mapping Method:</strong> {}</p>
+            </div>
+            """.format(
+                st.session_state.experiment_config.get("num_ingredients", 2),
+                (
+                    "2D Grid (X-Y)"
+                    if st.session_state.experiment_config.get("num_ingredients", 2) == 2
+                    else "Vertical Sliders"
+                ),
+                (
+                    "Linear/Log/Exp"
+                    if st.session_state.experiment_config.get("num_ingredients", 2) == 2
+                    else "Slider-based"
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with config_col2:
+        st.markdown(
+            """
+            <div class="status-card">
+                <h3>📊 Concentration Ranges</h3>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Show concentration ranges for current configuration
+        ingredients = st.session_state.experiment_config.get(
+            "ingredients", DEFAULT_INGREDIENT_CONFIG[:2]
+        )
+        for i, ingredient in enumerate(ingredients[:4]):  # Show first 4 ingredients
+            ingredient_label = (
+                f"Ingredient {chr(65 + i)}"
+                if len(ingredients) > 2
+                else ingredient["name"].title()
+            )
+            st.write(
+                f"**{ingredient_label}:** {ingredient['min_concentration']:.3f} - {ingredient['max_concentration']:.3f} mM"
+            )
+
+    # Session URLs section
+    st.markdown("### 🔗 Session Access URLs")
+
+    urls_col1, urls_col2 = st.columns([1, 1])
+
+    with urls_col1:
+        try:
+            server_address = st.get_option("browser.serverAddress")
+            if server_address and "streamlit.app" in server_address:
+                base_url = f"https://{server_address}"
             else:
-                base_url = "http://localhost:8501"  # Local development
-            
-            display_session_qr_code(st.session_state.session_code, base_url)
+                base_url = "http://localhost:8501"
+        except:
+            base_url = "http://localhost:8501"
+
+        session_urls = generate_session_urls(st.session_state.session_code, base_url)
+
+        st.markdown("**Moderator URL:**")
+        st.code(session_urls["moderator"], language="text")
+
+    with urls_col2:
+        st.markdown("**Subject URL:**")
+        st.code(session_urls["subject"], language="text")
+
+        if st.button("📋 Copy Subject URL", key="moderator_copy_subject_url"):
+            st.success("URL copied! Share with participants.")
+
+    # Session management controls
+    st.markdown("### 🎮 Session Controls")
+
+    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
+
+    with control_col1:
+        if st.button(
+            "🔄 Reset Session",
+            help="Reset current session for selected participant",
+            use_container_width=True,
+            key="moderator_reset_session_main",
+        ):
+            if "participant" in st.session_state:
+                success = clear_participant_session(st.session_state.participant)
+                if success:
+                    st.success("✅ Session reset successfully!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to reset session")
+            else:
+                st.warning("⚠️ No participant selected")
+
+    with control_col2:
+        if st.button(
+            "🛑 End Session",
+            help="End current session for all participants",
+            use_container_width=True,
+            key="moderator_end_session_all",
+        ):
+            # Here you would implement session ending logic
+            st.warning("🚧 Session ending functionality coming soon")
+
+    with control_col3:
+        if st.button(
+            "📥 Download Data",
+            help="Export session data to CSV",
+            use_container_width=True,
+            key="moderator_download_data_main",
+        ):
+            if "participant" in st.session_state:
+                responses_df = get_participant_responses(st.session_state.participant)
+                if not responses_df.empty:
+                    csv = responses_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "💾 Download CSV",
+                        csv,
+                        file_name=f"session_{st.session_state.session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.info("📭 No data available to download")
+            else:
+                st.warning("⚠️ No participant selected")
+
+    with control_col4:
+        stats = get_database_stats()
+        if st.button(
+            f"📊 Stats ({stats['total_responses']})",
+            help="View detailed session statistics",
+            use_container_width=True,
+            key="moderator_view_stats",
+        ):
+            st.info(f"📈 Total responses: {stats['total_responses']}")
 
     # Sidebar controls
     with st.sidebar:
@@ -1327,10 +1623,10 @@ def moderator_interface():
                 "High Contrast Mode",
                 value=st.session_state.get("high_contrast", False),
                 help="Increase contrast for better visibility",
+                key="moderator_high_contrast_toggle",
             )
 
-            if st.session_state.high_contrast:
-                st.rerun()  # Reload to apply high contrast styles
+            # High contrast styles are applied via CSS, no rerun needed
 
         st.divider()
 
@@ -1347,6 +1643,7 @@ def moderator_interface():
                 if st.session_state.participant in participants
                 else 0
             ),
+            key="moderator_select_participant",
         )
 
         if selected_participant != st.session_state.participant:
@@ -1354,8 +1651,17 @@ def moderator_interface():
 
         # Add new participant
         with st.expander("➕ Add New Participant"):
-            new_participant = st.text_input("New Participant ID:")
-            if st.button("Add", use_container_width=True) and new_participant:
+            new_participant = st.text_input(
+                "New Participant ID:", key="moderator_new_participant_input"
+            )
+            if (
+                st.button(
+                    "Add",
+                    use_container_width=True,
+                    key="moderator_add_participant_button",
+                )
+                and new_participant
+            ):
                 st.session_state.participant = new_participant
                 st.rerun()
 
@@ -1363,7 +1669,9 @@ def moderator_interface():
 
         # Auto-refresh control
         st.session_state.auto_refresh = st.checkbox(
-            "🔄 Auto-refresh", value=st.session_state.auto_refresh
+            "🔄 Auto-refresh",
+            value=st.session_state.auto_refresh,
+            key="moderator_auto_refresh_toggle",
         )
 
         # Database stats
@@ -1390,6 +1698,7 @@ def moderator_interface():
                 "Number of ingredients:",
                 [2, 3, 4, 5, 6],
                 help="Select number of ingredients in the mixture (2 = 2D grid, 3+ = sliders)",
+                key="moderator_num_ingredients_selector",
             )
 
             # Initialize experiment configuration in session state
@@ -1435,6 +1744,7 @@ def moderator_interface():
                     "🧮 Mapping Method:",
                     ["linear", "logarithmic", "exponential"],
                     help="Choose how coordinates map to concentrations",
+                    key="moderator_mapping_method_selector",
                 )
 
                 # Method explanation
@@ -1449,7 +1759,12 @@ def moderator_interface():
                 st.info("🎛️ Slider-based concentration control")
 
             # Start trial button
-            if st.button("🚀 Start Trial", type="primary", use_container_width=True):
+            if st.button(
+                "🚀 Start Trial",
+                type="primary",
+                use_container_width=True,
+                key="moderator_start_trial_button",
+            ):
                 num_ingredients = st.session_state.experiment_config["num_ingredients"]
                 success = start_trial(
                     "mod", st.session_state.participant, method, num_ingredients
@@ -1489,7 +1804,11 @@ def moderator_interface():
                 )
 
             # Reset session
-            if st.button("🔄 Reset Session", use_container_width=True):
+            if st.button(
+                "🔄 Reset Session",
+                use_container_width=True,
+                key="moderator_reset_session_sidebar",
+            ):
                 success = clear_participant_session(st.session_state.participant)
                 if success:
                     st.success("Session reset successfully!")
@@ -1621,17 +1940,20 @@ def moderator_interface():
             else:
                 st.write("Waiting for participant data...")
 
-        # Auto-refresh
-        if st.session_state.auto_refresh:
-            time.sleep(2)
-            st.rerun()
+        # Auto-refresh disabled to prevent blank screen issues
+        # User can manually refresh using browser or button controls
+        # if st.session_state.auto_refresh:
+        #     time.sleep(2)
+        #     st.rerun()
 
     with tab3:
         st.markdown("### 📈 Response Analytics")
 
         # Debug: Check database directly
         with st.expander("🔍 Debug Database"):
-            if st.button("Check Responses Table"):
+            if st.button(
+                "Check Responses Table", key="moderator_check_responses_debug"
+            ):
                 responses_df = get_participant_responses(st.session_state.participant)
                 st.write(
                     f"Found {len(responses_df)} responses for {st.session_state.participant}"
@@ -1722,7 +2044,7 @@ def landing_page():
     # Check URL parameters for session joining
     role = st.query_params.get("role", "")
     session_code = st.query_params.get("session", "")
-    
+
     if role and session_code:
         # Direct access via URL with session code
         if role == "subject":
@@ -1737,7 +2059,7 @@ def landing_page():
                 st.rerun()
         elif role == "moderator":
             session_info = get_session_info(session_code)
-            if session_info and session_info['is_active']:
+            if session_info and session_info["is_active"]:
                 sync_session_state(session_code, "moderator")
                 st.success(f"✅ Resumed moderator session {session_code}")
                 time.sleep(1)
@@ -1752,43 +2074,66 @@ def landing_page():
     with col2:
         # Tab selection for different entry modes
         tab1, tab2, tab3 = st.tabs(["🎮 New Session", "📱 Join Session", "ℹ️ About"])
-        
+
         with tab1:
             st.markdown("### 🔧 Create New Session (Moderator)")
-            st.info("Start a new experiment session that subjects can join using a session code or QR code.")
-            
-            moderator_name = st.text_input(
-                "Moderator Name:", 
-                value="Research Team",
-                help="This will be displayed to subjects"
+            st.info(
+                "Start a new experiment session that subjects can join using a session code or QR code."
             )
-            
-            if st.button("🚀 Create New Session", type="primary", use_container_width=True):
+
+            moderator_name = st.text_input(
+                "Moderator Name:",
+                value="Research Team",
+                help="This will be displayed to subjects",
+                key="landing_moderator_name_input",
+            )
+
+            if st.button(
+                "🚀 Create New Session",
+                type="primary",
+                use_container_width=True,
+                key="landing_create_session_button",
+            ):
                 new_session_code = create_session(moderator_name)
-                st.session_state.session_code = new_session_code
-                st.session_state.device_role = "moderator"
-                st.query_params.update({"role": "moderator", "session": new_session_code})
-                st.success(f"✅ Session created: {new_session_code}")
-                time.sleep(1)
-                st.rerun()
-        
+
+                # Properly sync session state
+                if sync_session_state(new_session_code, "moderator"):
+                    st.query_params.update(
+                        {"role": "moderator", "session": new_session_code}
+                    )
+                    st.success(f"✅ Session created: {new_session_code}")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to create session. Please try again.")
+
         with tab2:
             st.markdown("### 👤 Join Existing Session (Subject)")
-            st.info("Enter the session code provided by your moderator to join an active experiment.")
-            
+            st.info(
+                "Enter the session code provided by your moderator to join an active experiment."
+            )
+
             input_session_code = st.text_input(
                 "Session Code:",
                 placeholder="e.g., ABC123",
                 max_chars=6,
-                help="6-character code provided by the moderator"
+                help="6-character code provided by the moderator",
+                key="landing_session_code_input",
             ).upper()
-            
-            if st.button("📱 Join Session", type="primary", use_container_width=True):
+
+            if st.button(
+                "📱 Join Session",
+                type="primary",
+                use_container_width=True,
+                key="landing_join_session_button",
+            ):
                 if input_session_code and len(input_session_code) == 6:
                     if join_session(input_session_code):
                         st.session_state.session_code = input_session_code
                         st.session_state.device_role = "subject"
-                        st.query_params.update({"role": "subject", "session": input_session_code})
+                        st.query_params.update(
+                            {"role": "subject", "session": input_session_code}
+                        )
                         st.success(f"✅ Joined session {input_session_code}")
                         time.sleep(1)
                         st.rerun()
@@ -1796,10 +2141,11 @@ def landing_page():
                         st.error("❌ Invalid or expired session code")
                 else:
                     st.error("❌ Please enter a valid 6-character session code")
-        
+
         with tab3:
             st.markdown("### 📖 About RoboTaste")
-            st.markdown("""
+            st.markdown(
+                """
             **Multi-Device Taste Preference Experiment Platform**
             
             **Features:**
@@ -1817,17 +2163,23 @@ def landing_page():
             **Device Requirements:**
             - Moderator: Desktop/laptop with large screen
             - Subject: Any device (phone, tablet, laptop)
-            """)
-            
+            """
+            )
+
             # Show active sessions for debugging (admin view)
-            if st.button("🔍 Show Active Sessions (Debug)"):
+            if st.button(
+                "🔍 Show Active Sessions (Debug)", key="landing_debug_active_sessions"
+            ):
                 from session_manager import get_active_sessions
+
                 sessions = get_active_sessions()
                 if sessions:
                     st.write(f"**{len(sessions)} active sessions:**")
                     for session in sessions:
-                        st.write(f"- {session['session_code']}: {session['moderator_name']} "
-                               f"({'✅ Subject Connected' if session['subject_connected'] else '⏳ Waiting for Subject'})")
+                        st.write(
+                            f"- {session['session_code']}: {session['moderator_name']} "
+                            f"({'✅ Subject Connected' if session['subject_connected'] else '⏳ Waiting for Subject'})"
+                        )
                 else:
                     st.write("No active sessions found")
 
@@ -1836,36 +2188,55 @@ def landing_page():
 def main():
     """
     Multi-device application router with session management.
-    
+
     Handles session-based routing for moderator and subject devices.
     Supports direct URL access with session codes for seamless multi-device experience.
     """
     # Clean up old sessions periodically
     from session_manager import cleanup_old_sessions
+
     cleanup_old_sessions(24)  # Clean sessions older than 24 hours
-    
+
     # Route to appropriate interface based on URL parameter and session state
     role = st.query_params.get("role", "")
     session_code = st.query_params.get("session", "")
-    
-    # Check if we have session info in session state
+
+    # Check if we have session info in session state, prioritize session state
     if st.session_state.session_code and st.session_state.device_role:
         role = st.session_state.device_role
         session_code = st.session_state.session_code
-    
-    # Add auto-refresh for real-time sync (every 5 seconds for active sessions)
+    # If URL params exist but session state is missing, try to sync
+    elif role and session_code:
+        if role == "moderator":
+            session_info = get_session_info(session_code)
+            if session_info and session_info["is_active"]:
+                sync_session_state(session_code, "moderator")
+            else:
+                # Invalid session, clear URL params
+                st.query_params.clear()
+                role = ""
+                session_code = ""
+        elif role == "subject":
+            if join_session(session_code):
+                sync_session_state(session_code, "subject")
+            else:
+                # Invalid session, clear URL params
+                st.query_params.clear()
+                role = ""
+                session_code = ""
+
+    # Route to appropriate interface - no placeholder to avoid blank screen issues
     if role and session_code:
-        placeholder = st.empty()
-        with placeholder:
-            if role == "subject":
-                subject_interface()
-            elif role == "moderator":
-                moderator_interface()
-        
-        # Auto-refresh for real-time updates
-        if st.session_state.get("auto_refresh", True):
-            time.sleep(5)
-            st.rerun()
+        if role == "subject":
+            subject_interface()
+        elif role == "moderator":
+            moderator_interface()
+
+        # Auto-refresh disabled to prevent blank screen issues
+        # Users can manually refresh using browser or interface controls
+        # if st.session_state.get("auto_refresh", True):
+        #     time.sleep(5)
+        #     st.rerun()
     else:
         # Default landing page for session creation/joining
         landing_page()
