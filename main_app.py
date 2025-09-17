@@ -28,7 +28,7 @@ INTERFACE MODES:
    - Independent concentration sliders
    - Generic ingredient labels (A, B, C...)
    - Subject sees percentages, system calculates actual mM concentrations
-   - Supports: Sugar, Salt, Citric Acid, Caffeine, Vanilla, Menthol
+   - Supports: Configurable ingredient library (up to 6 ingredients)
 
 WORKFLOW:
 =========
@@ -108,136 +108,102 @@ st.markdown(
 <style>
     /* CSS Variables for theme consistency */
     :root {
+        /* Colors */
         --primary-color: #4f46e5;
         --primary-light: #818cf8;
         --primary-dark: #3730a3;
         --success-color: #10b981;
         --warning-color: #f59e0b;
         --error-color: #ef4444;
+        
+        /* Text */
         --text-primary: #1f2937;
         --text-secondary: #6b7280;
+        
+        /* Backgrounds */
         --bg-primary: #ffffff;
         --bg-secondary: #f9fafb;
         --border-color: #e5e7eb;
         --shadow-light: rgba(0, 0, 0, 0.1);
+        
+        /* Transitions */
+        --transition-base: all 0.2s ease;
+        
+        /* Spacing */
+        --spacing-sm: 0.5rem;
+        --spacing-md: 1rem;
+        --spacing-lg: 1.5rem;
+        
+        /* Border Radius */
+        --radius-sm: 8px;
+        --radius-md: 12px;
     }
     
     /* Dark mode variables */
-    [data-theme="dark"], .stApp[data-theme="dark"] {
-        --text-primary: #f9fafb !important;
-        --text-secondary: #d1d5db !important;
-        --bg-primary: #1f2937 !important;
-        --bg-secondary: #374151 !important;
-        --border-color: #4b5563 !important;
-        --shadow-light: rgba(255, 255, 255, 0.1) !important;
+    [data-theme="dark"], .stApp[data-theme="dark"], @media (prefers-color-scheme: dark) {
+        --text-primary: #f9fafb;
+        --text-secondary: #d1d5db;
+        --bg-primary: #1f2937;
+        --bg-secondary: #374151;
+        --border-color: #4b5563;
+        --shadow-light: rgba(255, 255, 255, 0.1);
     }
     
-    /* Force dark mode styles when detected */
-    @media (prefers-color-scheme: dark) {
-        :root {
-            --text-primary: #f9fafb !important;
-            --text-secondary: #d1d5db !important;
-            --bg-primary: #1f2937 !important;
-            --bg-secondary: #374151 !important;
-            --border-color: #4b5563 !important;
-            --shadow-light: rgba(255, 255, 255, 0.1) !important;
-        }
+    /* Base styles */
+    .main-header, .status-card, .success-card, .warning-card, .metric-card {
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-md);
+        box-shadow: 0 2px 8px var(--shadow-light);
+        transition: var(--transition-base);
     }
     
+    /* Header */
     .main-header {
-        padding: 1.5rem;
         background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
         color: white;
-        border-radius: 12px;
         text-align: center;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 12px var(--shadow-light);
     }
     
-    .main-header h1 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 2rem;
-    }
+    .main-header h1 { font-size: 2rem; font-weight: 600; margin: 0; }
+    .main-header p { font-size: 1.1rem; opacity: 0.9; margin-top: var(--spacing-sm); }
     
-    .main-header p {
-        margin: 0.5rem 0 0 0;
-        opacity: 0.9;
-        font-size: 1.1rem;
-    }
-    
-    .status-card {
+    /* Cards */
+    .card-base {
         background: var(--bg-secondary);
         color: var(--text-primary);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border-left: 4px solid var(--primary-color);
-        margin: 1rem 0;
-        box-shadow: 0 2px 8px var(--shadow-light);
         border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: var(--spacing-lg);
+        margin: var(--spacing-md) 0;
+        transition: var(--transition-base);
     }
     
-    .status-card h3 {
-        margin: 0 0 0.5rem 0;
-        color: var(--text-primary);
+    .status-card, .success-card, .warning-card { 
+        @extend .card-base;
+        border-left-width: 4px;
+    }
+    
+    .status-card { border-left-color: var(--primary-color); }
+    .success-card { border-left-color: var(--success-color); }
+    .warning-card { border-left-color: var(--warning-color); }
+    
+    /* Card Typography */
+    .status-card h3, .success-card h4, .warning-card h4 {
+        margin: 0 0 var(--spacing-sm) 0;
         font-weight: 600;
     }
     
-    .status-card p {
-        margin: 0.25rem 0;
+    .status-card p, .success-card p, .warning-card p {
         color: var(--text-secondary);
+        margin: calc(var(--spacing-sm)/2) 0;
     }
     
-    .success-card {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border-left: 4px solid var(--success-color);
-        box-shadow: 0 2px 8px var(--shadow-light);
-        border: 1px solid var(--border-color);
-    }
-    
-    .success-card h4 {
-        margin: 0 0 0.5rem 0;
-        color: var(--success-color);
-        font-weight: 600;
-    }
-    
-    .success-card p {
-        margin: 0.25rem 0;
-        color: var(--text-secondary);
-    }
-    
-    .warning-card {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border-left: 4px solid var(--warning-color);
-        box-shadow: 0 2px 8px var(--shadow-light);
-        border: 1px solid var(--border-color);
-    }
-    
-    .warning-card h4 {
-        margin: 0 0 0.5rem 0;
-        color: var(--warning-color);
-        font-weight: 600;
-    }
-    
-    .warning-card p {
-        margin: 0.25rem 0;
-        color: var(--text-secondary);
-    }
-    
+    /* Metric Cards */
     .metric-card {
-        background: var(--bg-primary) !important;
-        color: var(--text-primary) !important;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px var(--shadow-light);
+        background: var(--bg-primary);
+        color: var(--text-primary);
         border: 1px solid var(--border-color);
-        transition: all 0.2s ease;
     }
     
     .metric-card:hover {
@@ -245,128 +211,46 @@ st.markdown(
         box-shadow: 0 4px 16px var(--shadow-light);
     }
     
-    .metric-card h4 {
-        margin: 0 0 0.5rem 0 !important;
-        color: var(--primary-color) !important;
-        font-weight: 600;
-    }
-    
-    .metric-card p {
-        margin: 0 !important;
-        color: var(--text-primary) !important;
-        line-height: 1.5;
-        opacity: 0.8;
-    }
-    
-    /* Force text visibility in metric cards */
-    .metric-card * {
-        color: inherit !important;
-    }
-    
-    .metric-card h4 {
-        color: var(--primary-color) !important;
-    }
-    
+    /* Canvas */
     .canvas-container {
         border: 2px solid var(--border-color);
-        border-radius: 12px;
-        padding: 1.5rem;
+        border-radius: var(--radius-md);
+        padding: var(--spacing-lg);
         background: var(--bg-primary);
         box-shadow: 0 4px 12px var(--shadow-light);
-        transition: all 0.2s ease;
+        transition: var(--transition-base);
     }
     
     .canvas-container:hover {
         border-color: var(--primary-light);
     }
     
-    /* Phase-specific styling with better contrast */
-    .phase-welcome {
-        background: var(--bg-secondary);
-        border-left-color: var(--warning-color) !important;
-    }
-    
-    .phase-respond {
-        background: var(--bg-secondary);
-        border-left-color: var(--primary-color) !important;
-    }
-    
-    .phase-done {
-        background: var(--bg-secondary);
-        border-left-color: var(--success-color) !important;
-    }
-    
-    /* Improve button styling */
-    .stButton > button {
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        transition: all 0.2s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px var(--shadow-light);
-    }
-    
-    /* Better tab styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        padding: 0.75rem 1.5rem;
-        font-weight: 500;
-    }
-    
-    /* Improve metric display */
-    [data-testid="metric-container"] {
-        background: var(--bg-secondary);
-        border: 1px solid var(--border-color);
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px var(--shadow-light);
-    }
-    
-    /* Better sidebar styling */
-    .css-1d391kg {
-        background: var(--bg-secondary);
-    }
-    
-    /* Improve text input styling */
-    .stTextInput > div > div > input {
-        border-radius: 8px;
+    /* Streamlit Components */
+    .stButton > button,
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div > div,
+    .stAlert {
+        border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
         background: var(--bg-primary);
         color: var(--text-primary);
+        transition: var(--transition-base);
     }
     
-    .stSelectbox > div > div > div {
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
+    /* Buttons */
+    .stButton > button {
+        background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+        color: white;
+        font-weight: 500;
+        padding: var(--spacing-md) var(--spacing-lg);
     }
     
-    /* Improve dataframe styling */
-    .stDataFrame {
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        overflow: hidden;
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px var(--shadow-light);
     }
     
-    /* Better alert styling */
-    .stAlert {
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-    }
-    
-    /* Better focus indicators for keyboard navigation */
-    button:focus, input:focus, select:focus {
-        outline: 2px solid var(--primary-color) !important;
-        outline-offset: 2px !important;
-    }
-    
-    /* Screen reader only text */
+    /* Accessibility */
     .sr-only {
         position: absolute;
         width: 1px;
@@ -378,40 +262,20 @@ st.markdown(
         border: 0;
     }
     
-    /* Skip link for keyboard users */
-    .skip-link {
-        position: absolute;
-        top: -40px;
-        left: 6px;
-        background: var(--primary-color);
-        color: white;
-        padding: 8px;
-        text-decoration: none;
-        border-radius: 4px;
-        z-index: 1000;
+    button:focus, input:focus, select:focus {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
     }
     
-    .skip-link:focus {
-        top: 6px;
-    }
-    
-    /* Responsive design improvements */
+    /* Responsive */
     @media (max-width: 768px) {
-        .main-header {
-            padding: 1rem;
+        :root {
+            --spacing-lg: 1rem;
+            --spacing-md: 0.75rem;
+            --spacing-sm: 0.375rem;
         }
         
-        .main-header h1 {
-            font-size: 1.5rem;
-        }
-        
-        .status-card, .success-card, .warning-card, .metric-card {
-            padding: 1rem;
-        }
-        
-        .canvas-container {
-            padding: 1rem;
-        }
+        .main-header h1 { font-size: 1.5rem; }
     }
 </style>
 """,
@@ -695,6 +559,12 @@ def subject_interface():
 
         # Determine interface type based on moderator's configuration
         num_ingredients = mod_settings.get("num_ingredients", 2)
+<<<<<<< Updated upstream
+=======
+        # Ensure DEFAULT_INGREDIENT_CONFIG is available
+        from callback import DEFAULT_INGREDIENT_CONFIG
+
+>>>>>>> Stashed changes
         experiment_config = {
             "num_ingredients": num_ingredients,
             "ingredients": DEFAULT_INGREDIENT_CONFIG[:num_ingredients],
@@ -832,29 +702,23 @@ def subject_interface():
             st.markdown(
                 """
             <style>
-            /* Vertical slider container styling */
+            /* Base container styling */
             .vertical-slider-container {
                 background: linear-gradient(145deg, #f8fafc, #e2e8f0);
                 border-radius: 16px;
                 padding: 24px;
                 margin: 16px 0;
-                box-shadow: 
-                    0 10px 25px rgba(0,0,0,0.1),
-                    0 4px 10px rgba(0,0,0,0.05),
-                    inset 0 1px 0 rgba(255,255,255,0.5);
+                box-shadow: 0 10px 25px rgba(0,0,0,0.1), 0 4px 10px rgba(0,0,0,0.05);
                 border: 1px solid rgba(255,255,255,0.8);
             }
             
-            /* Individual slider column styling */
+            /* Slider channel styling */
             .slider-channel {
                 background: linear-gradient(145deg, #ffffff, #f1f5f9);
                 border-radius: 12px;
                 padding: 20px 16px;
                 margin: 0 8px;
-                box-shadow: 
-                    0 4px 12px rgba(0,0,0,0.08),
-                    inset 0 1px 0 rgba(255,255,255,0.8),
-                    inset 0 -1px 0 rgba(0,0,0,0.05);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 border: 1px solid rgba(226,232,240,0.8);
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 position: relative;
@@ -863,9 +727,7 @@ def subject_interface():
             
             .slider-channel:hover {
                 transform: translateY(-2px);
-                box-shadow: 
-                    0 8px 20px rgba(0,0,0,0.12),
-                    inset 0 1px 0 rgba(255,255,255,0.9);
+                box-shadow: 0 8px 20px rgba(0,0,0,0.12);
             }
             
             .slider-channel::before {
@@ -880,7 +742,7 @@ def subject_interface():
                 opacity: 0.7;
             }
             
-            /* Slider label styling */
+            /* Text elements */
             .slider-label {
                 font-weight: 600;
                 font-size: 16px;
@@ -888,10 +750,8 @@ def subject_interface():
                 margin-bottom: 12px;
                 text-align: center;
                 letter-spacing: 0.5px;
-                text-shadow: 0 1px 2px rgba(255,255,255,0.8);
             }
             
-            /* Value display styling */
             .slider-value {
                 font-weight: 500;
                 font-size: 14px;
@@ -902,10 +762,9 @@ def subject_interface():
                 background: linear-gradient(145deg, #f8fafc, #e2e8f0);
                 border-radius: 8px;
                 border: 1px solid rgba(203,213,225,0.6);
-                box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
             }
             
-            /* Vertical slider component styling */
+            /* Vertical slider specifics */
             .vertical-slider-wrapper {
                 display: flex;
                 flex-direction: column;
@@ -914,7 +773,6 @@ def subject_interface():
                 margin: 0 auto;
             }
             
-            /* Custom styling for the vertical slider component */
             iframe[title="streamlit_vertical_slider.vertical_slider"] {
                 border: none !important;
                 background: transparent !important;
@@ -923,60 +781,35 @@ def subject_interface():
                 margin: 10px 0 !important;
             }
             
-            /* Dark mode adaptations */
-            @media (prefers-color-scheme: dark) {
+            /* Dark mode */
+            @media (prefers-color-scheme: dark), [data-theme="dark"] {
                 .vertical-slider-container {
-                    background: linear-gradient(145deg, #1e293b, #0f172a) !important;
-                    border: 1px solid rgba(71, 85, 105, 0.5) !important;
+                    background: linear-gradient(145deg, #1e293b, #0f172a);
+                    border-color: rgba(71, 85, 105, 0.5);
                 }
                 
                 .slider-channel {
-                    background: linear-gradient(145deg, #334155, #1e293b) !important;
-                    border: 1px solid rgba(100, 116, 139, 0.3) !important;
-                    box-shadow: 
-                        0 4px 12px rgba(0,0,0,0.3),
-                        inset 0 1px 0 rgba(148,163,184,0.1) !important;
+                    background: linear-gradient(145deg, #334155, #1e293b);
+                    border-color: rgba(100, 116, 139, 0.3);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                 }
                 
                 .slider-channel:hover {
-                    background: linear-gradient(145deg, #3f4b5c, #2a3441) !important;
+                    background: linear-gradient(145deg, #3f4b5c, #2a3441);
                 }
                 
                 .slider-label {
-                    color: #e2e8f0 !important;
-                    text-shadow: 0 1px 2px rgba(0,0,0,0.5) !important;
+                    color: #e2e8f0;
                 }
                 
                 .slider-value {
-                    background: linear-gradient(145deg, #1e293b, #0f172a) !important;
-                    border: 1px solid rgba(71, 85, 105, 0.5) !important;
-                    color: #cbd5e1 !important;
-                    box-shadow: inset 0 1px 2px rgba(0,0,0,0.3) !important;
+                    background: linear-gradient(145deg, #1e293b, #0f172a);
+                    border-color: rgba(71, 85, 105, 0.5);
+                    color: #cbd5e1;
                 }
             }
             
-            /* Streamlit dark theme overrides */
-            [data-theme="dark"] .vertical-slider-container {
-                background: linear-gradient(145deg, #1e293b, #0f172a) !important;
-                border: 1px solid rgba(71, 85, 105, 0.5) !important;
-            }
-            
-            [data-theme="dark"] .slider-channel {
-                background: linear-gradient(145deg, #334155, #1e293b) !important;
-                border: 1px solid rgba(100, 116, 139, 0.3) !important;
-            }
-            
-            [data-theme="dark"] .slider-label {
-                color: #e2e8f0 !important;
-            }
-            
-            [data-theme="dark"] .slider-value {
-                background: linear-gradient(145deg, #1e293b, #0f172a) !important;
-                color: #cbd5e1 !important;
-                border: 1px solid rgba(71, 85, 105, 0.5) !important;
-            }
-            
-            /* Finish button styling */
+            /* Button styling */
             .finish-button-container {
                 text-align: center;
                 margin-top: 32px;
@@ -991,9 +824,7 @@ def subject_interface():
                 padding: 12px 32px !important;
                 border-radius: 12px !important;
                 border: none !important;
-                box-shadow: 
-                    0 4px 12px rgba(16,185,129,0.3),
-                    0 2px 4px rgba(0,0,0,0.1) !important;
+                box-shadow: 0 4px 12px rgba(16,185,129,0.3);
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
                 text-transform: uppercase !important;
                 letter-spacing: 1px !important;
@@ -1001,29 +832,86 @@ def subject_interface():
             
             .stButton > button:hover {
                 transform: translateY(-2px) !important;
-                box-shadow: 
-                    0 8px 20px rgba(16,185,129,0.4),
-                    0 4px 8px rgba(0,0,0,0.15) !important;
+                box-shadow: 0 8px 20px rgba(16,185,129,0.4) !important;
                 background: linear-gradient(145deg, #059669, #047857) !important;
             }
             
             .stButton > button:active {
                 transform: translateY(0px) !important;
-                box-shadow: 
-                    0 2px 8px rgba(16,185,129,0.3),
-                    0 1px 3px rgba(0,0,0,0.2) !important;
+                box-shadow: 0 2px 8px rgba(16,185,129,0.3) !important;
             }
             </style>
             """,
                 unsafe_allow_html=True,
             )
 
+<<<<<<< Updated upstream
             # Get current slider values from session state
             current_slider_values = getattr(
                 st.session_state,
                 "current_slider_values",
                 mixture.get_default_slider_values(),
             )
+=======
+            # Load initial slider positions from database if available
+            initial_positions = None
+            if hasattr(st.session_state, "participant") and hasattr(
+                st.session_state, "session_code"
+            ):
+                initial_positions = get_initial_slider_positions(
+                    session_id=st.session_state.session_code,
+                    participant_id=st.session_state.participant,
+                )
+
+            # Get current slider values from session state
+            # Priority: current_slider_values > database initial positions > random_slider_values > defaults
+            if hasattr(st.session_state, "current_slider_values"):
+                current_slider_values = st.session_state.current_slider_values
+            else:
+                # Load initial positions from database first
+                if initial_positions and initial_positions.get("percentages"):
+                    # Use database initial positions
+                    current_slider_values = {}
+                    for ingredient in experiment_config["ingredients"]:
+                        ingredient_name = ingredient["name"]
+                        # Map ingredient names to database positions (need to handle generic names)
+                        db_percentages = initial_positions["percentages"]
+                        if ingredient_name in db_percentages:
+                            current_slider_values[ingredient_name] = db_percentages[
+                                ingredient_name
+                            ]
+                        else:
+                            # Try to map by position (fallback for generic names like Ingredient_1)
+                            ingredient_index = next(
+                                (
+                                    i
+                                    for i, ing in enumerate(
+                                        experiment_config["ingredients"]
+                                    )
+                                    if ing["name"] == ingredient_name
+                                ),
+                                None,
+                            )
+                            if ingredient_index is not None:
+                                generic_key = f"Ingredient_{ingredient_index + 1}"
+                                current_slider_values[ingredient_name] = (
+                                    db_percentages.get(generic_key, 50.0)
+                                )
+                            else:
+                                current_slider_values[ingredient_name] = 50.0
+                else:
+                    # Try to ensure random values are loaded from database
+                    from callback import ensure_random_values_loaded
+
+                    ensure_random_values_loaded(st.session_state.participant)
+
+                    # Use random values if available, otherwise defaults
+                    random_values = st.session_state.get("random_slider_values", {})
+                    if random_values:
+                        current_slider_values = random_values.copy()
+                    else:
+                        current_slider_values = mixture.get_default_slider_values()
+>>>>>>> Stashed changes
 
             # Create vertical slider interface with mixer-board styling
             st.markdown(
@@ -1043,7 +931,7 @@ def subject_interface():
                 with cols[i]:
                     st.markdown('<div class="slider-channel">', unsafe_allow_html=True)
 
-                    # Slider label
+                    # Slider label - show generic label for blinding
                     st.markdown(
                         f'<div class="slider-label">Ingredient {chr(65 + i)}</div>',
                         unsafe_allow_html=True,
@@ -1116,6 +1004,7 @@ def subject_interface():
                 if not hasattr(st.session_state, "selection_history"):
                     st.session_state.selection_history = []
 
+<<<<<<< Updated upstream
                 # Add final selection to history
                 selection_number = len(st.session_state.selection_history) + 1
                 st.session_state.selection_history.append(
@@ -1126,6 +1015,46 @@ def subject_interface():
                         "timestamp": time.time(),
                         "interface_type": "sliders",
                     }
+=======
+                # Calculate reaction time from trial start
+                reaction_time_ms = None
+                if hasattr(st.session_state, "trial_start_time"):
+                    reaction_time_ms = int(
+                        (time.perf_counter() - st.session_state.trial_start_time) * 1000
+                    )
+
+                # Extract actual mM concentrations for database storage
+                ingredient_concentrations = {}
+                for ingredient_name, conc_data in concentrations.items():
+                    ingredient_concentrations[ingredient_name] = conc_data[
+                        "actual_concentration_mM"
+                    ]
+
+                # Save slider response to database
+                success = save_multi_ingredient_response(
+                    participant_id=st.session_state.participant,
+                    session_id=st.session_state.get("session_code", "default_session"),
+                    method="slider_based",
+                    interface_type="slider_based",
+                    ingredient_concentrations=ingredient_concentrations,
+                    reaction_time_ms=reaction_time_ms,
+                    questionnaire_response=None,  # Will be updated in questionnaire phase
+                    is_final_response=False,  # Not final until questionnaire completed
+                    extra_data={
+                        "concentrations_summary": concentrations,
+                        "slider_interface": True,
+                        "finish_button_clicked": True,
+                        "ingredient_mapping": {
+                            f"Ingredient_{chr(65+i)}": ingredient["name"]
+                            for i, ingredient in enumerate(
+                                experiment_config["ingredients"]
+                            )
+                        },
+                        "selected_ingredients": [
+                            ing["name"] for ing in experiment_config["ingredients"]
+                        ],
+                    },
+>>>>>>> Stashed changes
                 )
 
                 # Store final values and trigger questionnaire
@@ -1222,10 +1151,71 @@ def subject_interface():
                     elif hasattr(st.session_state, "pending_slider_result"):
                         # Slider-based submission - save concentration data
                         slider_data = st.session_state.pending_slider_result
+<<<<<<< Updated upstream
                         success = save_slider_trial(
                             st.session_state.participant,
                             slider_data["concentrations"],
                             st.session_state.pending_method,
+=======
+
+                        # Extract actual mM concentrations for database storage
+                        ingredient_concentrations = {}
+                        for ingredient_name, conc_data in slider_data[
+                            "concentrations"
+                        ].items():
+                            ingredient_concentrations[ingredient_name] = conc_data[
+                                "actual_concentration_mM"
+                            ]
+
+                        # Calculate reaction time from trial start
+                        reaction_time_ms = None
+                        if hasattr(st.session_state, "trial_start_time"):
+                            reaction_time_ms = int(
+                                (
+                                    time.perf_counter()
+                                    - st.session_state.trial_start_time
+                                )
+                                * 1000
+                            )
+
+                        # Get experiment config from session state
+                        experiment_config = st.session_state.get(
+                            "experiment_config", {}
+                        )
+
+                        # Build extra data with ingredient mapping
+                        extra_data = {
+                            "concentrations_summary": slider_data["concentrations"],
+                            "slider_interface": True,
+                            "final_submission": True,
+                        }
+
+                        # Add ingredient mapping if experiment config is available
+                        if experiment_config and "ingredients" in experiment_config:
+                            extra_data["ingredient_mapping"] = {
+                                f"Ingredient_{chr(65+i)}": ingredient["name"]
+                                for i, ingredient in enumerate(
+                                    experiment_config["ingredients"]
+                                )
+                            }
+                            extra_data["selected_ingredients"] = [
+                                ing["name"] for ing in experiment_config["ingredients"]
+                            ]
+
+                        # Save final response with questionnaire data
+                        success = save_multi_ingredient_response(
+                            participant_id=st.session_state.participant,
+                            session_id=st.session_state.get(
+                                "session_code", "default_session"
+                            ),
+                            method="slider_based",
+                            interface_type="slider_based",
+                            ingredient_concentrations=ingredient_concentrations,
+                            reaction_time_ms=reaction_time_ms,
+                            questionnaire_response=responses,  # Include questionnaire responses
+                            is_final_response=True,  # Mark as final
+                            extra_data=extra_data,
+>>>>>>> Stashed changes
                         )
 
                     if success:
@@ -1355,6 +1345,7 @@ def moderator_interface():
     with tab1:
         st.markdown("### 🚀 Experiment Control")
 
+<<<<<<< Updated upstream
         control_col1, control_col2 = st.columns(2)
 
         with control_col1:
@@ -1404,6 +1395,86 @@ def moderator_interface():
                 status_icon, status_text
             ),
             unsafe_allow_html=True,
+=======
+        # Import ingredient list for selection
+        from callback import DEFAULT_INGREDIENT_CONFIG
+
+        # Ingredient selection multiselect
+        available_ingredients = [ing["name"] for ing in DEFAULT_INGREDIENT_CONFIG]
+
+        # Initialize selected ingredients in session state if not exists
+        if "selected_ingredients" not in st.session_state:
+            st.session_state.selected_ingredients = [
+                available_ingredients[0],
+                available_ingredients[1],
+            ]  # Default to first 2
+
+        selected_ingredients = st.multiselect(
+            "🧪 Select Ingredients:",
+            options=available_ingredients,
+            default=st.session_state.selected_ingredients,
+            help="Choose 2-6 ingredients for your experiment (2 = 2D grid, 3+ = sliders)",
+            key="moderator_ingredient_selector",
+        )
+
+        # Validation: ensure 2-6 ingredients are selected
+        if len(selected_ingredients) < 2:
+            st.error("⚠️ Please select at least 2 ingredients")
+            selected_ingredients = (
+                st.session_state.selected_ingredients
+            )  # Keep previous valid selection
+        elif len(selected_ingredients) > 6:
+            st.error("⚠️ Maximum 6 ingredients allowed")
+            selected_ingredients = selected_ingredients[:6]  # Truncate to 6
+
+        # Update session state
+        st.session_state.selected_ingredients = selected_ingredients
+
+        # Auto-determine number of ingredients from selection
+        num_ingredients = len(selected_ingredients)
+
+        # Show current selection info
+        st.info(
+            f"📊 Selected: {num_ingredients} ingredients → {', '.join(selected_ingredients)}"
+        )
+
+        # Build selected ingredients configuration
+        selected_ingredient_configs = []
+        for ingredient_name in selected_ingredients:
+            # Find the ingredient config from the master list
+            ingredient_config = next(
+                (
+                    ing
+                    for ing in DEFAULT_INGREDIENT_CONFIG
+                    if ing["name"] == ingredient_name
+                ),
+                None,
+            )
+            if ingredient_config:
+                selected_ingredient_configs.append(ingredient_config)
+
+        # Initialize or update experiment configuration in session state
+        if (
+            "experiment_config" not in st.session_state
+            or st.session_state.experiment_config.get("num_ingredients")
+            != num_ingredients
+            or [
+                ing["name"]
+                for ing in st.session_state.experiment_config.get("ingredients", [])
+            ]
+            != selected_ingredients
+        ):
+
+            st.session_state.experiment_config = {
+                "num_ingredients": num_ingredients,
+                "ingredients": selected_ingredient_configs,
+                "selected_ingredient_names": selected_ingredients,
+            }
+
+        # Create mixture handler
+        mixture = MultiComponentMixture(
+            st.session_state.experiment_config["ingredients"]
+>>>>>>> Stashed changes
         )
 
     with col3:
@@ -1419,6 +1490,7 @@ def moderator_interface():
             unsafe_allow_html=True,
         )
 
+<<<<<<< Updated upstream
     with col4:
         active_sessions = len([s for s in session_info if True])  # Simple count for now
         st.markdown(
@@ -1432,6 +1504,136 @@ def moderator_interface():
             ),
             unsafe_allow_html=True,
         )
+=======
+        # Individual concentration controls for selected ingredients
+        st.markdown("#### ⚙️ Concentration Ranges")
+
+        # Initialize concentration settings if not exists
+        if "ingredient_concentration_settings" not in st.session_state:
+            st.session_state.ingredient_concentration_settings = {}
+
+        # Create concentration controls for each selected ingredient
+        for ingredient_config in selected_ingredient_configs:
+            ingredient_name = ingredient_config["name"]
+            default_min = ingredient_config["min_concentration"]
+            default_max = ingredient_config["max_concentration"]
+
+            # Get current settings or use defaults
+            current_settings = st.session_state.ingredient_concentration_settings.get(
+                ingredient_name, {"min": default_min, "max": default_max}
+            )
+
+            st.markdown(f"**{ingredient_name}** ({ingredient_config['unit']})")
+
+            col_min, col_max = st.columns(2)
+
+            with col_min:
+                min_val = st.number_input(
+                    "Min",
+                    min_value=0.0,
+                    max_value=current_settings["max"] - 0.001,
+                    value=current_settings["min"],
+                    step=0.001,
+                    format="%.3f",
+                    key=f"min_conc_{ingredient_name}",
+                    help=f"Minimum concentration for {ingredient_name}",
+                )
+
+            with col_max:
+                max_val = st.number_input(
+                    "Max",
+                    min_value=current_settings["min"] + 0.001,
+                    max_value=1000.0,
+                    value=current_settings["max"],
+                    step=0.001,
+                    format="%.3f",
+                    key=f"max_conc_{ingredient_name}",
+                    help=f"Maximum concentration for {ingredient_name}",
+                )
+
+            # Update settings
+            st.session_state.ingredient_concentration_settings[ingredient_name] = {
+                "min": min_val,
+                "max": max_val,
+            }
+
+            # Update the ingredient config with custom ranges
+            ingredient_config["min_concentration"] = min_val
+            ingredient_config["max_concentration"] = max_val
+
+        # Method selection (only for 2D grid)
+        if interface_type == INTERFACE_2D_GRID:
+            method = st.selectbox(
+                "🧮 Mapping Method:",
+                ["linear", "logarithmic", "exponential"],
+                help="Choose how coordinates map to concentrations",
+                key="moderator_mapping_method_selector",
+            )
+
+            # Method explanation
+            method_info = {
+                "linear": "📈 Direct proportional mapping",
+                "logarithmic": "📊 Logarithmic scale mapping",
+                "exponential": "📉 Exponential scale mapping",
+            }
+            st.info(method_info[method])
+        else:
+            method = "slider_based"
+            st.info("🎛️ Slider-based concentration control")
+
+            # Random start option for sliders
+            st.session_state.use_random_start = st.checkbox(
+                "🎲 Random Starting Positions",
+                value=st.session_state.get("use_random_start", False),
+                help="Start sliders at randomized positions instead of 50% for each trial",
+                key="moderator_random_start_toggle",
+            )
+
+    with config_col2:
+        st.markdown("#### 🚀 Launch Trial")
+
+        # Show current participant
+        participant_display = st.session_state.get("participant", "None selected")
+        st.write(f"**Current Participant:** {participant_display}")
+
+        # Start trial button (prominent)
+        if st.button(
+            "🚀 Start Trial",
+            type="primary",
+            use_container_width=True,
+            key="moderator_start_trial_button",
+        ):
+            num_ingredients = st.session_state.experiment_config["num_ingredients"]
+            ingredient_config = st.session_state.experiment_config["ingredients"]
+            success = start_trial(
+                "mod",
+                st.session_state.participant,
+                method,
+                num_ingredients,
+                ingredient_config,
+            )
+            if success:
+                clear_canvas_state()  # Clear any previous canvas state
+                st.success(f"✅ Trial started for {st.session_state.participant}")
+                time.sleep(1)
+                st.rerun()
+
+        # Reset session button
+        if st.button(
+            "🔄 Reset Session",
+            use_container_width=True,
+            key="moderator_reset_session_main_top",
+        ):
+            if "participant" in st.session_state:
+                success = clear_participant_session(st.session_state.participant)
+                if success:
+                    st.success("✅ Session reset successfully!")
+                    time.sleep(1)
+                    st.rerun()
+
+    # ===== SUBJECT CONNECTION & ACCESS SECTION =====
+    st.markdown("---")
+>>>>>>> Stashed changes
 
     # Connection status and QR code section
     if not connection_status["subject_connected"]:

@@ -79,7 +79,7 @@ import math
 import streamlit_vertical_slider as svs
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional
-from sql_handler import update_session_state, save_response
+from sql_handler import update_session_state, save_response, save_multi_ingredient_response
 
 # Constants
 CANVAS_SIZE = 500
@@ -337,7 +337,7 @@ def create_canvas_drawing(
                     "fontSize": 12,
                     "fontWeight": "bold",
                     "fontFamily": "Arial",
-                    "fill": "white",
+                    "fill": "#FFFFFF",  # White text\n                    "stroke": "#000000",  # Black outline for better contrast\n                    "strokeWidth": 1,
                     "originX": "center",
                     "originY": "center",
                     "selectable": False,
@@ -531,7 +531,8 @@ def create_ingredient_sliders(
 
 
 def start_trial(
-    user_type: str, participant_id: str, method: str, num_ingredients: int = 2
+    user_type: str, participant_id: str, method: str, num_ingredients: int = 2,
+    ingredient_config: Optional[list] = None
 ) -> bool:
     """
     Initialize a new trial with random starting position.
@@ -540,6 +541,11 @@ def start_trial(
         user_type: 'mod' or 'sub'
         participant_id: Unique participant identifier
         method: Concentration mapping method
+<<<<<<< Updated upstream
+=======
+        num_ingredients: Number of ingredients
+        ingredient_config: List of ingredient configurations (optional, uses default if None)
+>>>>>>> Stashed changes
 
     Returns:
         Success status
@@ -565,7 +571,54 @@ def start_trial(
             st.session_state.participant = participant_id
             st.session_state.method = method
 
+<<<<<<< Updated upstream
             return True
+=======
+        # Get ingredient configuration (use provided config or default)
+        if ingredient_config is not None:
+            ingredients = ingredient_config
+        else:
+            # Fallback to default behavior for backward compatibility
+            ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+
+        # Generate random starting positions for sliders if enabled and using slider interface
+        random_slider_values = {}
+        random_concentrations = {}
+        if use_random_start and interface_type == "slider_based":
+            # Generate random starting positions for each ingredient (10-90%)
+            mixture = MultiComponentMixture(ingredients)
+            for ingredient in ingredients:
+                random_percent = random.uniform(10.0, 90.0)
+                random_slider_values[ingredient["name"]] = random_percent
+
+            # Calculate actual concentrations from percentages
+            concentrations = mixture.calculate_concentrations_from_sliders(random_slider_values)
+            for ingredient_name, conc_data in concentrations.items():
+                random_concentrations[ingredient_name] = conc_data["actual_concentration_mM"]
+
+            # Store initial slider positions in database
+            ingredient_names = [ing["name"] for ing in ingredients]
+            store_initial_slider_positions(
+                session_id=session_code,
+                participant_id=participant_id,
+                num_ingredients=num_ingredients,
+                initial_percentages=random_slider_values,
+                initial_concentrations=random_concentrations,
+                ingredient_names=ingredient_names
+            )
+
+        # Update Streamlit session state
+        st.session_state.phase = "respond"
+        st.session_state.trial_start_time = time.perf_counter()
+        st.session_state.participant = participant_id
+        st.session_state.method = method
+        st.session_state.num_ingredients = num_ingredients
+        st.session_state.interface_type = interface_type
+
+        # Store initial positions in session state for immediate use
+        if random_slider_values:
+            st.session_state.random_slider_values = random_slider_values
+>>>>>>> Stashed changes
         else:
             st.error("Failed to start trial. Please try again.")
             return False
@@ -579,7 +632,7 @@ def finish_trial(
     canvas_result: Optional[Dict], participant_id: str, method: str
 ) -> bool:
     """
-    Complete the current trial and save final results.
+    Complete the current trial and save final results using unified JSON structure.
 
     Args:
         canvas_result: Canvas data with user's final position
@@ -618,10 +671,45 @@ def finish_trial(
         x = final_dot.get("left", 0)
         y = final_dot.get("top", 0)
 
-        # Calculate concentrations
-        sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
-            x, y, method=method
-        )
+        # Get experiment configuration to determine ingredients
+        experiment_config = st.session_state.get("experiment_config", {})
+        if experiment_config and "ingredients" in experiment_config:
+            ingredients = experiment_config["ingredients"]
+        else:
+            # Fallback to default 2-ingredient configuration
+            ingredients = DEFAULT_INGREDIENT_CONFIG[:2]
+
+        # Calculate concentrations using the configured ingredients
+        if len(ingredients) >= 2:
+            # For 2D grid, use the first two ingredients
+            ingredient_1 = ingredients[0]
+            ingredient_2 = ingredients[1]
+
+            # Map coordinates to concentrations using ingredient-specific ranges
+            x_norm = max(0.0, min(1.0, x / CANVAS_SIZE))
+            y_norm = max(0.0, min(1.0, y / CANVAS_SIZE))
+
+            conc_1 = ingredient_1["min_concentration"] + x_norm * (
+                ingredient_1["max_concentration"] - ingredient_1["min_concentration"]
+            )
+            conc_2 = ingredient_2["min_concentration"] + y_norm * (
+                ingredient_2["max_concentration"] - ingredient_2["min_concentration"]
+            )
+
+            # Create ingredient concentrations dictionary
+            ingredient_concentrations = {
+                ingredient_1["name"]: conc_1,
+                ingredient_2["name"]: conc_2
+            }
+        else:
+            # Fallback to legacy calculation with generic ingredient names
+            conc_1, conc_2 = ConcentrationMapper.map_coordinates_to_concentrations(
+                x, y, method=method
+            )
+            ingredient_concentrations = {
+                "Ingredient A": conc_1,
+                "Ingredient B": conc_2
+            }
 
         # Calculate reaction time
         reaction_time_ms = None
@@ -630,34 +718,48 @@ def finish_trial(
                 (time.perf_counter() - st.session_state.trial_start_time) * 1000
             )
 
+        # Get session code
+        session_id = st.session_state.get("session_code", "default_session")
+
+        # Get questionnaire responses if available
+        questionnaire_response = st.session_state.get("post_questionnaire_responses", {})
+
         # Debug logging
         st.write(
-            f"DEBUG: Saving FINAL response - participant: {participant_id}, x: {x}, y: {y}, method: {method}"
+            f"DEBUG: Saving FINAL 2D grid response - participant: {participant_id}, x: {x}, y: {y}, method: {method}"
         )
-        st.write(f"DEBUG: Concentrations - sugar: {sugar_mm}, salt: {salt_mm}")
+        st.write(f"DEBUG: Ingredient concentrations: {ingredient_concentrations}")
 
-        # Save final response to responses table
-        success = save_response(
+        # Save using unified database schema (same as sliders)
+        success = save_multi_ingredient_response(
             participant_id=participant_id,
-            x=x,
-            y=y,
+            session_id=session_id,
             method=method,
-            sugar_conc=sugar_mm,
-            salt_conc=salt_mm,
+            interface_type="grid_2d",
+            ingredient_concentrations=ingredient_concentrations,
+            x_position=x,
+            y_position=y,
             reaction_time_ms=reaction_time_ms,
-            is_final=True,  # Mark as final response
+            questionnaire_response=questionnaire_response,
+            is_final_response=True,
+            extra_data={
+                "grid_coordinates": {"x": x, "y": y},
+                "grid_interface": True,
+                "canvas_size": CANVAS_SIZE
+            }
         )
 
         if success:
-            st.write("DEBUG: Final response saved successfully to database!")
+            st.write("DEBUG: Final 2D grid response saved successfully to database!")
 
             # Update session state for immediate feedback
             st.session_state.last_response = {
                 "x": x,
                 "y": y,
-                "sugar_mm": sugar_mm,
-                "salt_mm": salt_mm,
+                "ingredient_concentrations": ingredient_concentrations,
+                "method": method,
                 "reaction_time_ms": reaction_time_ms,
+                "interface_type": "grid_2d",
             }
 
             return True
@@ -674,19 +776,55 @@ def finish_trial(
 
 
 def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
-    """Save an intermediate click (part of the trajectory)."""
+    """Save an intermediate click using unified JSON structure."""
     try:
-        # Calculate concentrations for every click
-        from callback import ConcentrationMapper
+        # Get experiment configuration to determine ingredients
+        experiment_config = st.session_state.get("experiment_config", {})
+        if experiment_config and "ingredients" in experiment_config:
+            ingredients = experiment_config["ingredients"]
+        else:
+            # Fallback to default 2-ingredient configuration
+            ingredients = DEFAULT_INGREDIENT_CONFIG[:2]
 
-        sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
-            x, y, method=method
-        )
+        # Calculate concentrations using the configured ingredients
+        if len(ingredients) >= 2:
+            # For 2D grid, use the first two ingredients
+            ingredient_1 = ingredients[0]
+            ingredient_2 = ingredients[1]
+
+            # Map coordinates to concentrations using ingredient-specific ranges
+            x_norm = max(0.0, min(1.0, x / CANVAS_SIZE))
+            y_norm = max(0.0, min(1.0, y / CANVAS_SIZE))
+
+            conc_1 = ingredient_1["min_concentration"] + x_norm * (
+                ingredient_1["max_concentration"] - ingredient_1["min_concentration"]
+            )
+            conc_2 = ingredient_2["min_concentration"] + y_norm * (
+                ingredient_2["max_concentration"] - ingredient_2["min_concentration"]
+            )
+
+            # Create ingredient concentrations dictionary
+            ingredient_concentrations = {
+                ingredient_1["name"]: conc_1,
+                ingredient_2["name"]: conc_2
+            }
+        else:
+            # Fallback to legacy calculation with generic ingredient names
+            conc_1, conc_2 = ConcentrationMapper.map_coordinates_to_concentrations(
+                x, y, method=method
+            )
+            ingredient_concentrations = {
+                "Ingredient A": conc_1,
+                "Ingredient B": conc_2
+            }
 
         # Calculate reaction time from trial start
         reaction_time_ms = None
+<<<<<<< Updated upstream
         import streamlit as st
 
+=======
+>>>>>>> Stashed changes
         if hasattr(st.session_state, "trial_start_time"):
             import time
 
@@ -694,15 +832,27 @@ def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
                 (time.perf_counter() - st.session_state.trial_start_time) * 1000
             )
 
-        return save_response(
+        # Get session code
+        session_id = st.session_state.get("session_code", "default_session")
+
+        # Save using unified database schema
+        return save_multi_ingredient_response(
             participant_id=participant_id,
-            x=x,
-            y=y,
+            session_id=session_id,
             method=method,
-            sugar_conc=sugar_mm,
-            salt_conc=salt_mm,
+            interface_type="grid_2d",
+            ingredient_concentrations=ingredient_concentrations,
+            x_position=x,
+            y_position=y,
             reaction_time_ms=reaction_time_ms,
-            is_final=False,
+            questionnaire_response=None,
+            is_final_response=False,
+            extra_data={
+                "grid_coordinates": {"x": x, "y": y},
+                "grid_interface": True,
+                "canvas_size": CANVAS_SIZE,
+                "interaction_type": "intermediate_click"
+            }
         )
 
     except Exception as e:
@@ -968,6 +1118,10 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
         Success status
     """
     try:
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
         # Calculate reaction time from trial start
         reaction_time_ms = None
         if hasattr(st.session_state, "trial_start_time"):
@@ -1018,7 +1172,97 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
             return False
 
     except Exception as e:
+<<<<<<< Updated upstream
         st.error(f"Error saving slider trial: {e}")
+=======
+        logger.error(f"Error saving slider trial: {e}")
+        return False
+
+
+def get_stored_random_values(participant_id: str) -> dict:
+    """
+    Retrieve stored random slider values from database.
+    
+    This fixes the random start bug by ensuring random values are persistent
+    and retrieved correctly from the database.
+    
+    Args:
+        participant_id: Participant identifier
+        
+    Returns:
+        Dictionary of random slider values or empty dict
+    """
+    try:
+        from sql_handler import get_initial_positions_v2
+        
+        # Get experiment ID from session state
+        experiment_id = st.session_state.get("experiment_id")
+        if not experiment_id:
+            return {}
+        
+        # Retrieve initial positions from database
+        initial_positions = get_initial_positions_v2(experiment_id, participant_id)
+        if not initial_positions:
+            return {}
+        
+        # Extract slider values from database columns
+        random_values = {}
+        # Use new experiment_config structure if available, otherwise fallback to old structure
+        experiment_config = st.session_state.get("experiment_config", {})
+        if experiment_config and "ingredients" in experiment_config:
+            ingredient_config = experiment_config["ingredients"]
+            num_ingredients = experiment_config["num_ingredients"]
+        else:
+            # Fallback to old structure for backward compatibility
+            ingredient_config = st.session_state.get("ingredient_config", DEFAULT_INGREDIENT_CONFIG)
+            num_ingredients = st.session_state.get("num_ingredients", 2)
+            ingredient_config = ingredient_config[:num_ingredients]
+
+        for i, ingredient in enumerate(ingredient_config):
+            column_name = f"ingredient_{i+1}_initial"
+            if column_name in initial_positions and initial_positions[column_name] is not None:
+                random_values[ingredient["name"]] = initial_positions[column_name]
+        
+        return random_values
+        
+    except Exception as e:
+        st.error(f"Error retrieving stored random values: {e}")
+        return {}
+
+
+def ensure_random_values_loaded(participant_id: str) -> bool:
+    """
+    Ensure random slider values are loaded into session state.
+    
+    This fixes the random start issue by checking if values exist in database
+    and loading them into session state for immediate use.
+    
+    Args:
+        participant_id: Participant identifier
+        
+    Returns:
+        True if values were loaded or already exist, False otherwise
+    """
+    try:
+        # Check if values already exist in session state
+        existing_values = st.session_state.get("random_slider_values", {})
+        if existing_values:
+            return True
+        
+        # Try to load from database
+        stored_values = get_stored_random_values(participant_id)
+        if stored_values:
+            st.session_state.random_slider_values = stored_values
+            return True
+        
+        # No values found
+        return False
+        
+    except Exception as e:
+        st.error(f"❌ Error ensuring random values loaded: {e}")
+        import traceback
+        st.error(f"Full traceback: {traceback.format_exc()}")
+>>>>>>> Stashed changes
         return False
 
 
