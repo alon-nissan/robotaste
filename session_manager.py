@@ -236,7 +236,7 @@ def get_active_sessions() -> list:
 
 
 def generate_session_urls(
-    session_code: str, base_url: str = "https://your-app.streamlit.app"
+    session_code: str, base_url: str = "https://robotaste.streamlit.app"
 ) -> Dict[str, str]:
     """Generate URLs for moderator and subject interfaces."""
     return {
@@ -247,7 +247,7 @@ def generate_session_urls(
 
 def display_session_qr_code(
     session_code: str,
-    base_url: str = "https://your-app.streamlit.app",
+    base_url: str = "https://robotaste.streamlit.app",
     context: str = "default",
 ):
     """Display QR code for subject to join session."""

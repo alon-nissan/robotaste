@@ -64,7 +64,6 @@ from callback import (
     show_preparation_message,
     MultiComponentMixture,
     create_ingredient_sliders,
-    DEFAULT_INGREDIENT_CONFIG,
     INTERFACE_2D_GRID,
     INTERFACE_SLIDERS,
     save_slider_trial,
@@ -82,6 +81,10 @@ from sql_handler import (
     get_database_stats,
     get_latest_submitted_response,
     get_live_subject_position,
+    save_multi_ingredient_response,
+    store_user_interaction_v2,
+    export_responses_csv,
+    get_initial_slider_positions,
 )
 from session_manager import (
     create_session,
@@ -413,10 +416,83 @@ st.markdown(
             padding: 1rem;
         }
     }
+    
+    /* Fix select box styling for better theme compatibility */
+    .stSelectbox > div > div > select {
+        background-color: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    .stSelectbox > div > div > div {
+        background-color: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    .stSelectbox label {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Fix dropdown menu styling */
+    .stSelectbox > div > div > div > div {
+        background-color: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Ensure text inputs also follow theme */
+    .stTextInput > div > div > input {
+        background-color: var(--bg-primary) !important;
+        color: var(--text-primary) !important;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    .stTextInput label {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Fix button styling for consistency */
+    .stButton > button {
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    /* Alternative approach: Force dark mode if selectbox styling fails */
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+# Apply dark mode CSS if enabled by user
+if st.session_state.get("force_dark_mode", False):
+    st.markdown(
+        """
+        <style>
+        /* Force dark mode when setting is enabled */
+        .stApp {
+            color-scheme: dark;
+            background-color: #1f2937 !important;
+            color: #f9fafb !important;
+        }
+        
+        /* Ensure all elements use dark theme */
+        .stSelectbox > div > div > select,
+        .stSelectbox > div > div > div,
+        .stTextInput > div > div > input {
+            background-color: #374151 !important;
+            color: #f9fafb !important;
+            border: 1px solid #4b5563 !important;
+        }
+        
+        /* Fix sidebar styling in dark mode */
+        .stSidebar .stSelectbox > div > div > select,
+        .stSidebar .stSelectbox > div > div > div {
+            background-color: #374151 !important;
+            color: #f9fafb !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # Initialize database only once per session
 # TODO: Add database health monitoring and automatic backup
@@ -695,6 +771,8 @@ def subject_interface():
 
         # Determine interface type based on moderator's configuration
         num_ingredients = mod_settings.get("num_ingredients", 2)
+        # Ensure DEFAULT_INGREDIENT_CONFIG is available
+        from callback import DEFAULT_INGREDIENT_CONFIG
         experiment_config = {
             "num_ingredients": num_ingredients,
             "ingredients": DEFAULT_INGREDIENT_CONFIG[:num_ingredients],
@@ -1018,12 +1096,49 @@ def subject_interface():
                 unsafe_allow_html=True,
             )
 
+            # Load initial slider positions from database if available
+            initial_positions = None
+            if hasattr(st.session_state, "participant") and hasattr(st.session_state, "session_code"):
+                initial_positions = get_initial_slider_positions(
+                    session_id=st.session_state.session_code,
+                    participant_id=st.session_state.participant
+                )
+
             # Get current slider values from session state
-            current_slider_values = getattr(
-                st.session_state,
-                "current_slider_values",
-                mixture.get_default_slider_values(),
-            )
+            # Priority: current_slider_values > database initial positions > random_slider_values > defaults
+            if hasattr(st.session_state, "current_slider_values"):
+                current_slider_values = st.session_state.current_slider_values
+            else:
+                # Load initial positions from database first
+                if initial_positions and initial_positions.get("percentages"):
+                    # Use database initial positions
+                    current_slider_values = {}
+                    for ingredient in experiment_config["ingredients"]:
+                        ingredient_name = ingredient["name"]
+                        # Map ingredient names to database positions (need to handle generic names)
+                        db_percentages = initial_positions["percentages"]
+                        if ingredient_name in db_percentages:
+                            current_slider_values[ingredient_name] = db_percentages[ingredient_name]
+                        else:
+                            # Try to map by position (fallback for generic names like Ingredient_1)
+                            ingredient_index = next((i for i, ing in enumerate(experiment_config["ingredients"]) if ing["name"] == ingredient_name), None)
+                            if ingredient_index is not None:
+                                generic_key = f"Ingredient_{ingredient_index + 1}"
+                                current_slider_values[ingredient_name] = db_percentages.get(generic_key, 50.0)
+                            else:
+                                current_slider_values[ingredient_name] = 50.0
+                else:
+                    # Try to ensure random values are loaded from database
+                    from callback import ensure_random_values_loaded
+
+                    ensure_random_values_loaded(st.session_state.participant)
+
+                    # Use random values if available, otherwise defaults
+                    random_values = st.session_state.get("random_slider_values", {})
+                    if random_values:
+                        current_slider_values = random_values.copy()
+                    else:
+                        current_slider_values = mixture.get_default_slider_values()
 
             # Create vertical slider interface with mixer-board styling
             st.markdown(
@@ -1051,6 +1166,8 @@ def subject_interface():
 
                     # Create vertical slider
                     slider_key = f"ingredient_{ingredient_name}_{st.session_state.participant}_{st.session_state.session_code}"
+
+                    # Use current slider values (which already prioritizes random values)
                     default_value = current_slider_values.get(ingredient_name, 50.0)
 
                     slider_values[ingredient_name] = svs.vertical_slider(
@@ -1080,9 +1197,48 @@ def subject_interface():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Store current slider values (but don't trigger questionnaire automatically)
+            # Store current slider values and update database for real-time monitoring
             if slider_changed:
                 st.session_state.current_slider_values = slider_values
+
+                # Store real-time slider movements for monitoring
+                try:
+
+                    # Calculate actual concentrations for monitoring
+                    concentrations = mixture.calculate_concentrations_from_sliders(
+                        slider_values
+                    )
+
+                    # Prepare concentration data for storage
+                    slider_concentrations = {}
+                    actual_concentrations = {}
+
+                    for ingredient_name, conc_data in concentrations.items():
+                        slider_concentrations[ingredient_name] = conc_data[
+                            "slider_position"
+                        ]
+                        actual_concentrations[ingredient_name] = conc_data[
+                            "actual_concentration_mM"
+                        ]
+
+                    # Store as real-time interaction (not final response)
+                    experiment_id = st.session_state.get("experiment_id")
+                    if experiment_id and st.session_state.get("participant"):
+                        store_user_interaction_v2(
+                            experiment_id=experiment_id,
+                            participant_id=st.session_state.participant,
+                            interaction_type="slider_adjustment",
+                            slider_concentrations=slider_concentrations,
+                            actual_concentrations=actual_concentrations,
+                            is_final_response=False,
+                            extra_data={
+                                "interface_type": "slider_based",
+                                "real_time_update": True,
+                            },
+                        )
+                except Exception as e:
+                    # Don't break the UI if monitoring storage fails
+                    pass
 
             # Add Finish button with enhanced styling
             st.markdown('<div class="finish-button-container">', unsafe_allow_html=True)
@@ -1112,33 +1268,68 @@ def subject_interface():
                     final_slider_values
                 )
 
-                # Initialize selection history if it doesn't exist
-                if not hasattr(st.session_state, "selection_history"):
-                    st.session_state.selection_history = []
+                # Save to database immediately when Finish button is clicked
 
-                # Add final selection to history
-                selection_number = len(st.session_state.selection_history) + 1
-                st.session_state.selection_history.append(
-                    {
-                        "slider_values": final_slider_values.copy(),
-                        "concentrations": concentrations,
-                        "order": selection_number,
-                        "timestamp": time.time(),
-                        "interface_type": "sliders",
+                # Calculate reaction time from trial start
+                reaction_time_ms = None
+                if hasattr(st.session_state, "trial_start_time"):
+                    reaction_time_ms = int(
+                        (time.perf_counter() - st.session_state.trial_start_time) * 1000
+                    )
+
+                # Extract actual mM concentrations for database storage
+                ingredient_concentrations = {}
+                for ingredient_name, conc_data in concentrations.items():
+                    ingredient_concentrations[ingredient_name] = conc_data["actual_concentration_mM"]
+
+                # Save slider response to database
+                success = save_multi_ingredient_response(
+                    participant_id=st.session_state.participant,
+                    session_id=st.session_state.get("session_code", "default_session"),
+                    method="slider_based",
+                    interface_type="slider_based",
+                    ingredient_concentrations=ingredient_concentrations,
+                    reaction_time_ms=reaction_time_ms,
+                    questionnaire_response=None,  # Will be updated in questionnaire phase
+                    is_final_response=False,  # Not final until questionnaire completed
+                    extra_data={
+                        "concentrations_summary": concentrations,
+                        "slider_interface": True,
+                        "finish_button_clicked": True
                     }
                 )
 
-                # Store final values and trigger questionnaire
-                st.session_state.current_slider_values = final_slider_values
-                st.session_state.pending_slider_result = {
-                    "slider_values": final_slider_values,
-                    "concentrations": concentrations,
-                }
-                st.session_state.pending_method = "slider_based"
+                if success:
+                    # Initialize selection history if it doesn't exist
+                    if not hasattr(st.session_state, "selection_history"):
+                        st.session_state.selection_history = []
 
-                # Go to questionnaire
-                st.session_state.phase = "post_questionnaire"
-                st.rerun()
+                    # Add final selection to history
+                    selection_number = len(st.session_state.selection_history) + 1
+                    st.session_state.selection_history.append(
+                        {
+                            "slider_values": final_slider_values.copy(),
+                            "concentrations": concentrations,
+                            "order": selection_number,
+                            "timestamp": time.time(),
+                            "interface_type": "sliders",
+                        }
+                    )
+
+                    # Store final values and trigger questionnaire
+                    st.session_state.current_slider_values = final_slider_values
+                    st.session_state.pending_slider_result = {
+                        "slider_values": final_slider_values,
+                        "concentrations": concentrations,
+                    }
+                    st.session_state.pending_method = "slider_based"
+
+                    st.success("✅ Slider selection recorded!")
+                    # Go to questionnaire
+                    st.session_state.phase = "post_questionnaire"
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save slider selection. Please try again.")
 
             # Display selection history
             if (
@@ -1220,12 +1411,36 @@ def subject_interface():
                             st.session_state.pending_method,
                         )
                     elif hasattr(st.session_state, "pending_slider_result"):
-                        # Slider-based submission - save concentration data
+                        # Slider-based submission - update existing record with questionnaire and mark as final
                         slider_data = st.session_state.pending_slider_result
-                        success = save_slider_trial(
-                            st.session_state.participant,
-                            slider_data["concentrations"],
-                            st.session_state.pending_method,
+
+                        # Extract actual mM concentrations for database storage
+                        ingredient_concentrations = {}
+                        for ingredient_name, conc_data in slider_data["concentrations"].items():
+                            ingredient_concentrations[ingredient_name] = conc_data["actual_concentration_mM"]
+
+                        # Calculate reaction time from trial start
+                        reaction_time_ms = None
+                        if hasattr(st.session_state, "trial_start_time"):
+                            reaction_time_ms = int(
+                                (time.perf_counter() - st.session_state.trial_start_time) * 1000
+                            )
+
+                        # Save final response with questionnaire data
+                        success = save_multi_ingredient_response(
+                            participant_id=st.session_state.participant,
+                            session_id=st.session_state.get("session_code", "default_session"),
+                            method="slider_based",
+                            interface_type="slider_based",
+                            ingredient_concentrations=ingredient_concentrations,
+                            reaction_time_ms=reaction_time_ms,
+                            questionnaire_response=responses,  # Include questionnaire responses
+                            is_final_response=True,  # Mark as final
+                            extra_data={
+                                "concentrations_summary": slider_data["concentrations"],
+                                "slider_interface": True,
+                                "final_submission": True
+                            }
                         )
 
                     if success:
@@ -1319,14 +1534,16 @@ def moderator_interface():
         "🎮",
     )
 
-    # Session overview dashboard
+    # ===== TOP SECTION: Essential Session Info & Quick Actions =====
     st.markdown("### 📊 Session Overview")
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
+    # Essential session metrics in a clean layout
+    overview_col1, overview_col2, overview_col3, overview_col4 = st.columns(4)
+
+    with overview_col1:
         st.metric("🔑 Session Code", st.session_state.session_code)
 
-    with col2:
+    with overview_col2:
         connection_status = get_connection_status(st.session_state.session_code)
         status_text = (
             "Connected"
@@ -1338,227 +1555,119 @@ def moderator_interface():
         )
         st.metric("👤 Subject Status", f"{status_color} {status_text}")
 
-    with col3:
+    with overview_col3:
         st.metric("🧪 Current Phase", session_info["current_phase"].title())
 
-    with col4:
+    with overview_col4:
         st.metric("⏰ Status", "🟢 Active")
 
-    # Display QR Code for easy subject access
-    display_session_qr_code(st.session_state.session_code, context="dashboard")
+    # ===== EXPERIMENT CONFIGURATION & START CONTROLS (HIGHEST PRIORITY) =====
+    st.markdown("---")
+    st.markdown("### 🚀 Experiment Setup & Launch")
 
-    # Main Dashboard Tabs
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["🎮 Control Panel", "📊 Live Monitor", "📈 Analytics", "⚙️ Settings"]
-    )
-
-    with tab1:
-        st.markdown("### 🚀 Experiment Control")
-
-        control_col1, control_col2 = st.columns(2)
-
-        with control_col1:
-            st.markdown("#### 🎮 Session Controls")
-            if st.button("🔄 Reset Session Phase", key="moderator_reset_session_phase"):
-                update_session_activity(st.session_state.session_code, phase="reset")
-                st.success("Session phase reset!")
-
-            if st.button("⏹️ End Session", key="moderator_end_session"):
-                st.warning("Session will be deactivated.")
-
-        with control_col2:
-            st.markdown("#### 📊 Data Management")
-            if st.button("📥 Download Responses", key="moderator_download_responses"):
-                st.success("Data download initiated!")
-
-            if st.button("🗑️ Clear Session Data", key="moderator_clear_session_data"):
-                st.warning("This will clear all response data!")
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>🔑 Session Code</h4>
-                <p style="font-size: 24px; font-weight: bold;">{}</p>
-            </div>
-            """.format(
-                st.session_state.session_code
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        connection_status = get_connection_status(st.session_state.session_code)
-        status_icon = "✅" if connection_status["subject_connected"] else "⏳"
-        status_text = (
-            "Connected" if connection_status["subject_connected"] else "Waiting"
-        )
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>👤 Subject Status</h4>
-                <p>{} {}</p>
-            </div>
-            """.format(
-                status_icon, status_text
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>🧪 Current Phase</h4>
-                <p>{}</p>
-            </div>
-            """.format(
-                session_info["current_phase"].title()
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col4:
-        active_sessions = len([s for s in session_info if True])  # Simple count for now
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>⏰ Session Age</h4>
-                <p>{}</p>
-            </div>
-            """.format(
-                "Active"
-            ),
-            unsafe_allow_html=True,
-        )
-
-    # Connection status and QR code section
-    if not connection_status["subject_connected"]:
-        st.warning("⏳ Waiting for subject to join session...")
-
-        # Display QR code and session info for subject to join
-        with st.expander("📱 Share with Subject", expanded=True):
-            # Detect if we're running on Streamlit Cloud
-            try:
-                server_address = st.get_option("browser.serverAddress")
-                if server_address and "streamlit.app" in server_address:
-                    base_url = f"https://{server_address}"
-                elif st.get_option("server.headless"):
-                    # Running in cloud/headless mode, construct URL
-                    base_url = (
-                        "https://your-app.streamlit.app"  # Replace with actual URL
-                    )
-                else:
-                    base_url = "http://localhost:8501"  # Local development
-            except:
-                base_url = "http://localhost:8501"  # Fallback
-
-            display_session_qr_code(
-                st.session_state.session_code, base_url, context="waiting"
-            )
-    else:
-        st.success("✅ Subject device connected and active")
-
-    # Configuration display panel
-    st.markdown("### ⚙️ Current Session Configuration")
-
-    # Initialize experiment configuration if not exists
-    if "experiment_config" not in st.session_state:
-        st.session_state.experiment_config = {
-            "num_ingredients": 2,
-            "ingredients": DEFAULT_INGREDIENT_CONFIG[:2],
-        }
-
-    config_col1, config_col2 = st.columns([1, 1])
+    # Two-column layout for configuration and start controls
+    config_col1, config_col2 = st.columns([2, 1])
 
     with config_col1:
-        st.markdown(
-            """
-            <div class="status-card">
-                <h3>🧪 Mixture Configuration</h3>
-                <p><strong>Number of Ingredients:</strong> {}</p>
-                <p><strong>Interface Type:</strong> {}</p>
-                <p><strong>Mapping Method:</strong> {}</p>
-            </div>
-            """.format(
-                st.session_state.experiment_config.get("num_ingredients", 2),
-                (
-                    "2D Grid (X-Y)"
-                    if st.session_state.experiment_config.get("num_ingredients", 2) == 2
-                    else "Vertical Sliders"
-                ),
-                (
-                    "Linear/Log/Exp"
-                    if st.session_state.experiment_config.get("num_ingredients", 2) == 2
-                    else "Slider-based"
-                ),
-            ),
-            unsafe_allow_html=True,
+        # Multi-component mixture configuration
+        st.markdown("#### 🧪 Ingredient Configuration")
+
+        # Number of ingredients selection
+        num_ingredients = st.selectbox(
+            "Number of ingredients:",
+            [2, 3, 4, 5, 6],
+            help="Select number of ingredients in the mixture (2 = 2D grid, 3+ = sliders)",
+            key="moderator_num_ingredients_selector",
         )
+
+        # Initialize experiment configuration in session state
+        if "experiment_config" not in st.session_state:
+            # Ensure DEFAULT_INGREDIENT_CONFIG is available
+            from callback import DEFAULT_INGREDIENT_CONFIG
+            st.session_state.experiment_config = {
+                "num_ingredients": 2,
+                "ingredients": DEFAULT_INGREDIENT_CONFIG[:2],
+            }
+
+        # Update configuration when number changes
+        if num_ingredients != st.session_state.experiment_config["num_ingredients"]:
+            # Ensure DEFAULT_INGREDIENT_CONFIG is available
+            from callback import DEFAULT_INGREDIENT_CONFIG
+            st.session_state.experiment_config["num_ingredients"] = num_ingredients
+            st.session_state.experiment_config["ingredients"] = (
+                DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+            )
+
+        # Create mixture handler
+        mixture = MultiComponentMixture(
+            st.session_state.experiment_config["ingredients"]
+        )
+        interface_type = mixture.get_interface_type()
+
+        # Show interface type
+        interface_info = {
+            INTERFACE_2D_GRID: "🎯 2D Grid Interface (X-Y coordinates)",
+            INTERFACE_SLIDERS: "🎛️ Slider Interface (Independent concentrations)",
+        }
+        st.info(f"Interface: {interface_info[interface_type]}")
+
+        # Method selection (only for 2D grid)
+        if interface_type == INTERFACE_2D_GRID:
+            method = st.selectbox(
+                "🧮 Mapping Method:",
+                ["linear", "logarithmic", "exponential"],
+                help="Choose how coordinates map to concentrations",
+                key="moderator_mapping_method_selector",
+            )
+
+            # Method explanation
+            method_info = {
+                "linear": "📈 Direct proportional mapping",
+                "logarithmic": "📊 Logarithmic scale mapping",
+                "exponential": "📉 Exponential scale mapping",
+            }
+            st.info(method_info[method])
+        else:
+            method = "slider_based"
+            st.info("🎛️ Slider-based concentration control")
+
+            # Random start option for sliders
+            st.session_state.use_random_start = st.checkbox(
+                "🎲 Random Starting Positions",
+                value=st.session_state.get("use_random_start", False),
+                help="Start sliders at randomized positions instead of 50% for each trial",
+                key="moderator_random_start_toggle",
+            )
 
     with config_col2:
-        st.markdown(
-            """
-            <div class="status-card">
-                <h3>📊 Concentration Ranges</h3>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown("#### 🚀 Launch Trial")
 
-        # Show concentration ranges for current configuration
-        ingredients = st.session_state.experiment_config.get(
-            "ingredients", DEFAULT_INGREDIENT_CONFIG[:2]
-        )
-        for i, ingredient in enumerate(ingredients[:4]):  # Show first 4 ingredients
-            ingredient_label = (
-                f"Ingredient {chr(65 + i)}"
-                if len(ingredients) > 2
-                else ingredient["name"].title()
+        # Show current participant
+        participant_display = st.session_state.get("participant", "None selected")
+        st.write(f"**Current Participant:** {participant_display}")
+
+        # Start trial button (prominent)
+        if st.button(
+            "🚀 Start Trial",
+            type="primary",
+            use_container_width=True,
+            key="moderator_start_trial_button",
+        ):
+            num_ingredients = st.session_state.experiment_config["num_ingredients"]
+            success = start_trial(
+                "mod", st.session_state.participant, method, num_ingredients
             )
-            st.write(
-                f"**{ingredient_label}:** {ingredient['min_concentration']:.3f} - {ingredient['max_concentration']:.3f} mM"
-            )
+            if success:
+                clear_canvas_state()  # Clear any previous canvas state
+                st.success(f"✅ Trial started for {st.session_state.participant}")
+                time.sleep(1)
+                st.rerun()
 
-    # Session URLs section
-    st.markdown("### 🔗 Session Access URLs")
-
-    urls_col1, urls_col2 = st.columns([1, 1])
-
-    with urls_col1:
-        try:
-            server_address = st.get_option("browser.serverAddress")
-            if server_address and "streamlit.app" in server_address:
-                base_url = f"https://{server_address}"
-            else:
-                base_url = "http://localhost:8501"
-        except:
-            base_url = "http://localhost:8501"
-
-        session_urls = generate_session_urls(st.session_state.session_code, base_url)
-
-        st.markdown("**Moderator URL:**")
-        st.code(session_urls["moderator"], language="text")
-
-    with urls_col2:
-        st.markdown("**Subject URL:**")
-        st.code(session_urls["subject"], language="text")
-
-        if st.button("📋 Copy Subject URL", key="moderator_copy_subject_url"):
-            st.success("URL copied! Share with participants.")
-
-    # Session management controls
-    st.markdown("### 🎮 Session Controls")
-
-    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
-
-    with control_col1:
+        # Reset session button
         if st.button(
             "🔄 Reset Session",
-            help="Reset current session for selected participant",
             use_container_width=True,
-            key="moderator_reset_session_main",
+            key="moderator_reset_session_main_top",
         ):
             if "participant" in st.session_state:
                 success = clear_participant_session(st.session_state.participant)
@@ -1566,257 +1675,50 @@ def moderator_interface():
                     st.success("✅ Session reset successfully!")
                     time.sleep(1)
                     st.rerun()
+
+    # ===== SUBJECT CONNECTION & ACCESS SECTION =====
+    st.markdown("---")
+
+    if not connection_status["subject_connected"]:
+        with st.expander("📱 Subject Access - QR Code & Session Info", expanded=False):
+            st.info(
+                "⏳ Waiting for subject to join session... Share the QR code or session code below."
+            )
+
+            # Smart URL detection - production first, then localhost for development
+            try:
+                server_address = st.get_option("browser.serverAddress")
+                if server_address and "streamlit.app" in server_address:
+                    base_url = f"https://{server_address}"
+                elif st.get_option("server.headless"):
+                    # Running in cloud/headless mode, use production URL
+                    base_url = "https://robotaste.streamlit.app"
                 else:
-                    st.error("❌ Failed to reset session")
-            else:
-                st.warning("⚠️ No participant selected")
+                    # Check if running locally (port 8501 indicates local development)
+                    base_url = "http://localhost:8501"  # Local development
+            except:
+                # Default to production URL for QR codes
+                base_url = "https://robotaste.streamlit.app"
 
-    with control_col2:
-        if st.button(
-            "🛑 End Session",
-            help="End current session for all participants",
-            use_container_width=True,
-            key="moderator_end_session_all",
-        ):
-            # Here you would implement session ending logic
-            st.warning("🚧 Session ending functionality coming soon")
-
-    with control_col3:
-        if st.button(
-            "📥 Download Data",
-            help="Export session data to CSV",
-            use_container_width=True,
-            key="moderator_download_data_main",
-        ):
-            if "participant" in st.session_state:
-                responses_df = get_participant_responses(st.session_state.participant)
-                if not responses_df.empty:
-                    csv = responses_df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "💾 Download CSV",
-                        csv,
-                        file_name=f"session_{st.session_state.session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.info("📭 No data available to download")
-            else:
-                st.warning("⚠️ No participant selected")
-
-    with control_col4:
-        stats = get_database_stats()
-        if st.button(
-            f"📊 Stats ({stats['total_responses']})",
-            help="View detailed session statistics",
-            use_container_width=True,
-            key="moderator_view_stats",
-        ):
-            st.info(f"📈 Total responses: {stats['total_responses']}")
-
-    # Sidebar controls
-    with st.sidebar:
-        st.markdown("### 🎮 Quick Controls")
-
-        # Accessibility options
-        with st.expander("♿ Accessibility"):
-            st.session_state.high_contrast = st.checkbox(
-                "High Contrast Mode",
-                value=st.session_state.get("high_contrast", False),
-                help="Increase contrast for better visibility",
-                key="moderator_high_contrast_toggle",
+            display_session_qr_code(
+                st.session_state.session_code, base_url, context="waiting"
             )
+    else:
+        st.success("✅ Subject device connected and active")
 
-            # High contrast styles are applied via CSS, no rerun needed
+    # ===== ORGANIZED TABS FOR MONITORING & MANAGEMENT =====
+    st.markdown("---")
 
-        st.divider()
+    # Streamlined tabs - keep essential functionality organized
+    main_tab1, main_tab2, main_tab3 = st.tabs(
+        ["📊 Live Monitor", "📈 Analytics", "⚙️ Settings"]
+    )
 
-        # Participant selection
-        participants = get_all_participants()
-        if not participants:
-            participants = [st.session_state.participant]
-
-        selected_participant = st.selectbox(
-            "👤 Select Participant:",
-            participants,
-            index=(
-                participants.index(st.session_state.participant)
-                if st.session_state.participant in participants
-                else 0
-            ),
-            key="moderator_select_participant",
-        )
-
-        if selected_participant != st.session_state.participant:
-            st.session_state.participant = selected_participant
-
-        # Add new participant
-        with st.expander("➕ Add New Participant"):
-            new_participant = st.text_input(
-                "New Participant ID:", key="moderator_new_participant_input"
-            )
-            if (
-                st.button(
-                    "Add",
-                    use_container_width=True,
-                    key="moderator_add_participant_button",
-                )
-                and new_participant
-            ):
-                st.session_state.participant = new_participant
-                st.rerun()
-
-        st.divider()
-
-        # Auto-refresh control
-        st.session_state.auto_refresh = st.checkbox(
-            "🔄 Auto-refresh",
-            value=st.session_state.auto_refresh,
-            key="moderator_auto_refresh_toggle",
-        )
-
-        # Database stats
-        stats = get_database_stats()
-        st.markdown("### 📊 System Stats")
-        st.metric("Active Sessions", stats["active_sessions"])
-        st.metric("Total Responses", stats["total_responses"])
-        st.metric("Participants", stats["participants_with_data"])
-
-    # Main dashboard
-    tab1, tab2, tab3 = st.tabs(["🎮 Control Panel", "📊 Live Monitor", "📈 Analytics"])
-
-    with tab1:
-        col1, col2 = st.columns([1, 1])
-
-        with col1:
-            st.markdown("### 🚀 Start New Trial")
-
-            # Multi-component mixture configuration
-            st.markdown("#### 🧪 Ingredient Configuration")
-
-            # Number of ingredients selection
-            num_ingredients = st.selectbox(
-                "Number of ingredients:",
-                [2, 3, 4, 5, 6],
-                help="Select number of ingredients in the mixture (2 = 2D grid, 3+ = sliders)",
-                key="moderator_num_ingredients_selector",
-            )
-
-            # Initialize experiment configuration in session state
-            if "experiment_config" not in st.session_state:
-                st.session_state.experiment_config = {
-                    "num_ingredients": 2,
-                    "ingredients": DEFAULT_INGREDIENT_CONFIG[:2],
-                }
-
-            # Update configuration when number changes
-            if num_ingredients != st.session_state.experiment_config["num_ingredients"]:
-                st.session_state.experiment_config["num_ingredients"] = num_ingredients
-                st.session_state.experiment_config["ingredients"] = (
-                    DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
-                )
-
-            # Create mixture handler
-            mixture = MultiComponentMixture(
-                st.session_state.experiment_config["ingredients"]
-            )
-            interface_type = mixture.get_interface_type()
-
-            # Show interface type
-            interface_info = {
-                INTERFACE_2D_GRID: "🎯 2D Grid Interface (X-Y coordinates)",
-                INTERFACE_SLIDERS: "🎛️ Slider Interface (Independent concentrations)",
-            }
-            st.info(f"Interface: {interface_info[interface_type]}")
-
-            # Ingredient concentration ranges (for moderator only)
-            with st.expander("⚙️ Concentration Ranges (Advanced)", expanded=False):
-                st.write("**Concentration ranges for solution preparation:**")
-                for i, ingredient in enumerate(
-                    st.session_state.experiment_config["ingredients"]
-                ):
-                    st.write(
-                        f"**{ingredient['name']}:** {ingredient['min_concentration']:.3f} - {ingredient['max_concentration']:.3f} mM"
-                    )
-
-            # Method selection (only for 2D grid)
-            if interface_type == INTERFACE_2D_GRID:
-                method = st.selectbox(
-                    "🧮 Mapping Method:",
-                    ["linear", "logarithmic", "exponential"],
-                    help="Choose how coordinates map to concentrations",
-                    key="moderator_mapping_method_selector",
-                )
-
-                # Method explanation
-                method_info = {
-                    "linear": "📈 Direct proportional mapping",
-                    "logarithmic": "📊 Logarithmic scale mapping",
-                    "exponential": "📉 Exponential scale mapping",
-                }
-                st.info(method_info[method])
-            else:
-                method = "slider_based"
-                st.info("🎛️ Slider-based concentration control")
-
-            # Start trial button
-            if st.button(
-                "🚀 Start Trial",
-                type="primary",
-                use_container_width=True,
-                key="moderator_start_trial_button",
-            ):
-                num_ingredients = st.session_state.experiment_config["num_ingredients"]
-                success = start_trial(
-                    "mod", st.session_state.participant, method, num_ingredients
-                )
-                if success:
-                    clear_canvas_state()  # Clear any previous canvas state
-                    st.success(f"✅ Trial started for {st.session_state.participant}")
-                    time.sleep(1)
-                    st.rerun()
-
-        with col2:
-            st.markdown("### ⚙️ Session Management")
-
-            # Current participant info
-            mod_settings = get_moderator_settings(st.session_state.participant)
-            if mod_settings:
-                st.markdown(
-                    f"""
-                <div class="success-card">
-                    <h4>✅ Active Session</h4>
-                    <p><strong>Method:</strong> {mod_settings['method']}</p>
-                    <p><strong>Start Position:</strong> ({mod_settings['x_position']:.0f}, {mod_settings['y_position']:.0f})</p>
-                    <p><strong>Started:</strong> {mod_settings['created_at']}</p>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    """
-                <div class="warning-card">
-                    <h4>⏳ No Active Session</h4>
-                    <p>Start a new trial to activate this participant.</p>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            # Reset session
-            if st.button(
-                "🔄 Reset Session",
-                use_container_width=True,
-                key="moderator_reset_session_sidebar",
-            ):
-                success = clear_participant_session(st.session_state.participant)
-                if success:
-                    st.success("Session reset successfully!")
-                    time.sleep(1)
-                    st.rerun()
-
-    with tab2:
+    with main_tab1:
         st.markdown("### 📡 Real-time Monitoring")
+
+        # Show current participant session info
+        st.info("Live monitoring functionality - shows real-time participant responses")
 
         # Get live or latest submitted response
         current_response = get_live_subject_position(st.session_state.participant)
@@ -1825,56 +1727,123 @@ def moderator_interface():
 
         with col1:
             if current_response:
-                # is_submitted = current_response.get("is_submitted", False)
+                interface_type = current_response.get("interface_type", "grid_2d")
+                method = current_response.get("method", "grid_2d")
                 status_text = "🎯 Live Subject Position"
                 st.markdown(f"#### {status_text}")
 
-                # Create exact replica of subject's grid
-                # Get moderator settings to match the initial drawing
-                mod_settings = get_moderator_settings(st.session_state.participant)
-                if mod_settings:
-                    # Create the same canvas as subject sees (no selection history for monitoring)
-                    initial_drawing = create_canvas_drawing(
-                        current_response["x_position"], current_response["y_position"]
-                    )
+                if interface_type == "slider_based" or method == "slider_based":
+                    # Monitor slider interface using new database function
+                    st.markdown("**🎛️ Slider Interface Monitoring**")
 
-                    # Display read-only version of subject's canvas
-                    st.markdown(
-                        '<div class="canvas-container">', unsafe_allow_html=True
-                    )
-                    st_canvas(
-                        fill_color="#EF4444",
-                        stroke_width=3,
-                        stroke_color="#DC2626",
-                        background_color="white",
-                        update_streamlit=False,  # Make it truly read-only
-                        height=CANVAS_SIZE,
-                        width=CANVAS_SIZE,
-                        drawing_mode="transform",  # Disable drawing
-                        initial_drawing=initial_drawing,
-                        key=f"monitoring_canvas_{st.session_state.participant}_{hash(str(current_response))}",
-                    )
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    slider_data = current_response.get("slider_data", {})
+                    concentration_data = current_response.get("concentration_data", {})
+                    is_submitted = current_response.get("is_submitted", False)
 
-                    # Show status
-                    # if is_submitted:
-                    #     st.success("✅ Response submitted and recorded")
-                    # else:
-                    #     st.info("🔄 Subject is currently positioning...")
+                    status_emoji = "✅" if is_submitted else "🔄"
+                    status_text = (
+                        "Final Submission" if is_submitted else "Live Adjustment"
+                    )
+                    st.markdown(f"**Status:** {status_emoji} {status_text}")
+
+                    if slider_data:
+                        # Display slider values in a visual format
+                        st.markdown("#### 🎚️ Current Slider Positions")
+
+                        # Create visual representation of sliders
+                        for ingredient_name, value in slider_data.items():
+                            col_name, col_bar, col_value = st.columns([2, 4, 1])
+
+                            with col_name:
+                                st.markdown(f"**{ingredient_name}**")
+
+                            with col_bar:
+                                # Create a visual bar representation
+                                st.progress(value / 100.0)
+
+                            with col_value:
+                                st.markdown(f"**{value:.1f}%**")
+
+                        # Show actual concentrations if available
+                        if concentration_data:
+                            st.markdown("#### 🧪 Actual Concentrations")
+
+                            for ingredient_name, conc_mM in concentration_data.items():
+                                st.markdown(f"**{ingredient_name}**: {conc_mM:.3f} mM")
+                    else:
+                        st.info("🔄 Subject hasn't started adjusting sliders yet")
+
+                        # Show what ingredients are being tested
+                        num_ingredients = current_response.get("num_ingredients", 4)
+                        if num_ingredients:
+                            from callback import DEFAULT_INGREDIENT_CONFIG
+
+                            ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+                            st.markdown("#### 🧪 Expected Ingredients:")
+                            for ing in ingredients:
+                                st.markdown(
+                                    f"• {ing['name']} ({ing['min_concentration']}-{ing['max_concentration']} {ing['unit']})"
+                                )
 
                 else:
-                    st.info("🔍 No active session to monitor.")
+                    # Monitor grid interface (existing logic)
+                    # Get moderator settings to match the initial drawing
+                    mod_settings = get_moderator_settings(st.session_state.participant)
+                    if mod_settings:
+                        # Create the same canvas as subject sees (no selection history for monitoring)
+                        initial_drawing = create_canvas_drawing(
+                            current_response["x_position"],
+                            current_response["y_position"],
+                        )
+
+                        # Display read-only version of subject's canvas
+                        st.markdown(
+                            '<div class="canvas-container">', unsafe_allow_html=True
+                        )
+                        st_canvas(
+                            fill_color="#EF4444",
+                            stroke_width=3,
+                            stroke_color="#DC2626",
+                            background_color="white",
+                            update_streamlit=False,  # Make it truly read-only
+                            height=CANVAS_SIZE,
+                            width=CANVAS_SIZE,
+                            drawing_mode="transform",  # Disable drawing
+                            initial_drawing=initial_drawing,
+                            key=f"monitoring_canvas_{st.session_state.participant}_{hash(str(current_response))}",
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                    else:
+                        st.info("🔍 No active session to monitor.")
 
             else:
                 st.info("🔍 No participant activity detected yet.")
 
         with col2:
             if current_response:
+                method = current_response.get("method", "grid_2d")
                 st.markdown("#### 📊 Live Metrics")
 
-                # Position metrics
-                st.metric("X Position", f"{current_response['x_position']:.0f}")
-                st.metric("Y Position", f"{current_response['y_position']:.0f}")
+                if method == "slider_based":
+                    # Slider-based metrics
+                    current_sliders = getattr(
+                        st.session_state, "current_slider_values", {}
+                    )
+                    if current_sliders:
+                        st.metric("Interface Type", "🎛️ Multi-Slider")
+                        st.metric("Ingredients", str(len(current_sliders)))
+
+                        # Show average position
+                        avg_pos = sum(current_sliders.values()) / len(current_sliders)
+                        st.metric("Avg Position", f"{avg_pos:.1f}%")
+                    else:
+                        st.metric("Interface Type", "🎛️ Multi-Slider")
+                        st.metric("Status", "⏳ Starting...")
+                else:
+                    # Grid-based metrics (existing logic)
+                    st.metric("X Position", f"{current_response['x_position']:.0f}")
+                    st.metric("Y Position", f"{current_response['y_position']:.0f}")
 
                 # If this is a submitted response, show concentration data
                 if current_response.get("is_submitted", False):
@@ -1946,8 +1915,93 @@ def moderator_interface():
         #     time.sleep(2)
         #     st.rerun()
 
-    with tab3:
-        st.markdown("### 📈 Response Analytics")
+    with main_tab3:
+        st.markdown("### ⚙️ Session Settings")
+
+        # Theme Settings
+        st.markdown("#### 🎨 Theme & Display")
+
+        # Force dark mode option for better readability
+        force_dark_mode = st.checkbox(
+            "🌙 Force Dark Mode (recommended for better readability)",
+            value=st.session_state.get("force_dark_mode", False),
+            key="moderator_force_dark_mode",
+            help="Enables dark mode theme to fix text visibility issues in select boxes",
+        )
+
+        if force_dark_mode != st.session_state.get("force_dark_mode", False):
+            st.session_state.force_dark_mode = force_dark_mode
+            # Add JavaScript to apply theme change
+            if force_dark_mode:
+                st.markdown(
+                    """
+                    <script>
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    </script>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            st.success("Theme setting updated! Refresh the page to see full effects.")
+
+        # Display Settings
+        auto_refresh = st.checkbox(
+            "🔄 Auto-refresh monitoring (experimental)",
+            value=st.session_state.get("auto_refresh", False),
+            key="moderator_auto_refresh_setting",
+            help="Automatically refresh live monitoring data (may cause performance issues)",
+        )
+        st.session_state.auto_refresh = auto_refresh
+
+        st.divider()
+
+        # Data Export Section
+        st.markdown("#### 📊 Data Export")
+
+        if st.button(
+            "📥 Export Session Data (CSV)",
+            key="moderator_export_csv",
+            help="Download all experiment data for this session as CSV file",
+        ):
+            try:
+
+                session_code = st.session_state.get("session_code", "default_session")
+                csv_data = export_responses_csv(session_code)
+
+                if csv_data:
+                    # Create download button
+                    st.download_button(
+                        label="💾 Download CSV File",
+                        data=csv_data,
+                        file_name=f"robotaste_session_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_csv_data",
+                    )
+                    st.success("✅ Export data ready for download!")
+                else:
+                    st.warning("⚠️ No data found to export for this session.")
+
+            except Exception as e:
+                st.error(f"❌ Error exporting data: {e}")
+
+        # Summary of data that will be exported
+        with st.expander("ℹ️ What data gets exported?"):
+            st.markdown(
+                """
+            **CSV Export includes:**
+            - 👤 Participant IDs and session information
+            - 🎛️ Interface type (grid vs. slider) and method used
+            - 🎲 Random start settings and initial positions
+            - 📍 All user interactions (clicks, slider adjustments)
+            - ⏱️ Reaction times and timestamps
+            - 🧪 Actual concentrations (mM values) for all ingredients
+            - ✅ Final response indicators
+            - 📋 Questionnaire responses (if any)
+            
+            **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
+            """
+            )
+
+        st.divider()
 
         # Debug: Check database directly
         with st.expander("🔍 Debug Database"):
