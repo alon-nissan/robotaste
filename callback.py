@@ -80,6 +80,11 @@ import streamlit_vertical_slider as svs
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional
 from sql_handler import update_session_state, save_response
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Constants
 CANVAS_SIZE = 500
@@ -581,9 +586,13 @@ def start_trial(
                 random_slider_values[ingredient["name"]] = random_percent
 
             # Calculate actual concentrations from percentages
-            concentrations = mixture.calculate_concentrations_from_sliders(random_slider_values)
+            concentrations = mixture.calculate_concentrations_from_sliders(
+                random_slider_values
+            )
             for ingredient_name, conc_data in concentrations.items():
-                random_concentrations[ingredient_name] = conc_data["actual_concentration_mM"]
+                random_concentrations[ingredient_name] = conc_data[
+                    "actual_concentration_mM"
+                ]
 
             # Store initial slider positions in database
             ingredient_names = [ing["name"] for ing in ingredients]
@@ -593,7 +602,7 @@ def start_trial(
                 num_ingredients=num_ingredients,
                 initial_percentages=random_slider_values,
                 initial_concentrations=random_concentrations,
-                ingredient_names=ingredient_names
+                ingredient_names=ingredient_names,
             )
 
         # Update Streamlit session state
@@ -636,6 +645,7 @@ def start_trial(
     except Exception as e:
         st.error(f"Error starting trial: {e}")
         import traceback
+
         st.error(f"Full traceback: {traceback.format_exc()}")
         return False
 
@@ -1043,10 +1053,14 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
         # Extract actual mM concentrations for database storage
         ingredient_concentrations = {}
         for ingredient_name, conc_data in concentrations.items():
-            ingredient_concentrations[ingredient_name] = conc_data["actual_concentration_mM"]
+            ingredient_concentrations[ingredient_name] = conc_data[
+                "actual_concentration_mM"
+            ]
 
         # Get questionnaire responses if available
-        questionnaire_response = st.session_state.get("post_questionnaire_responses", {})
+        questionnaire_response = st.session_state.get(
+            "post_questionnaire_responses", {}
+        )
 
         # Store in unified database schema
         success = save_multi_ingredient_response(
@@ -1060,8 +1074,8 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
             is_final_response=True,
             extra_data={
                 "concentrations_summary": concentrations,  # Store full concentration data including slider positions
-                "slider_interface": True
-            }
+                "slider_interface": True,
+            },
         )
 
         if success:
@@ -1087,41 +1101,46 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
 def get_stored_random_values(participant_id: str) -> dict:
     """
     Retrieve stored random slider values from database.
-    
+
     This fixes the random start bug by ensuring random values are persistent
     and retrieved correctly from the database.
-    
+
     Args:
         participant_id: Participant identifier
-        
+
     Returns:
         Dictionary of random slider values or empty dict
     """
     try:
         from sql_handler import get_initial_positions_v2
-        
+
         # Get experiment ID from session state
         experiment_id = st.session_state.get("experiment_id")
         if not experiment_id:
             return {}
-        
+
         # Retrieve initial positions from database
         initial_positions = get_initial_positions_v2(experiment_id, participant_id)
         if not initial_positions:
             return {}
-        
+
         # Extract slider values from database columns
         random_values = {}
-        ingredient_config = st.session_state.get("ingredient_config", DEFAULT_INGREDIENT_CONFIG)
+        ingredient_config = st.session_state.get(
+            "ingredient_config", DEFAULT_INGREDIENT_CONFIG
+        )
         num_ingredients = st.session_state.get("num_ingredients", 2)
-        
+
         for i, ingredient in enumerate(ingredient_config[:num_ingredients]):
             column_name = f"ingredient_{i+1}_initial"
-            if column_name in initial_positions and initial_positions[column_name] is not None:
+            if (
+                column_name in initial_positions
+                and initial_positions[column_name] is not None
+            ):
                 random_values[ingredient["name"]] = initial_positions[column_name]
-        
+
         return random_values
-        
+
     except Exception as e:
         st.error(f"Error retrieving stored random values: {e}")
         return {}
@@ -1130,13 +1149,13 @@ def get_stored_random_values(participant_id: str) -> dict:
 def ensure_random_values_loaded(participant_id: str) -> bool:
     """
     Ensure random slider values are loaded into session state.
-    
+
     This fixes the random start issue by checking if values exist in database
     and loading them into session state for immediate use.
-    
+
     Args:
         participant_id: Participant identifier
-        
+
     Returns:
         True if values were loaded or already exist, False otherwise
     """
@@ -1145,19 +1164,20 @@ def ensure_random_values_loaded(participant_id: str) -> bool:
         existing_values = st.session_state.get("random_slider_values", {})
         if existing_values:
             return True
-        
+
         # Try to load from database
         stored_values = get_stored_random_values(participant_id)
         if stored_values:
             st.session_state.random_slider_values = stored_values
             return True
-        
+
         # No values found
         return False
-        
+
     except Exception as e:
         st.error(f"❌ Error ensuring random values loaded: {e}")
         import traceback
+
         st.error(f"Full traceback: {traceback.format_exc()}")
         return False
 
