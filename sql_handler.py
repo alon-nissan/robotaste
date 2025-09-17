@@ -74,7 +74,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 from contextlib import contextmanager
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 import logging
 
 # Configuration
@@ -255,9 +255,6 @@ def _migrate_database(cursor) -> None:
         if 'num_ingredients' not in session_columns:
             logger.info("Adding num_ingredients column to session_state table")
             cursor.execute("ALTER TABLE session_state ADD COLUMN num_ingredients INTEGER DEFAULT 2")
-<<<<<<< Updated upstream
-        
-=======
 
         # Update views if they need questionnaire_response column
         cursor.execute("DROP VIEW IF EXISTS live_slider_monitoring")
@@ -515,7 +512,6 @@ def _migrate_database(cursor) -> None:
 
         logger.info("Created JSON parsing views: ingredients_parsed, current_ingredient_state, latest_recipes")
 
->>>>>>> Stashed changes
         logger.info("Database migration completed successfully")
         
     except Exception as e:
@@ -761,8 +757,6 @@ def save_response(
         return False
 
 
-<<<<<<< Updated upstream
-=======
 def save_multi_ingredient_response(
     participant_id: str,
     session_id: str,
@@ -894,7 +888,6 @@ def save_multi_ingredient_response(
         return False
 
 
->>>>>>> Stashed changes
 def get_participant_responses(
     participant_id: str, limit: Optional[int] = None
 ) -> pd.DataFrame:
@@ -1018,8 +1011,6 @@ def get_response_with_concentrations(response_id: int) -> Optional[Dict[str, Any
 
 
 # =============================================================================
-<<<<<<< Updated upstream
-=======
 # NEW DATABASE SCHEMA V2.0 - Multi-Ingredient Support
 # =============================================================================
 
@@ -1725,7 +1716,6 @@ def export_recipes_csv(session_id: Optional[str] = None) -> str:
 
 
 # =============================================================================
->>>>>>> Stashed changes
 # END OF FILE - DEVELOPMENT NOTES
 # =============================================================================
 # DATABASE ARCHITECTURE:

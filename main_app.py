@@ -82,6 +82,7 @@ from sql_handler import (
     get_database_stats,
     get_latest_submitted_response,
     get_live_subject_position,
+    save_multi_ingredient_response,
 )
 from session_manager import (
     create_session,
@@ -559,12 +560,9 @@ def subject_interface():
 
         # Determine interface type based on moderator's configuration
         num_ingredients = mod_settings.get("num_ingredients", 2)
-<<<<<<< Updated upstream
-=======
         # Ensure DEFAULT_INGREDIENT_CONFIG is available
         from callback import DEFAULT_INGREDIENT_CONFIG
 
->>>>>>> Stashed changes
         experiment_config = {
             "num_ingredients": num_ingredients,
             "ingredients": DEFAULT_INGREDIENT_CONFIG[:num_ingredients],
@@ -845,73 +843,22 @@ def subject_interface():
                 unsafe_allow_html=True,
             )
 
-<<<<<<< Updated upstream
             # Get current slider values from session state
-            current_slider_values = getattr(
-                st.session_state,
-                "current_slider_values",
-                mixture.get_default_slider_values(),
-            )
-=======
-            # Load initial slider positions from database if available
-            initial_positions = None
-            if hasattr(st.session_state, "participant") and hasattr(
-                st.session_state, "session_code"
-            ):
-                initial_positions = get_initial_slider_positions(
-                    session_id=st.session_state.session_code,
-                    participant_id=st.session_state.participant,
-                )
-
-            # Get current slider values from session state
-            # Priority: current_slider_values > database initial positions > random_slider_values > defaults
+            # Priority: current_slider_values > random_slider_values > defaults
             if hasattr(st.session_state, "current_slider_values"):
                 current_slider_values = st.session_state.current_slider_values
             else:
-                # Load initial positions from database first
-                if initial_positions and initial_positions.get("percentages"):
-                    # Use database initial positions
-                    current_slider_values = {}
-                    for ingredient in experiment_config["ingredients"]:
-                        ingredient_name = ingredient["name"]
-                        # Map ingredient names to database positions (need to handle generic names)
-                        db_percentages = initial_positions["percentages"]
-                        if ingredient_name in db_percentages:
-                            current_slider_values[ingredient_name] = db_percentages[
-                                ingredient_name
-                            ]
-                        else:
-                            # Try to map by position (fallback for generic names like Ingredient_1)
-                            ingredient_index = next(
-                                (
-                                    i
-                                    for i, ing in enumerate(
-                                        experiment_config["ingredients"]
-                                    )
-                                    if ing["name"] == ingredient_name
-                                ),
-                                None,
-                            )
-                            if ingredient_index is not None:
-                                generic_key = f"Ingredient_{ingredient_index + 1}"
-                                current_slider_values[ingredient_name] = (
-                                    db_percentages.get(generic_key, 50.0)
-                                )
-                            else:
-                                current_slider_values[ingredient_name] = 50.0
+                # Try to ensure random values are loaded from database
+                from callback import ensure_random_values_loaded
+
+                ensure_random_values_loaded(st.session_state.participant)
+
+                # Use random values if available, otherwise defaults
+                random_values = st.session_state.get("random_slider_values", {})
+                if random_values:
+                    current_slider_values = random_values.copy()
                 else:
-                    # Try to ensure random values are loaded from database
-                    from callback import ensure_random_values_loaded
-
-                    ensure_random_values_loaded(st.session_state.participant)
-
-                    # Use random values if available, otherwise defaults
-                    random_values = st.session_state.get("random_slider_values", {})
-                    if random_values:
-                        current_slider_values = random_values.copy()
-                    else:
-                        current_slider_values = mixture.get_default_slider_values()
->>>>>>> Stashed changes
+                    current_slider_values = mixture.get_default_slider_values()
 
             # Create vertical slider interface with mixer-board styling
             st.markdown(
@@ -1004,18 +951,6 @@ def subject_interface():
                 if not hasattr(st.session_state, "selection_history"):
                     st.session_state.selection_history = []
 
-<<<<<<< Updated upstream
-                # Add final selection to history
-                selection_number = len(st.session_state.selection_history) + 1
-                st.session_state.selection_history.append(
-                    {
-                        "slider_values": final_slider_values.copy(),
-                        "concentrations": concentrations,
-                        "order": selection_number,
-                        "timestamp": time.time(),
-                        "interface_type": "sliders",
-                    }
-=======
                 # Calculate reaction time from trial start
                 reaction_time_ms = None
                 if hasattr(st.session_state, "trial_start_time"):
@@ -1054,7 +989,6 @@ def subject_interface():
                             ing["name"] for ing in experiment_config["ingredients"]
                         ],
                     },
->>>>>>> Stashed changes
                 )
 
                 # Store final values and trigger questionnaire
@@ -1151,12 +1085,6 @@ def subject_interface():
                     elif hasattr(st.session_state, "pending_slider_result"):
                         # Slider-based submission - save concentration data
                         slider_data = st.session_state.pending_slider_result
-<<<<<<< Updated upstream
-                        success = save_slider_trial(
-                            st.session_state.participant,
-                            slider_data["concentrations"],
-                            st.session_state.pending_method,
-=======
 
                         # Extract actual mM concentrations for database storage
                         ingredient_concentrations = {}
@@ -1215,7 +1143,6 @@ def subject_interface():
                             questionnaire_response=responses,  # Include questionnaire responses
                             is_final_response=True,  # Mark as final
                             extra_data=extra_data,
->>>>>>> Stashed changes
                         )
 
                     if success:
@@ -1345,57 +1272,6 @@ def moderator_interface():
     with tab1:
         st.markdown("### 🚀 Experiment Control")
 
-<<<<<<< Updated upstream
-        control_col1, control_col2 = st.columns(2)
-
-        with control_col1:
-            st.markdown("#### 🎮 Session Controls")
-            if st.button("🔄 Reset Session Phase", key="moderator_reset_session_phase"):
-                update_session_activity(st.session_state.session_code, phase="reset")
-                st.success("Session phase reset!")
-
-            if st.button("⏹️ End Session", key="moderator_end_session"):
-                st.warning("Session will be deactivated.")
-
-        with control_col2:
-            st.markdown("#### 📊 Data Management")
-            if st.button("📥 Download Responses", key="moderator_download_responses"):
-                st.success("Data download initiated!")
-
-            if st.button("🗑️ Clear Session Data", key="moderator_clear_session_data"):
-                st.warning("This will clear all response data!")
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>🔑 Session Code</h4>
-                <p style="font-size: 24px; font-weight: bold;">{}</p>
-            </div>
-            """.format(
-                st.session_state.session_code
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        connection_status = get_connection_status(st.session_state.session_code)
-        status_icon = "✅" if connection_status["subject_connected"] else "⏳"
-        status_text = (
-            "Connected" if connection_status["subject_connected"] else "Waiting"
-        )
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>👤 Subject Status</h4>
-                <p>{} {}</p>
-            </div>
-            """.format(
-                status_icon, status_text
-            ),
-            unsafe_allow_html=True,
-=======
         # Import ingredient list for selection
         from callback import DEFAULT_INGREDIENT_CONFIG
 
@@ -1474,7 +1350,6 @@ def moderator_interface():
         # Create mixture handler
         mixture = MultiComponentMixture(
             st.session_state.experiment_config["ingredients"]
->>>>>>> Stashed changes
         )
 
     with col3:
@@ -1490,150 +1365,19 @@ def moderator_interface():
             unsafe_allow_html=True,
         )
 
-<<<<<<< Updated upstream
-    with col4:
-        active_sessions = len([s for s in session_info if True])  # Simple count for now
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>⏰ Session Age</h4>
-                <p>{}</p>
-            </div>
-            """.format(
-                "Active"
-            ),
-            unsafe_allow_html=True,
+        # Show interface type
+        interface_type = (
+            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
         )
-=======
-        # Individual concentration controls for selected ingredients
-        st.markdown("#### ⚙️ Concentration Ranges")
-
-        # Initialize concentration settings if not exists
-        if "ingredient_concentration_settings" not in st.session_state:
-            st.session_state.ingredient_concentration_settings = {}
-
-        # Create concentration controls for each selected ingredient
-        for ingredient_config in selected_ingredient_configs:
-            ingredient_name = ingredient_config["name"]
-            default_min = ingredient_config["min_concentration"]
-            default_max = ingredient_config["max_concentration"]
-
-            # Get current settings or use defaults
-            current_settings = st.session_state.ingredient_concentration_settings.get(
-                ingredient_name, {"min": default_min, "max": default_max}
-            )
-
-            st.markdown(f"**{ingredient_name}** ({ingredient_config['unit']})")
-
-            col_min, col_max = st.columns(2)
-
-            with col_min:
-                min_val = st.number_input(
-                    "Min",
-                    min_value=0.0,
-                    max_value=current_settings["max"] - 0.001,
-                    value=current_settings["min"],
-                    step=0.001,
-                    format="%.3f",
-                    key=f"min_conc_{ingredient_name}",
-                    help=f"Minimum concentration for {ingredient_name}",
-                )
-
-            with col_max:
-                max_val = st.number_input(
-                    "Max",
-                    min_value=current_settings["min"] + 0.001,
-                    max_value=1000.0,
-                    value=current_settings["max"],
-                    step=0.001,
-                    format="%.3f",
-                    key=f"max_conc_{ingredient_name}",
-                    help=f"Maximum concentration for {ingredient_name}",
-                )
-
-            # Update settings
-            st.session_state.ingredient_concentration_settings[ingredient_name] = {
-                "min": min_val,
-                "max": max_val,
-            }
-
-            # Update the ingredient config with custom ranges
-            ingredient_config["min_concentration"] = min_val
-            ingredient_config["max_concentration"] = max_val
-
-        # Method selection (only for 2D grid)
-        if interface_type == INTERFACE_2D_GRID:
-            method = st.selectbox(
-                "🧮 Mapping Method:",
-                ["linear", "logarithmic", "exponential"],
-                help="Choose how coordinates map to concentrations",
-                key="moderator_mapping_method_selector",
-            )
-
-            # Method explanation
-            method_info = {
-                "linear": "📈 Direct proportional mapping",
-                "logarithmic": "📊 Logarithmic scale mapping",
-                "exponential": "📉 Exponential scale mapping",
-            }
-            st.info(method_info[method])
-        else:
-            method = "slider_based"
-            st.info("🎛️ Slider-based concentration control")
-
-            # Random start option for sliders
-            st.session_state.use_random_start = st.checkbox(
-                "🎲 Random Starting Positions",
-                value=st.session_state.get("use_random_start", False),
-                help="Start sliders at randomized positions instead of 50% for each trial",
-                key="moderator_random_start_toggle",
-            )
-
-    with config_col2:
-        st.markdown("#### 🚀 Launch Trial")
-
-        # Show current participant
-        participant_display = st.session_state.get("participant", "None selected")
-        st.write(f"**Current Participant:** {participant_display}")
-
-        # Start trial button (prominent)
-        if st.button(
-            "🚀 Start Trial",
-            type="primary",
-            use_container_width=True,
-            key="moderator_start_trial_button",
-        ):
-            num_ingredients = st.session_state.experiment_config["num_ingredients"]
-            ingredient_config = st.session_state.experiment_config["ingredients"]
-            success = start_trial(
-                "mod",
-                st.session_state.participant,
-                method,
-                num_ingredients,
-                ingredient_config,
-            )
-            if success:
-                clear_canvas_state()  # Clear any previous canvas state
-                st.success(f"✅ Trial started for {st.session_state.participant}")
-                time.sleep(1)
-                st.rerun()
-
-        # Reset session button
-        if st.button(
-            "🔄 Reset Session",
-            use_container_width=True,
-            key="moderator_reset_session_main_top",
-        ):
-            if "participant" in st.session_state:
-                success = clear_participant_session(st.session_state.participant)
-                if success:
-                    st.success("✅ Session reset successfully!")
-                    time.sleep(1)
-                    st.rerun()
+        interface_display = (
+            "2D Grid"
+            if interface_type == INTERFACE_2D_GRID
+            else f"Slider Interface ({num_ingredients} ingredients)"
+        )
+        st.info(f"Interface: {interface_display}")
 
     # ===== SUBJECT CONNECTION & ACCESS SECTION =====
     st.markdown("---")
->>>>>>> Stashed changes
 
     # Connection status and QR code section
     if not connection_status["subject_connected"]:
