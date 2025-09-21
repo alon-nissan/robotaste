@@ -1261,8 +1261,34 @@ def moderator_interface():
     with col4:
         st.metric("⏰ Status", "🟢 Active")
 
-    # Display QR Code for easy subject access
-    display_session_qr_code(st.session_state.session_code, context="dashboard")
+    # ===== SUBJECT CONNECTION & ACCESS SECTION =====
+    st.markdown("---")
+
+    # Connection status and QR code section
+    if not connection_status["subject_connected"]:
+
+        # Display QR code and session info for subject to join
+        with st.expander("📱 Share with Subject", expanded=True):
+            # Detect if we're running on Streamlit Cloud
+            try:
+                server_address = st.get_option("browser.serverAddress")
+                if server_address and "streamlit.app" in server_address:
+                    base_url = f"https://{server_address}"
+                elif st.get_option("server.headless"):
+                    # Running in cloud/headless mode, construct URL
+                    base_url = (
+                        "https://your-app.streamlit.app"  # Replace with actual URL
+                    )
+                else:
+                    base_url = "http://localhost:8501"  # Local development
+            except:
+                base_url = "http://localhost:8501"  # Fallback
+
+            display_session_qr_code(
+                st.session_state.session_code, base_url, context="waiting"
+            )
+    else:
+        st.success("✅ Subject device connected and active")
 
     # Main Dashboard Tabs
     tab1, tab2, tab3, tab4 = st.tabs(
@@ -1309,9 +1335,139 @@ def moderator_interface():
         # Auto-determine number of ingredients from selection
         num_ingredients = len(selected_ingredients)
 
+        # ===== CONCENTRATION CONTROLS SECTION =====
+        st.markdown("### 🎛️ Ingredient Concentration Controls")
+
+        # Initialize concentration ranges in session state if not exists
+        if "ingredient_concentration_ranges" not in st.session_state:
+            st.session_state.ingredient_concentration_ranges = {}
+
+        # Display concentration controls for selected ingredients
+        if selected_ingredients:
+            st.info(
+                f"Configure concentration ranges for {len(selected_ingredients)} selected ingredients:"
+            )
+
+            for i, ingredient_name in enumerate(selected_ingredients):
+                # Find the default concentration range for this ingredient
+                ingredient_config = next(
+                    (
+                        ing
+                        for ing in DEFAULT_INGREDIENT_CONFIG
+                        if ing["name"] == ingredient_name
+                    ),
+                    None,
+                )
+
+                if ingredient_config:
+                    # Default min/max from config
+                    default_min = ingredient_config.get("min_concentration", 0.0)
+                    default_max = ingredient_config.get("max_concentration", 100.0)
+
+                    # Get current values from session state or use defaults
+                    current_ranges = (
+                        st.session_state.ingredient_concentration_ranges.get(
+                            ingredient_name, {"min": default_min, "max": default_max}
+                        )
+                    )
+
+                    # Calculate dynamic step size (1% of total range)
+                    total_range = default_max - default_min
+                    step_size = max(0.001, total_range * 0.01)  # Min step of 0.001
+
+                    # Compact single-row layout with label and side-by-side inputs
+                    col_label, col_min, col_max = st.columns([2.5, 1.25, 1.25])
+
+                    with col_label:
+                        st.markdown(f"**{ingredient_name}**")
+
+                    with col_min:
+                        min_conc = st.number_input(
+                            "Min (mM)",
+                            value=current_ranges["min"],
+                            min_value=0.0,
+                            max_value=1000.0,
+                            step=step_size,
+                            format="%.3f",
+                            key=f"min_conc_{ingredient_name}_{i}",
+                            help=f"Minimum concentration for {ingredient_name}",
+                            label_visibility="collapsed",
+                        )
+                        st.caption("Min (mM)")
+
+                    with col_max:
+                        max_conc = st.number_input(
+                            "Max (mM)",
+                            value=current_ranges["max"],
+                            min_value=min_conc,
+                            max_value=1000.0,
+                            step=step_size,
+                            format="%.3f",
+                            key=f"max_conc_{ingredient_name}_{i}",
+                            help=f"Maximum concentration for {ingredient_name}",
+                            label_visibility="collapsed",
+                        )
+                        st.caption("Max (mM)")
+
+                    # Update session state with new ranges
+                    st.session_state.ingredient_concentration_ranges[
+                        ingredient_name
+                    ] = {"min": min_conc, "max": max_conc}
+
+            # Apply changes button
+            if st.button(
+                "✅ Apply Concentration Changes",
+                type="secondary",
+                use_container_width=True,
+            ):
+                st.success("Concentration ranges updated!")
+                # Here you could update the database or configuration as needed
+        else:
+            st.warning(
+                "Please select ingredients above to configure concentration ranges."
+            )
+
+        # Mathematical mapping selector for 2-ingredient case (2D Grid)
+        if num_ingredients == 2:
+            st.markdown("### 📐 Concentration Mapping Method")
+            st.info(
+                "Configure how X-Y grid coordinates map to ingredient concentrations:"
+            )
+
+            # Initialize mapping method in session state if not exists
+            if "mapping_method" not in st.session_state:
+                st.session_state.mapping_method = "linear"
+
+            mapping_method = st.selectbox(
+                "Select mapping method:",
+                options=["linear", "logarithmic", "exponential"],
+                index=["linear", "logarithmic", "exponential"].index(
+                    st.session_state.mapping_method
+                ),
+                help="How grid positions translate to actual concentrations",
+                key="moderator_mapping_method_selector",
+            )
+
+            # Update session state
+            st.session_state.mapping_method = mapping_method
+            st.session_state.method = mapping_method  # For compatibility
+
+            # Show mapping method description
+            mapping_descriptions = {
+                "linear": "**Linear**: Equal grid steps = equal concentration steps. Good for uniform exploration.",
+                "logarithmic": "**Logarithmic**: Smaller steps at low concentrations, larger at high. Good for wide ranges.",
+                "exponential": "**Exponential**: Larger steps at low concentrations, smaller at high. Good for sensitivity analysis.",
+            }
+            st.markdown(mapping_descriptions[mapping_method])
+
         # Show current selection info
         st.info(
             f"📊 Selected: {num_ingredients} ingredients → {', '.join(selected_ingredients)}"
+            + (
+                f" | Mapping: {st.session_state.get('mapping_method', 'linear').title()}"
+                if num_ingredients == 2
+                else ""
+            )
         )
 
         # Build selected ingredients configuration
@@ -1351,60 +1507,6 @@ def moderator_interface():
         mixture = MultiComponentMixture(
             st.session_state.experiment_config["ingredients"]
         )
-
-    with col3:
-        st.markdown(
-            """
-            <div class="metric-card">
-                <h4>🧪 Current Phase</h4>
-                <p>{}</p>
-            </div>
-            """.format(
-                session_info["current_phase"].title()
-            ),
-            unsafe_allow_html=True,
-        )
-
-        # Show interface type
-        interface_type = (
-            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
-        )
-        interface_display = (
-            "2D Grid"
-            if interface_type == INTERFACE_2D_GRID
-            else f"Slider Interface ({num_ingredients} ingredients)"
-        )
-        st.info(f"Interface: {interface_display}")
-
-    # ===== SUBJECT CONNECTION & ACCESS SECTION =====
-    st.markdown("---")
-
-    # Connection status and QR code section
-    if not connection_status["subject_connected"]:
-        st.warning("⏳ Waiting for subject to join session...")
-
-        # Display QR code and session info for subject to join
-        with st.expander("📱 Share with Subject", expanded=True):
-            # Detect if we're running on Streamlit Cloud
-            try:
-                server_address = st.get_option("browser.serverAddress")
-                if server_address and "streamlit.app" in server_address:
-                    base_url = f"https://{server_address}"
-                elif st.get_option("server.headless"):
-                    # Running in cloud/headless mode, construct URL
-                    base_url = (
-                        "https://your-app.streamlit.app"  # Replace with actual URL
-                    )
-                else:
-                    base_url = "http://localhost:8501"  # Local development
-            except:
-                base_url = "http://localhost:8501"  # Fallback
-
-            display_session_qr_code(
-                st.session_state.session_code, base_url, context="waiting"
-            )
-    else:
-        st.success("✅ Subject device connected and active")
 
     # Configuration display panel
     st.markdown("### ⚙️ Current Session Configuration")
@@ -1466,98 +1568,6 @@ def moderator_interface():
             st.write(
                 f"**{ingredient_label}:** {ingredient['min_concentration']:.3f} - {ingredient['max_concentration']:.3f} mM"
             )
-
-    # Session URLs section
-    st.markdown("### 🔗 Session Access URLs")
-
-    urls_col1, urls_col2 = st.columns([1, 1])
-
-    with urls_col1:
-        try:
-            server_address = st.get_option("browser.serverAddress")
-            if server_address and "streamlit.app" in server_address:
-                base_url = f"https://{server_address}"
-            else:
-                base_url = "http://localhost:8501"
-        except:
-            base_url = "http://localhost:8501"
-
-        session_urls = generate_session_urls(st.session_state.session_code, base_url)
-
-        st.markdown("**Moderator URL:**")
-        st.code(session_urls["moderator"], language="text")
-
-    with urls_col2:
-        st.markdown("**Subject URL:**")
-        st.code(session_urls["subject"], language="text")
-
-        if st.button("📋 Copy Subject URL", key="moderator_copy_subject_url"):
-            st.success("URL copied! Share with participants.")
-
-    # Session management controls
-    st.markdown("### 🎮 Session Controls")
-
-    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
-
-    with control_col1:
-        if st.button(
-            "🔄 Reset Session",
-            help="Reset current session for selected participant",
-            use_container_width=True,
-            key="moderator_reset_session_main",
-        ):
-            if "participant" in st.session_state:
-                success = clear_participant_session(st.session_state.participant)
-                if success:
-                    st.success("✅ Session reset successfully!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to reset session")
-            else:
-                st.warning("⚠️ No participant selected")
-
-    with control_col2:
-        if st.button(
-            "🛑 End Session",
-            help="End current session for all participants",
-            use_container_width=True,
-            key="moderator_end_session_all",
-        ):
-            # Here you would implement session ending logic
-            st.warning("🚧 Session ending functionality coming soon")
-
-    with control_col3:
-        if st.button(
-            "📥 Download Data",
-            help="Export session data to CSV",
-            use_container_width=True,
-            key="moderator_download_data_main",
-        ):
-            if "participant" in st.session_state:
-                responses_df = get_participant_responses(st.session_state.participant)
-                if not responses_df.empty:
-                    csv = responses_df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "💾 Download CSV",
-                        csv,
-                        file_name=f"session_{st.session_state.session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.info("📭 No data available to download")
-            else:
-                st.warning("⚠️ No participant selected")
-
-    with control_col4:
-        stats = get_database_stats()
-        if st.button(
-            f"📊 Stats ({stats['total_responses']})",
-            help="View detailed session statistics",
-            use_container_width=True,
-            key="moderator_view_stats",
-        ):
-            st.info(f"📈 Total responses: {stats['total_responses']}")
 
     # Sidebar controls
     with st.sidebar:
@@ -1627,360 +1637,362 @@ def moderator_interface():
         st.metric("Total Responses", stats["total_responses"])
         st.metric("Participants", stats["participants_with_data"])
 
-    # Main dashboard
-    tab1, tab2, tab3 = st.tabs(["🎮 Control Panel", "📊 Live Monitor", "📈 Analytics"])
-
-    with tab1:
-        col1, col2 = st.columns([1, 1])
-
-        with col1:
-            st.markdown("### 🚀 Start New Trial")
-
-            # Multi-component mixture configuration
-            st.markdown("#### 🧪 Ingredient Configuration")
-
-            # Number of ingredients selection
-            num_ingredients = st.selectbox(
-                "Number of ingredients:",
-                [2, 3, 4, 5, 6],
-                help="Select number of ingredients in the mixture (2 = 2D grid, 3+ = sliders)",
-                key="moderator_num_ingredients_selector",
-            )
-
-            # Initialize experiment configuration in session state
-            if "experiment_config" not in st.session_state:
-                st.session_state.experiment_config = {
-                    "num_ingredients": 2,
-                    "ingredients": DEFAULT_INGREDIENT_CONFIG[:2],
-                }
-
-            # Update configuration when number changes
-            if num_ingredients != st.session_state.experiment_config["num_ingredients"]:
-                st.session_state.experiment_config["num_ingredients"] = num_ingredients
-                st.session_state.experiment_config["ingredients"] = (
-                    DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
-                )
-
-            # Create mixture handler
-            mixture = MultiComponentMixture(
-                st.session_state.experiment_config["ingredients"]
-            )
-            interface_type = mixture.get_interface_type()
-
-            # Show interface type
-            interface_info = {
-                INTERFACE_2D_GRID: "🎯 2D Grid Interface (X-Y coordinates)",
-                INTERFACE_SLIDERS: "🎛️ Slider Interface (Independent concentrations)",
-            }
-            st.info(f"Interface: {interface_info[interface_type]}")
-
-            # Ingredient concentration ranges (for moderator only)
-            with st.expander("⚙️ Concentration Ranges (Advanced)", expanded=False):
-                st.write("**Concentration ranges for solution preparation:**")
-                for i, ingredient in enumerate(
-                    st.session_state.experiment_config["ingredients"]
-                ):
-                    st.write(
-                        f"**{ingredient['name']}:** {ingredient['min_concentration']:.3f} - {ingredient['max_concentration']:.3f} mM"
-                    )
-
-            # Method selection (only for 2D grid)
-            if interface_type == INTERFACE_2D_GRID:
-                method = st.selectbox(
-                    "🧮 Mapping Method:",
-                    ["linear", "logarithmic", "exponential"],
-                    help="Choose how coordinates map to concentrations",
-                    key="moderator_mapping_method_selector",
-                )
-
-                # Method explanation
-                method_info = {
-                    "linear": "📈 Direct proportional mapping",
-                    "logarithmic": "📊 Logarithmic scale mapping",
-                    "exponential": "📉 Exponential scale mapping",
-                }
-                st.info(method_info[method])
-            else:
-                method = "slider_based"
-                st.info("🎛️ Slider-based concentration control")
-
-            # Start trial button
-            if st.button(
-                "🚀 Start Trial",
-                type="primary",
-                use_container_width=True,
-                key="moderator_start_trial_button",
-            ):
-                num_ingredients = st.session_state.experiment_config["num_ingredients"]
-                success = start_trial(
-                    "mod", st.session_state.participant, method, num_ingredients
-                )
-                if success:
-                    clear_canvas_state()  # Clear any previous canvas state
-                    st.success(f"✅ Trial started for {st.session_state.participant}")
-                    time.sleep(1)
-                    st.rerun()
-
-        with col2:
-            st.markdown("### ⚙️ Session Management")
-
-            # Current participant info
-            mod_settings = get_moderator_settings(st.session_state.participant)
-            if mod_settings:
-                st.markdown(
-                    f"""
-                <div class="success-card">
-                    <h4>✅ Active Session</h4>
-                    <p><strong>Method:</strong> {mod_settings['method']}</p>
-                    <p><strong>Start Position:</strong> ({mod_settings['x_position']:.0f}, {mod_settings['y_position']:.0f})</p>
-                    <p><strong>Started:</strong> {mod_settings['created_at']}</p>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    """
-                <div class="warning-card">
-                    <h4>⏳ No Active Session</h4>
-                    <p>Start a new trial to activate this participant.</p>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-            # Reset session
-            if st.button(
-                "🔄 Reset Session",
-                use_container_width=True,
-                key="moderator_reset_session_sidebar",
-            ):
-                success = clear_participant_session(st.session_state.participant)
-                if success:
-                    st.success("Session reset successfully!")
-                    time.sleep(1)
-                    st.rerun()
-
     with tab2:
-        st.markdown("### 📡 Real-time Monitoring")
+        st.markdown("### 📊 Live Monitor")
 
-        # Get live or latest submitted response
-        current_response = get_live_subject_position(st.session_state.participant)
+        # Connection status indicator
+        connection_status = get_connection_status(st.session_state.session_code)
+        if connection_status.get("subject_connected", False):
+            st.success("🟢 Subject Connected - Monitoring Active")
+        else:
+            st.warning("🟡 Waiting for Subject Connection")
 
-        col1, col2 = st.columns([2, 1])
+        # Real-time recipe display
+        st.markdown("#### 🧪 Current Recipe/Formula")
+
+        # Get latest subject position/selections
+        live_position = get_live_subject_position(st.session_state.participant)
+
+        if live_position:
+            # Display current recipe based on interface type
+            experiment_config = st.session_state.get("experiment_config", {})
+            num_ingredients = experiment_config.get("num_ingredients", 2)
+
+            if num_ingredients == 2:
+                # 2D Grid interface - show X,Y coordinates and concentrations
+                st.markdown(
+                    f"**Position:** X: {live_position.get('x', 0):.1f}, Y: {live_position.get('y', 0):.1f}"
+                )
+
+                # Calculate concentrations from position
+                try:
+                    from callback import ConcentrationMapper
+
+                    mapper = ConcentrationMapper(live_position.get("method", "linear"))
+                    sugar_conc, salt_conc = mapper.calculate_concentrations(
+                        live_position.get("x", 0), live_position.get("y", 0)
+                    )
+                    st.markdown(
+                        f"**Current Recipe:** Sugar: {sugar_conc:.2f} mM, Salt: {salt_conc:.2f} mM"
+                    )
+                except Exception as e:
+                    st.error(f"Error calculating concentrations: {e}")
+
+            else:
+                # Multi-ingredient slider interface
+                if live_position.get("ingredient_concentrations"):
+                    concentrations = live_position["ingredient_concentrations"]
+                    recipe_parts = []
+                    for ingredient, conc in concentrations.items():
+                        recipe_parts.append(f"{ingredient}: {conc:.2f} mM")
+                    st.markdown(f"**Current Recipe:** {', '.join(recipe_parts)}")
+                else:
+                    st.info("No ingredient selections made yet")
+
+            # Show last update time
+            if live_position.get("last_updated"):
+                st.caption(f"Last updated: {live_position['last_updated']}")
+
+        else:
+            st.info(
+                "No current position data available - subject has not made selections yet"
+            )
+
+        # Real-time updates section
+        st.markdown("#### 📈 Subject Progress")
+
+        col1, col2, col3 = st.columns(3)
 
         with col1:
-            if current_response:
-                # is_submitted = current_response.get("is_submitted", False)
-                status_text = "🎯 Live Subject Position"
-                st.markdown(f"#### {status_text}")
-
-                # Create exact replica of subject's grid
-                # Get moderator settings to match the initial drawing
-                mod_settings = get_moderator_settings(st.session_state.participant)
-                if mod_settings:
-                    # Create the same canvas as subject sees (no selection history for monitoring)
-                    initial_drawing = create_canvas_drawing(
-                        current_response["x_position"], current_response["y_position"]
-                    )
-
-                    # Display read-only version of subject's canvas
-                    st.markdown(
-                        '<div class="canvas-container">', unsafe_allow_html=True
-                    )
-                    st_canvas(
-                        fill_color="#EF4444",
-                        stroke_width=3,
-                        stroke_color="#DC2626",
-                        background_color="white",
-                        update_streamlit=False,  # Make it truly read-only
-                        height=CANVAS_SIZE,
-                        width=CANVAS_SIZE,
-                        drawing_mode="transform",  # Disable drawing
-                        initial_drawing=initial_drawing,
-                        key=f"monitoring_canvas_{st.session_state.participant}_{hash(str(current_response))}",
-                    )
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                    # Show status
-                    # if is_submitted:
-                    #     st.success("✅ Response submitted and recorded")
-                    # else:
-                    #     st.info("🔄 Subject is currently positioning...")
-
-                else:
-                    st.info("🔍 No active session to monitor.")
-
-            else:
-                st.info("🔍 No participant activity detected yet.")
+            # Total responses count
+            responses = get_participant_responses(st.session_state.participant)
+            total_responses = (
+                len(responses) if responses is not None and len(responses) > 0 else 0
+            )
+            st.metric("Total Responses", total_responses)
 
         with col2:
-            if current_response:
-                st.markdown("#### 📊 Live Metrics")
+            # Current session duration
+            session_info = get_session_info(st.session_state.session_code)
+            if session_info:
+                from datetime import datetime
 
-                # Position metrics
-                st.metric("X Position", f"{current_response['x_position']:.0f}")
-                st.metric("Y Position", f"{current_response['y_position']:.0f}")
+                try:
+                    start_time = datetime.fromisoformat(session_info["created_at"])
+                    duration = datetime.now() - start_time
+                    duration_minutes = duration.total_seconds() / 60
+                    st.metric("Session Duration", f"{duration_minutes:.1f} min")
+                except:
+                    st.metric("Session Duration", "N/A")
 
-                # If this is a submitted response, show concentration data
-                if current_response.get("is_submitted", False):
-                    # Get concentration data from the response record
-                    latest_submitted = get_latest_submitted_response(
-                        st.session_state.participant
-                    )
-                    if latest_submitted:
-                        st.metric(
-                            "🍯 Sugar",
-                            f"{latest_submitted['sugar_concentration']:.2f} mM",
-                        )
-                        st.metric(
-                            "🧂 Salt",
-                            f"{latest_submitted['salt_concentration']:.2f} mM",
-                        )
+        with col3:
+            # Connection status
+            status_text = (
+                "Connected"
+                if connection_status.get("subject_connected", False)
+                else "Disconnected"
+            )
+            st.metric("Connection Status", status_text)
 
-                        # Solution prep info
-                        st.markdown("##### 🧪 Solution Prep")
-                        sugar_g = (
-                            (latest_submitted["sugar_concentration"] / 1000.0)
-                            * 342.3
-                            * 0.1
-                        )
-                        salt_g = (
-                            (latest_submitted["salt_concentration"] / 1000.0)
-                            * 58.44
-                            * 0.1
-                        )
-                        st.caption(f"Sugar: {sugar_g:.4f}g/100ml")
-                        st.caption(f"Salt: {salt_g:.4f}g/100ml")
+        # Auto-refresh control
+        auto_refresh = st.checkbox(
+            "🔄 Auto-refresh (every 3 seconds)",
+            value=True,
+            key="live_monitor_auto_refresh",
+        )
 
-                        if latest_submitted["reaction_time_ms"]:
-                            st.metric(
-                                "⏱️ Reaction Time",
-                                f"{latest_submitted['reaction_time_ms']} ms",
-                            )
+        if auto_refresh:
+            # Add auto-refresh placeholder
+            import time
 
-                else:
-                    # For live positioning, calculate concentrations
-                    mod_settings = get_moderator_settings(st.session_state.participant)
-                    if mod_settings:
-                        conc_info = get_concentration_display(
-                            current_response["x_position"],
-                            current_response["y_position"],
-                            mod_settings["method"],
-                        )
-
-                        if "error" not in conc_info:
-                            st.metric("🍯 Sugar", f"{conc_info['sugar_mm']:.2f} mM")
-                            st.metric("🧂 Salt", f"{conc_info['salt_mm']:.2f} mM")
-
-                            # Also show masses for solution preparation
-                            st.markdown("##### 🧪 Solution Prep")
-                            st.caption(
-                                f"Sugar: {conc_info['sugar_g_per_100ml']:.4f}g/100ml"
-                            )
-                            st.caption(
-                                f"Salt: {conc_info['salt_g_per_100ml']:.4f}g/100ml"
-                            )
-
-                st.caption(f"Last update: {current_response['created_at']}")
-            else:
-                st.write("Waiting for participant data...")
-
-        # Auto-refresh disabled to prevent blank screen issues
-        # User can manually refresh using browser or button controls
-        # if st.session_state.auto_refresh:
-        #     time.sleep(2)
-        #     st.rerun()
+            time.sleep(0.1)  # Small delay to prevent too aggressive refreshing
+            st.rerun()
 
     with tab3:
-        st.markdown("### 📈 Response Analytics")
+        st.markdown("### 📈 Analytics")
 
-        # Debug: Check database directly
-        with st.expander("🔍 Debug Database"):
-            if st.button(
-                "Check Responses Table", key="moderator_check_responses_debug"
-            ):
-                responses_df = get_participant_responses(st.session_state.participant)
-                st.write(
-                    f"Found {len(responses_df)} responses for {st.session_state.participant}"
-                )
-                if not responses_df.empty:
-                    st.dataframe(responses_df)
+        # Session metadata section
+        st.markdown("#### 📋 Session Metadata")
+
+        session_info = get_session_info(st.session_state.session_code)
+        responses = get_participant_responses(st.session_state.participant)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Basic session stats
+            total_responses = (
+                len(responses) if responses is not None and len(responses) > 0 else 0
+            )
+            st.metric("Total Responses", total_responses)
+
+            if session_info:
+                from datetime import datetime
+
+                try:
+                    start_time = datetime.fromisoformat(session_info["created_at"])
+                    duration = datetime.now() - start_time
+                    duration_minutes = duration.total_seconds() / 60
+                    st.metric("Session Duration", f"{duration_minutes:.1f} min")
+                    st.metric("Start Time", start_time.strftime("%Y-%m-%d %H:%M:%S"))
+                except:
+                    st.metric("Session Duration", "N/A")
+                    st.metric("Start Time", "N/A")
+
+        with col2:
+            # Connection and progress
+            connection_status = get_connection_status(st.session_state.session_code)
+            status_text = (
+                "Connected"
+                if connection_status.get("subject_connected", False)
+                else "Disconnected"
+            )
+            st.metric("Subject Status", status_text)
+
+            # Calculate current vs total progress (if we had target responses)
+            target_responses = 10  # Default target
+            progress_pct = min(100, (total_responses / target_responses) * 100)
+            st.metric("Progress", f"{progress_pct:.1f}%")
+
+        # Debug tools section
+        st.markdown("#### 🛠️ Debug Tools")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("📊 Show Database Responses", use_container_width=True):
+                if responses is not None and len(responses) > 0:
+                    st.markdown("**Raw Database Responses:**")
+                    import pandas as pd
+
+                    st.dataframe(pd.DataFrame(responses))
                 else:
-                    st.write("No responses found in database")
+                    st.info("No responses found in database")
 
-                # Also check all participants
-                all_participants = get_all_participants()
-                st.write(f"All participants in database: {all_participants}")
+        with col2:
+            if st.button("💾 Export Session Data", use_container_width=True):
+                if responses is not None and len(responses) > 0:
+                    # Create export data
+                    export_data = {
+                        "session_info": session_info,
+                        "responses": responses,
+                        "export_timestamp": datetime.now().isoformat(),
+                    }
+                    import pandas as pd
 
-        # Get response history
-        responses_df = get_participant_responses(st.session_state.participant, limit=50)
+                    st.download_button(
+                        "⬇️ Download JSON",
+                        data=pd.json_normalize(export_data).to_json(orient="records"),
+                        file_name=f"session_{st.session_state.session_code}_data.json",
+                        mime="application/json",
+                    )
+                else:
+                    st.warning("No data to export")
 
-        if not responses_df.empty:
-            col1, col2 = st.columns(2)
+        with col3:
+            if st.button("🗑️ Clear Session Data", use_container_width=True):
+                # Confirmation dialog
+                if st.session_state.get("confirm_clear_data", False):
+                    clear_participant_session(st.session_state.participant)
+                    st.success("Session data cleared!")
+                    st.session_state.confirm_clear_data = False
+                    st.rerun()
+                else:
+                    st.session_state.confirm_clear_data = True
+                    st.warning("⚠️ Click again to confirm data deletion")
 
-            with col1:
-                st.markdown("#### 📊 Response Summary")
-                st.dataframe(
-                    responses_df[
-                        [
-                            "x_position",
-                            "y_position",
-                            "sugar_concentration",
-                            "salt_concentration",
-                            "method",
-                            "created_at",
-                        ]
-                    ].head(10),
-                    use_container_width=True,
+    with tab4:
+        st.markdown("### ⚙️ Settings")
+
+        # Session controls section
+        st.markdown("#### 🎮 Session Controls")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button(
+                "🔄 Restart Session", use_container_width=True, type="secondary"
+            ):
+                # Reset subject to beginning phase
+                if st.session_state.get("confirm_restart", False):
+                    clear_participant_session(st.session_state.participant)
+                    # Reset session state
+                    if hasattr(st.session_state, "phase"):
+                        st.session_state.phase = "welcome"
+                    st.success(
+                        "Session restarted! Subject will begin from welcome phase."
+                    )
+                    st.session_state.confirm_restart = False
+                    st.rerun()
+                else:
+                    st.session_state.confirm_restart = True
+                    st.warning("⚠️ Click again to confirm session restart")
+
+            if st.button(
+                "🔀 Reset Random Start", use_container_width=True, type="secondary"
+            ):
+                # Generate new random starting positions
+                try:
+                    from callback import start_trial
+
+                    success = start_trial(
+                        st.session_state.participant,
+                        method=st.session_state.get("method", "linear"),
+                        reset_random=True,
+                    )
+                    if success:
+                        st.success("New random starting positions generated!")
+                    else:
+                        st.error("Failed to generate new random positions")
+                except Exception as e:
+                    st.error(f"Error generating random positions: {e}")
+
+        with col2:
+            if st.button("⛔ End Session", use_container_width=True, type="primary"):
+                # End session gracefully
+                if st.session_state.get("confirm_end", False):
+                    from session_manager import end_session
+
+                    if end_session(st.session_state.session_code):
+                        st.success("Session ended successfully!")
+                        st.session_state.session_code = None
+                        st.session_state.device_role = None
+                        st.query_params.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Failed to end session")
+                    st.session_state.confirm_end = False
+                else:
+                    st.session_state.confirm_end = True
+                    st.warning("⚠️ Click again to confirm session end")
+
+        # Configuration controls section
+        st.markdown("#### ⚙️ Configuration Controls")
+
+        # Random start toggle
+        enable_random_start = st.checkbox(
+            "🎲 Enable Random Start Positions",
+            value=st.session_state.get("enable_random_start", True),
+            help="When enabled, subjects start with random positions instead of center",
+        )
+        st.session_state.enable_random_start = enable_random_start
+
+        # Interface method selection (for 2D grid)
+        if st.session_state.get("experiment_config", {}).get("num_ingredients", 2) == 2:
+            mapping_method = st.selectbox(
+                "📐 Concentration Mapping Method",
+                options=["linear", "logarithmic", "exponential"],
+                index=["linear", "logarithmic", "exponential"].index(
+                    st.session_state.get("method", "linear")
+                ),
+                help="Method for mapping X,Y coordinates to concentrations",
+            )
+            st.session_state.method = mapping_method
+
+        # Modify ingredient ranges mid-session
+        st.markdown("#### 🧪 Mid-Session Range Modification")
+
+        if st.session_state.get("selected_ingredients"):
+            st.info("Modify concentration ranges for active experiment:")
+
+            for ingredient_name in st.session_state.selected_ingredients:
+                current_ranges = st.session_state.ingredient_concentration_ranges.get(
+                    ingredient_name, {"min": 0.0, "max": 100.0}
                 )
 
-                # Download data
-                csv = responses_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "📥 Download All Data",
-                    csv,
-                    file_name=f"responses_{st.session_state.participant}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                )
+                col_name, col_min, col_max = st.columns([2, 1, 1])
 
-            with col2:
-                st.markdown("#### 📈 Response Patterns")
+                with col_name:
+                    st.write(f"**{ingredient_name}**")
 
-                # Position scatter plot
-                if len(responses_df) > 1:
-                    fig = px.scatter(
-                        responses_df,
-                        x="x_position",
-                        y="y_position",
-                        color="method",
-                        title="Response Positions Over Time",
-                        hover_data=["sugar_concentration", "salt_concentration"],
+                with col_min:
+                    # Calculate dynamic step size for settings too
+                    ingredient_config = next(
+                        (
+                            ing
+                            for ing in DEFAULT_INGREDIENT_CONFIG
+                            if ing["name"] == ingredient_name
+                        ),
+                        None,
                     )
-                    fig.update_layout(height=400)
-                    st.plotly_chart(fig, use_container_width=True)
+                    if ingredient_config:
+                        total_range = ingredient_config.get(
+                            "max_concentration", 100.0
+                        ) - ingredient_config.get("min_concentration", 0.0)
+                        step_size = max(0.001, total_range * 0.01)
+                    else:
+                        step_size = 0.1
 
-                # Stats
-                st.markdown("#### 📊 Statistics")
-                col2a, col2b = st.columns(2)
-                with col2a:
-                    st.metric("Total Responses", len(responses_df))
-                    st.metric(
-                        "Avg Sugar (mM)",
-                        f"{responses_df['sugar_concentration'].mean():.2f}",
+                    new_min = st.number_input(
+                        "Min",
+                        value=current_ranges["min"],
+                        min_value=0.0,
+                        step=step_size,
+                        format="%.3f",
+                        key=f"settings_min_{ingredient_name}",
                     )
-                with col2b:
-                    if "reaction_time_ms" in responses_df.columns:
-                        st.metric(
-                            "Avg RT (ms)",
-                            f"{responses_df['reaction_time_ms'].mean():.0f}",
-                        )
-                    st.metric(
-                        "Avg Salt (mM)",
-                        f"{responses_df['salt_concentration'].mean():.2f}",
+
+                with col_max:
+                    new_max = st.number_input(
+                        "Max",
+                        value=current_ranges["max"],
+                        min_value=new_min,
+                        step=step_size,
+                        format="%.3f",
+                        key=f"settings_max_{ingredient_name}",
                     )
+
+                # Update ranges
+                st.session_state.ingredient_concentration_ranges[ingredient_name] = {
+                    "min": new_min,
+                    "max": new_max,
+                }
+
+            if st.button("✅ Apply Range Changes", use_container_width=True):
+                st.success("Concentration ranges updated for active session!")
         else:
-            st.info("📭 No response data available for this participant yet.")
+            st.warning("No active experiment configuration found")
 
 
 def landing_page():
