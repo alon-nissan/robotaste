@@ -711,14 +711,17 @@ def finish_trial(
         )
         st.write(f"DEBUG: Concentrations - sugar: {sugar_mm}, salt: {salt_mm}")
 
+        # Create ingredient concentrations dictionary
+        ingredient_concentrations = {
+            "Sugar": sugar_mm,
+            "Salt": salt_mm
+        }
+
         # Save final response to responses table
         success = save_response(
             participant_id=participant_id,
-            x=x,
-            y=y,
             method=method,
-            sugar_conc=sugar_mm,
-            salt_conc=salt_mm,
+            ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
             is_final=True,  # Mark as final response
         )
@@ -766,13 +769,16 @@ def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
                 (time.perf_counter() - st.session_state.trial_start_time) * 1000
             )
 
+        # Create ingredient concentrations dictionary
+        ingredient_concentrations = {
+            "Sugar": sugar_mm,
+            "Salt": salt_mm
+        }
+
         return save_response(
             participant_id=participant_id,
-            x=x,
-            y=y,
             method=method,
-            sugar_conc=sugar_mm,
-            salt_conc=salt_mm,
+            ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
             is_final=False,
         )

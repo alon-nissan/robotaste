@@ -142,12 +142,7 @@ def init_database() -> bool:
                     x_position REAL,
                     y_position REAL,
                     method TEXT NOT NULL,
-                    ingredient_1_conc REAL,
-                    ingredient_2_conc REAL,
-                    ingredient_3_conc REAL,
-                    ingredient_4_conc REAL,
-                    ingredient_5_conc REAL,
-                    ingredient_6_conc REAL,
+                    ingredient_data TEXT,  -- JSON storage for ALL ingredient concentrations
                     reaction_time_ms INTEGER,
                     questionnaire_response TEXT,
                     is_final_response BOOLEAN DEFAULT 0,
@@ -182,18 +177,8 @@ def init_database() -> bool:
                     participant_id TEXT NOT NULL,
                     interface_type TEXT DEFAULT 'slider_based',
                     num_ingredients INTEGER NOT NULL,
-                    ingredient_1_initial REAL,
-                    ingredient_2_initial REAL,
-                    ingredient_3_initial REAL,
-                    ingredient_4_initial REAL,
-                    ingredient_5_initial REAL,
-                    ingredient_6_initial REAL,
-                    ingredient_1_percent REAL,
-                    ingredient_2_percent REAL,
-                    ingredient_3_percent REAL,
-                    ingredient_4_percent REAL,
-                    ingredient_5_percent REAL,
-                    ingredient_6_percent REAL,
+                    initial_values TEXT,  -- JSON storage for initial slider values
+                    percent_values TEXT,  -- JSON storage for percentage values
                     extra_data TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(session_id, participant_id)
@@ -231,12 +216,7 @@ def init_database() -> bool:
                     r.participant_id,
                     r.interface_type,
                     r.method,
-                    r.ingredient_1_conc,
-                    r.ingredient_2_conc,
-                    r.ingredient_3_conc,
-                    r.ingredient_4_conc,
-                    r.ingredient_5_conc,
-                    r.ingredient_6_conc,
+                    r.ingredient_data,  -- JSON storage containing all concentrations
                     r.is_final_response,
                     r.questionnaire_response,
                     r.created_at as last_update,
@@ -253,12 +233,7 @@ def init_database() -> bool:
                     participant_id,
                     interface_type,
                     method,
-                    ingredient_1_conc,
-                    ingredient_2_conc,
-                    ingredient_3_conc,
-                    ingredient_4_conc,
-                    ingredient_5_conc,
-                    ingredient_6_conc,
+                    ingredient_data,  -- JSON storage containing all concentrations
                     is_final_response,
                     questionnaire_response,
                     last_update,
@@ -283,26 +258,26 @@ def init_database() -> bool:
 
 
 def _migrate_database(cursor) -> None:
-    """Handle database migrations for schema updates."""
+    """Handle database migrations for schema updates - Moving to JSON-only storage."""
+    import json
     try:
-        # Check if we need to migrate responses table to new multi-ingredient schema
+        # Check current responses table structure
         cursor.execute("PRAGMA table_info(responses)")
         columns = [column[1] for column in cursor.fetchall()]
 
-        # Check if new multi-ingredient columns exist
-        new_columns_needed = [
-            'session_id', 'selection_number', 'interface_type',
+        # Check if we still have hardcoded ingredient columns (need to eliminate)
+        hardcoded_ingredient_columns = [
+            'sugar_concentration', 'salt_concentration',
             'ingredient_1_conc', 'ingredient_2_conc', 'ingredient_3_conc',
-            'ingredient_4_conc', 'ingredient_5_conc', 'ingredient_6_conc',
-            'questionnaire_response', 'is_final_response'
+            'ingredient_4_conc', 'ingredient_5_conc', 'ingredient_6_conc'
         ]
 
-        missing_columns = [col for col in new_columns_needed if col not in columns]
+        has_hardcoded_columns = any(col in columns for col in hardcoded_ingredient_columns)
 
-        if missing_columns:
-            logger.info("Migrating responses table to support multi-ingredient schema")
+        if has_hardcoded_columns:
+            logger.info("Migrating responses table to JSON-only storage (eliminating hardcoded ingredient columns)")
 
-            # Create new responses table with updated schema
+            # Create new generic responses table with JSON storage only
             cursor.execute("""
                 CREATE TABLE responses_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -310,15 +285,10 @@ def _migrate_database(cursor) -> None:
                     selection_number INTEGER,
                     participant_id TEXT NOT NULL,
                     interface_type TEXT DEFAULT 'grid_2d',
+                    method TEXT NOT NULL,
                     x_position REAL,
                     y_position REAL,
-                    method TEXT NOT NULL,
-                    ingredient_1_conc REAL,
-                    ingredient_2_conc REAL,
-                    ingredient_3_conc REAL,
-                    ingredient_4_conc REAL,
-                    ingredient_5_conc REAL,
-                    ingredient_6_conc REAL,
+                    ingredient_data TEXT,  -- JSON storage for ALL ingredient concentrations
                     reaction_time_ms INTEGER,
                     questionnaire_response TEXT,
                     is_final_response BOOLEAN DEFAULT 0,
@@ -327,32 +297,143 @@ def _migrate_database(cursor) -> None:
                 )
             """)
 
-            # Migrate existing data, mapping sugar/salt to ingredient_1/ingredient_2
-            if 'sugar_concentration' in columns and 'salt_concentration' in columns:
+            # Migrate existing data to JSON format
+
+            # Get all existing data
+            cursor.execute("SELECT * FROM responses")
+            existing_data = cursor.fetchall()
+
+            for row in existing_data:
+                # Convert row to dict for easier access
+                row_dict = dict(row)
+
+                # Build ingredient data JSON
+                ingredient_data = {}
+
+                # Handle legacy sugar/salt columns
+                if 'sugar_concentration' in columns and row_dict.get('sugar_concentration'):
+                    ingredient_data['Sugar'] = row_dict['sugar_concentration']
+                if 'salt_concentration' in columns and row_dict.get('salt_concentration'):
+                    ingredient_data['Salt'] = row_dict['salt_concentration']
+
+                # Handle ingredient_X_conc columns
+                for i in range(1, 7):
+                    col_name = f'ingredient_{i}_conc'
+                    if col_name in columns and row_dict.get(col_name):
+                        ingredient_data[f'Ingredient_{i}'] = row_dict[col_name]
+
+                # Convert to JSON
+                ingredient_data_json = json.dumps(ingredient_data) if ingredient_data else None
+
+                # Insert into new table
                 cursor.execute("""
                     INSERT INTO responses_new
-                    (id, participant_id, interface_type, x_position, y_position, method,
-                     ingredient_1_conc, ingredient_2_conc, reaction_time_ms,
-                     is_final_response, extra_data, created_at)
-                    SELECT id, participant_id, 'grid_2d', x_position, y_position, method,
-                           sugar_concentration, salt_concentration, reaction_time_ms,
-                           COALESCE(is_final, 0), extra_data, created_at
-                    FROM responses
-                """)
-            else:
-                # Migrate what we can
-                cursor.execute("""
-                    INSERT INTO responses_new
-                    (id, participant_id, interface_type, x_position, y_position, method,
-                     reaction_time_ms, is_final_response, extra_data, created_at)
-                    SELECT id, participant_id, 'grid_2d', x_position, y_position, method,
-                           reaction_time_ms, 0, extra_data, created_at
-                    FROM responses
-                """)
+                    (id, session_id, selection_number, participant_id, interface_type,
+                     method, x_position, y_position, ingredient_data,
+                     reaction_time_ms, questionnaire_response, is_final_response,
+                     extra_data, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row_dict.get('id'),
+                    row_dict.get('session_id'),
+                    row_dict.get('selection_number'),
+                    row_dict.get('participant_id'),
+                    row_dict.get('interface_type', 'grid_2d'),
+                    row_dict.get('method'),
+                    row_dict.get('x_position'),
+                    row_dict.get('y_position'),
+                    ingredient_data_json,
+                    row_dict.get('reaction_time_ms'),
+                    row_dict.get('questionnaire_response'),
+                    row_dict.get('is_final_response', 0),
+                    row_dict.get('extra_data'),
+                    row_dict.get('created_at')
+                ))
 
             # Replace old table
             cursor.execute("DROP TABLE responses")
             cursor.execute("ALTER TABLE responses_new RENAME TO responses")
+            logger.info("Successfully migrated responses table to JSON-only storage")
+
+        # Also migrate initial_slider_positions table
+        cursor.execute("PRAGMA table_info(initial_slider_positions)")
+        slider_columns = [column[1] for column in cursor.fetchall()]
+
+        slider_hardcoded_columns = [
+            'ingredient_1_initial', 'ingredient_2_initial', 'ingredient_3_initial',
+            'ingredient_4_initial', 'ingredient_5_initial', 'ingredient_6_initial',
+            'ingredient_1_percent', 'ingredient_2_percent', 'ingredient_3_percent',
+            'ingredient_4_percent', 'ingredient_5_percent', 'ingredient_6_percent'
+        ]
+
+        has_slider_hardcoded = any(col in slider_columns for col in slider_hardcoded_columns)
+
+        if has_slider_hardcoded:
+            logger.info("Migrating initial_slider_positions table to JSON-only storage")
+
+            # Create new slider positions table
+            cursor.execute("""
+                CREATE TABLE initial_slider_positions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    participant_id TEXT NOT NULL,
+                    interface_type TEXT DEFAULT 'slider_based',
+                    num_ingredients INTEGER NOT NULL,
+                    initial_values TEXT,  -- JSON storage for initial slider values
+                    percent_values TEXT,  -- JSON storage for percentage values
+                    extra_data TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(session_id, participant_id)
+                )
+            """)
+
+            # Migrate existing slider data
+            cursor.execute("SELECT * FROM initial_slider_positions")
+            slider_rows = cursor.fetchall()
+
+            cursor.execute("PRAGMA table_info(initial_slider_positions)")
+            slider_col_info = cursor.fetchall()
+            slider_column_names = [col[1] for col in slider_col_info]
+
+            for row in slider_rows:
+                row_dict = dict(zip(slider_column_names, row))
+
+                # Build initial values JSON
+                initial_values = {}
+                percent_values = {}
+
+                for i in range(1, 7):
+                    initial_col = f'ingredient_{i}_initial'
+                    percent_col = f'ingredient_{i}_percent'
+
+                    if initial_col in row_dict and row_dict[initial_col] is not None:
+                        initial_values[f'ingredient_{i}'] = row_dict[initial_col]
+
+                    if percent_col in row_dict and row_dict[percent_col] is not None:
+                        percent_values[f'ingredient_{i}'] = row_dict[percent_col]
+
+                # Insert into new table
+                cursor.execute("""
+                    INSERT INTO initial_slider_positions_new (
+                        session_id, participant_id, interface_type, num_ingredients,
+                        initial_values, percent_values, extra_data, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row_dict.get('session_id'),
+                    row_dict.get('participant_id'),
+                    row_dict.get('interface_type', 'slider_based'),
+                    row_dict.get('num_ingredients'),
+                    json.dumps(initial_values),
+                    json.dumps(percent_values),
+                    row_dict.get('extra_data'),
+                    row_dict.get('created_at')
+                ))
+
+            # Drop old table and rename new one
+            cursor.execute("DROP TABLE initial_slider_positions")
+            cursor.execute("ALTER TABLE initial_slider_positions_new RENAME TO initial_slider_positions")
+
+            logger.info("Successfully migrated initial_slider_positions table to JSON-only storage")
 
         if 'extra_data' not in columns:
             logger.info("Adding extra_data column to responses table")
@@ -407,6 +488,9 @@ def _migrate_database(cursor) -> None:
         # Update views if they need questionnaire_response column
         cursor.execute("DROP VIEW IF EXISTS live_slider_monitoring")
         cursor.execute("DROP VIEW IF EXISTS current_slider_positions")
+        cursor.execute("DROP VIEW IF EXISTS ingredients_parsed")
+        cursor.execute("DROP VIEW IF EXISTS current_ingredient_state")
+        cursor.execute("DROP VIEW IF EXISTS latest_recipes")
 
         # Recreate views with updated schema
         cursor.execute("""
@@ -416,12 +500,7 @@ def _migrate_database(cursor) -> None:
                 r.participant_id,
                 r.interface_type,
                 r.method,
-                r.ingredient_1_conc,
-                r.ingredient_2_conc,
-                r.ingredient_3_conc,
-                r.ingredient_4_conc,
-                r.ingredient_5_conc,
-                r.ingredient_6_conc,
+                r.ingredient_data,  -- JSON storage containing all concentrations
                 r.is_final_response,
                 r.questionnaire_response,
                 r.created_at as last_update,
@@ -438,12 +517,7 @@ def _migrate_database(cursor) -> None:
                 participant_id,
                 interface_type,
                 method,
-                ingredient_1_conc,
-                ingredient_2_conc,
-                ingredient_3_conc,
-                ingredient_4_conc,
-                ingredient_5_conc,
-                ingredient_6_conc,
+                ingredient_data,  -- JSON storage containing all concentrations
                 is_final_response,
                 questionnaire_response,
                 last_update,
@@ -484,16 +558,18 @@ def is_participant_activated(participant_id: str) -> bool:
 
 
 def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest moderator settings for a participant."""
+    """Get the latest moderator settings for a participant (JSON-based)."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
+
+            # First try to get settings from responses table (more recent)
             cursor.execute(
                 """
-                SELECT method, x_position, y_position, num_ingredients, created_at
-                FROM session_state 
-                WHERE participant_id = ? AND user_type = 'mod'
-                ORDER BY created_at DESC 
+                SELECT method, interface_type, created_at
+                FROM responses
+                WHERE participant_id = ?
+                ORDER BY created_at DESC
                 LIMIT 1
             """,
                 (participant_id,),
@@ -503,11 +579,32 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
             if row:
                 return {
                     "method": row["method"],
-                    "x_position": row["x_position"],
-                    "y_position": row["y_position"],
-                    "num_ingredients": row["num_ingredients"],
+                    "interface_type": row["interface_type"] or "grid_2d",
+                    "num_ingredients": 2,  # Default for backward compatibility
                     "created_at": row["created_at"],
                 }
+
+            # Fallback to session_state table if no responses found
+            cursor.execute(
+                """
+                SELECT method, created_at
+                FROM session_state
+                WHERE participant_id = ? AND user_type = 'mod'
+                ORDER BY created_at DESC
+                LIMIT 1
+            """,
+                (participant_id,),
+            )
+
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "method": row["method"],
+                    "interface_type": "grid_2d",  # Default for legacy data
+                    "num_ingredients": 2,  # Default for backward compatibility
+                    "created_at": row["created_at"],
+                }
+
             return None
 
     except Exception as e:
@@ -516,17 +613,16 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest submitted response from the responses table."""
+    """Get the latest submitted response from the responses table (JSON-based)."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT x_position, y_position, method, created_at,
-                       sugar_concentration, salt_concentration, reaction_time_ms
-                FROM responses 
-                WHERE participant_id = ?
-                ORDER BY created_at DESC 
+                SELECT method, created_at, ingredient_data, reaction_time_ms, interface_type
+                FROM responses
+                WHERE participant_id = ? AND is_final_response = 1
+                ORDER BY created_at DESC
                 LIMIT 1
             """,
                 (participant_id,),
@@ -534,15 +630,26 @@ def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any
 
             row = cursor.fetchone()
             if row:
-                return {
-                    "x_position": row["x_position"],
-                    "y_position": row["y_position"],
+                import json
+
+                # Parse ingredient data from JSON
+                ingredient_concentrations = {}
+                if row["ingredient_data"]:
+                    try:
+                        ingredient_concentrations = json.loads(row["ingredient_data"])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
+
+                result = {
                     "method": row["method"],
                     "created_at": row["created_at"],
-                    "sugar_concentration": row["sugar_concentration"],
-                    "salt_concentration": row["salt_concentration"],
                     "reaction_time_ms": row["reaction_time_ms"],
+                    "interface_type": row["interface_type"] or "grid_2d",
+                    "ingredient_concentrations": ingredient_concentrations,
+                    "concentration_data": ingredient_concentrations,  # For compatibility
                 }
+
+                return result
             return None
 
     except Exception as e:
@@ -551,16 +658,16 @@ def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any
 
 
 def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest subject response for a participant from session_state table."""
+    """Get the latest subject response for a participant from responses table (JSON-based)."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT x_position, y_position, method, created_at
-                FROM session_state 
-                WHERE participant_id = ? AND user_type = 'sub'
-                ORDER BY created_at DESC 
+                SELECT method, ingredient_data, created_at, interface_type, reaction_time_ms
+                FROM responses
+                WHERE participant_id = ? AND is_final_response = 0
+                ORDER BY created_at DESC
                 LIMIT 1
             """,
                 (participant_id,),
@@ -568,11 +675,23 @@ def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]
 
             row = cursor.fetchone()
             if row:
+                import json
+
+                # Parse ingredient data from JSON
+                ingredient_concentrations = {}
+                if row["ingredient_data"]:
+                    try:
+                        ingredient_concentrations = json.loads(row["ingredient_data"])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
+
                 return {
-                    "x_position": row["x_position"],
-                    "y_position": row["y_position"],
                     "method": row["method"],
                     "created_at": row["created_at"],
+                    "interface_type": row["interface_type"] or "grid_2d",
+                    "reaction_time_ms": row["reaction_time_ms"],
+                    "ingredient_concentrations": ingredient_concentrations,
+                    "concentration_data": ingredient_concentrations,  # For compatibility
                 }
             return None
 
@@ -582,84 +701,66 @@ def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]
 
 
 def get_live_subject_position(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the current live position of the subject (from session_state) or latest response."""
-    # First try to get live position from session_state (for grid interface)
+    """Get the current live position/concentrations of the subject (JSON-based)."""
+    # First try to get live response (non-final responses)
     live_response = get_latest_subject_response(participant_id)
 
-    # If no live response, get the latest submitted response
-    if not live_response:
-        # Try new database schema first (for slider interface)
-        slider_response = get_latest_slider_interaction(participant_id)
-        if slider_response:
-            return slider_response
-            
-        # Fallback to old schema (for grid interface)
-        submitted_response = get_latest_submitted_response(participant_id)
-        if submitted_response:
-            return {
-                "x_position": submitted_response["x_position"],
-                "y_position": submitted_response["y_position"],
-                "method": submitted_response["method"],
-                "created_at": submitted_response["created_at"],
-                "is_submitted": True,
-                "interface_type": "grid_2d"
-            }
-    else:
+    if live_response:
         live_response["is_submitted"] = False
-        live_response["interface_type"] = "grid_2d"
         return live_response
+
+    # If no live response, get the latest submitted response
+    submitted_response = get_latest_submitted_response(participant_id)
+    if submitted_response:
+        submitted_response["is_submitted"] = True
+        return submitted_response
+
+    # Fallback: try slider interaction function for compatibility
+    slider_response = get_latest_slider_interaction(participant_id)
+    if slider_response:
+        return slider_response
 
     return None
 
 
 def get_latest_slider_interaction(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest slider interaction from the user_interactions table."""
+    """Get the latest slider interaction from the responses table (JSON-based)."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT ui.*, e.interface_type, e.num_ingredients,
-                       GROUP_CONCAT(im.ingredient_name, '|') as ingredient_names
-                FROM user_interactions ui
-                JOIN experiments e ON ui.experiment_id = e.id
-                LEFT JOIN ingredient_mappings im ON e.id = im.experiment_id
-                WHERE ui.participant_id = ? AND e.interface_type = 'slider_based'
-                GROUP BY ui.id
-                ORDER BY ui.timestamp DESC
+                SELECT * FROM responses
+                WHERE participant_id = ? AND interface_type = 'slider_based'
+                ORDER BY created_at DESC
                 LIMIT 1
             """, (participant_id,))
-            
+
             row = cursor.fetchone()
             if row:
-                # Build ingredient data dictionary
-                ingredient_names = row['ingredient_names'].split('|') if row['ingredient_names'] else []
-                slider_data = {}
-                concentration_data = {}
-                
-                for i in range(min(row['num_ingredients'], 6)):  # Max 6 ingredients
-                    conc_field = f'ingredient_{i+1}_concentration'
-                    mM_field = f'ingredient_{i+1}_mM'
-                    
-                    if row[conc_field] is not None:
-                        ingredient_name = ingredient_names[i] if i < len(ingredient_names) else f'Ingredient {i+1}'
-                        slider_data[ingredient_name] = row[conc_field]
-                        concentration_data[ingredient_name] = row[mM_field]
-                
+                import json
+
+                # Parse ingredient data from JSON
+                ingredient_concentrations = {}
+                if row["ingredient_data"]:
+                    try:
+                        ingredient_concentrations = json.loads(row["ingredient_data"])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
+
                 return {
                     "interface_type": "slider_based",
-                    "method": "slider_based",
-                    "created_at": row['timestamp'],
-                    "is_submitted": bool(row['is_final_response']),
-                    "slider_data": slider_data,
-                    "concentration_data": concentration_data,
-                    "reaction_time_ms": row['reaction_time_ms'],
-                    "interaction_type": row['interaction_type'],
-                    "num_ingredients": row['num_ingredients']
+                    "method": row["method"],
+                    "created_at": row["created_at"],
+                    "is_submitted": bool(row["is_final_response"]),
+                    "concentration_data": ingredient_concentrations,
+                    "ingredient_concentrations": ingredient_concentrations,  # For compatibility
+                    "reaction_time_ms": row["reaction_time_ms"]
                 }
+
     except Exception as e:
         logger.error(f"Error getting latest slider interaction: {e}")
         return None
-    
+
     return None
 
 
@@ -702,16 +803,15 @@ def update_session_state(
 
 def save_response(
     participant_id: str,
-    x: float,
-    y: float,
     method: str,
+    ingredient_concentrations: Optional[Dict[str, float]] = None,
     sugar_conc: Optional[float] = None,
     salt_conc: Optional[float] = None,
     reaction_time_ms: Optional[int] = None,
     is_final: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """Save a complete response to the responses table (legacy function for 2D grid).
+    """Save a complete response to the responses table (JSON-based).
 
     TODO: Add data validation before saving
     TODO: Implement batch saving for better performance
@@ -719,13 +819,13 @@ def save_response(
     """
     try:
         logger.info(
-            f"Attempting to save response for {participant_id}: x={x}, y={y}, method={method}"
+            f"Attempting to save response for {participant_id}: method={method}"
         )
 
         # Convert extra_data to JSON string if provided
+        import json
         extra_data_json = None
         if extra_data:
-            import json
             extra_data_json = json.dumps(extra_data)
 
         with get_database_connection() as conn:
@@ -738,14 +838,26 @@ def save_response(
             )
             selection_number = cursor.fetchone()[0]
 
+            # Create ingredient data from either new format or legacy parameters
+            ingredient_data = {}
+            if ingredient_concentrations:
+                ingredient_data.update(ingredient_concentrations)
+            else:
+                # Fallback to legacy sugar/salt parameters
+                if sugar_conc is not None:
+                    ingredient_data['sugar'] = sugar_conc
+                if salt_conc is not None:
+                    ingredient_data['salt'] = salt_conc
+            ingredient_data_json = json.dumps(ingredient_data) if ingredient_data else None
+
             cursor.execute(
                 """
                 INSERT INTO responses
-                (participant_id, selection_number, interface_type, x_position, y_position, method,
-                 ingredient_1_conc, ingredient_2_conc, reaction_time_ms, is_final_response, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (participant_id, selection_number, interface_type, method,
+                 ingredient_data, reaction_time_ms, is_final_response, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (participant_id, selection_number, "grid_2d", x, y, method, sugar_conc, salt_conc, reaction_time_ms, is_final, extra_data_json),
+                (participant_id, selection_number, "grid_2d", method, ingredient_data_json, reaction_time_ms, is_final, extra_data_json),
             )
 
             conn.commit()
@@ -773,15 +885,13 @@ def save_multi_ingredient_response(
     method: str,
     interface_type: str = "slider_based",
     ingredient_concentrations: Optional[Dict[str, float]] = None,
-    x_position: Optional[float] = None,
-    y_position: Optional[float] = None,
     reaction_time_ms: Optional[int] = None,
     questionnaire_response: Optional[Dict[str, Any]] = None,
     is_final_response: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
-    Save a multi-ingredient response to the responses table.
+    Save a multi-ingredient response to the responses table (JSON-based).
 
     Args:
         participant_id: Participant identifier
@@ -789,7 +899,6 @@ def save_multi_ingredient_response(
         method: Method used (slider_based, linear, etc.)
         interface_type: Type of interface (slider_based, grid_2d)
         ingredient_concentrations: Dict of ingredient concentrations (mM values)
-        x_position, y_position: Grid coordinates (for grid interface)
         reaction_time_ms: Response time in milliseconds
         questionnaire_response: Questionnaire responses as dict
         is_final_response: Whether this is the final response
@@ -818,25 +927,18 @@ def save_multi_ingredient_response(
             )
             selection_number = cursor.fetchone()[0]
 
-            # Prepare ingredient concentration values (up to 6 ingredients)
-            ingredient_values = [None] * 6
-            if ingredient_concentrations:
-                for i, conc in enumerate(list(ingredient_concentrations.values())[:6]):
-                    ingredient_values[i] = conc
+            # Convert ingredient concentrations to JSON
+            ingredient_data_json = json.dumps(ingredient_concentrations) if ingredient_concentrations else None
 
             cursor.execute(
                 """
                 INSERT INTO responses
                 (participant_id, session_id, selection_number, interface_type, method,
-                 x_position, y_position,
-                 ingredient_1_conc, ingredient_2_conc, ingredient_3_conc,
-                 ingredient_4_conc, ingredient_5_conc, ingredient_6_conc,
-                 reaction_time_ms, questionnaire_response, is_final_response, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ingredient_data, reaction_time_ms, questionnaire_response, is_final_response, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (participant_id, session_id, selection_number, interface_type, method,
-                 x_position, y_position, *ingredient_values,
-                 reaction_time_ms, questionnaire_json, is_final_response, extra_data_json),
+                 ingredient_data_json, reaction_time_ms, questionnaire_json, is_final_response, extra_data_json),
             )
 
             conn.commit()
@@ -906,36 +1008,28 @@ def store_initial_slider_positions(
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
-            # Prepare arrays for up to 6 ingredients
-            conc_values = [None] * 6
-            percent_values = [None] * 6
-
             # Store ingredient names for retrieval
             actual_ingredient_names = ingredient_names or list(initial_concentrations.keys())
 
-            for i, (ingredient_name, conc) in enumerate(list(initial_concentrations.items())[:6]):
-                conc_values[i] = conc
-                percent_values[i] = initial_percentages.get(ingredient_name, 50.0)
+            # Convert to JSON format for storage
+            import json
+            initial_values_json = json.dumps(initial_concentrations)
+            percent_values_json = json.dumps(initial_percentages)
 
             # Prepare extra data with ingredient names
-            import json
             extra_data = json.dumps({
-                "ingredient_names": actual_ingredient_names[:6]
+                "ingredient_names": actual_ingredient_names
             })
 
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO initial_slider_positions
                 (session_id, participant_id, interface_type, num_ingredients,
-                 ingredient_1_initial, ingredient_2_initial, ingredient_3_initial,
-                 ingredient_4_initial, ingredient_5_initial, ingredient_6_initial,
-                 ingredient_1_percent, ingredient_2_percent, ingredient_3_percent,
-                 ingredient_4_percent, ingredient_5_percent, ingredient_6_percent,
-                 extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 initial_values, percent_values, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 (session_id, participant_id, "slider_based", num_ingredients,
-                 *conc_values, *percent_values, extra_data)
+                 initial_values_json, percent_values_json, extra_data)
             )
 
             conn.commit()
@@ -971,6 +1065,8 @@ def get_initial_slider_positions(session_id: str, participant_id: str) -> Option
 
             row = cursor.fetchone()
             if row:
+                import json
+
                 result = {
                     "session_id": row["session_id"],
                     "participant_id": row["participant_id"],
@@ -980,31 +1076,14 @@ def get_initial_slider_positions(session_id: str, participant_id: str) -> Option
                     "created_at": row["created_at"]
                 }
 
-                # Extract non-null concentrations and percentages
-                # Get ingredient names from extra_data if available
-                ingredient_names = []
-                extra_data = row["extra_data"]
-                if extra_data:
-                    try:
-                        import json
-                        extra_info = json.loads(extra_data)
-                        ingredient_names = extra_info.get("ingredient_names", [])
-                    except:
-                        pass
-
-                for i in range(1, 7):
-                    conc_value = row[f"ingredient_{i}_initial"]
-                    percent_value = row[f"ingredient_{i}_percent"]
-
-                    if conc_value is not None:
-                        # Use actual ingredient name if available, otherwise generic
-                        if i <= len(ingredient_names):
-                            ingredient_name = ingredient_names[i-1]
-                        else:
-                            ingredient_name = f"Ingredient_{i}"
-
-                        result["concentrations"][ingredient_name] = conc_value
-                        result["percentages"][ingredient_name] = percent_value if percent_value is not None else 50.0
+                # Parse JSON data for concentrations and percentages
+                try:
+                    if row["initial_values"]:
+                        result["concentrations"] = json.loads(row["initial_values"])
+                    if row["percent_values"]:
+                        result["percentages"] = json.loads(row["percent_values"])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON data for {participant_id}")
 
                 return result
 
@@ -1074,12 +1153,7 @@ def export_responses_csv(session_id: Optional[str] = None) -> str:
                         method,
                         x_position,
                         y_position,
-                        ingredient_1_conc,
-                        ingredient_2_conc,
-                        ingredient_3_conc,
-                        ingredient_4_conc,
-                        ingredient_5_conc,
-                        ingredient_6_conc,
+                        ingredient_data,
                         reaction_time_ms,
                         questionnaire_response,
                         is_final_response,
@@ -1100,12 +1174,7 @@ def export_responses_csv(session_id: Optional[str] = None) -> str:
                         method,
                         x_position,
                         y_position,
-                        ingredient_1_conc,
-                        ingredient_2_conc,
-                        ingredient_3_conc,
-                        ingredient_4_conc,
-                        ingredient_5_conc,
-                        ingredient_6_conc,
+                        ingredient_data,
                         reaction_time_ms,
                         questionnaire_response,
                         is_final_response,
@@ -1129,10 +1198,9 @@ def export_responses_csv(session_id: Optional[str] = None) -> str:
             # Write header
             writer.writerow([
                 'participant_id', 'session_id', 'selection_number', 'interface_type',
-                'method', 'x_position', 'y_position', 'ingredient_1_conc',
-                'ingredient_2_conc', 'ingredient_3_conc', 'ingredient_4_conc',
-                'ingredient_5_conc', 'ingredient_6_conc', 'reaction_time_ms',
-                'questionnaire_response', 'is_final_response', 'created_at', 'extra_data'
+                'method', 'x_position', 'y_position', 'ingredient_data',
+                'reaction_time_ms', 'questionnaire_response', 'is_final_response',
+                'created_at', 'extra_data'
             ])
 
             # Write data rows
@@ -1227,22 +1295,96 @@ def get_response_with_concentrations(response_id: int) -> Optional[Dict[str, Any
                 """,
                 (response_id,)
             )
-            
+
             row = cursor.fetchone()
             if row:
+                import json
                 response = dict(row)
-                
-                # Parse extra_data if it exists
-                if response['extra_data']:
-                    import json
-                    response['concentrations'] = json.loads(response['extra_data'])
-                    
+
+                # Parse ingredient_data JSON for concentrations
+                if response['ingredient_data']:
+                    try:
+                        response['concentrations'] = json.loads(response['ingredient_data'])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse ingredient_data for response {response_id}")
+                        response['concentrations'] = {}
+                else:
+                    response['concentrations'] = {}
+
                 return response
             return None
-            
+
     except Exception as e:
         logger.error(f"Error getting response with concentrations: {e}")
         return None
+
+
+def calculate_recipe_from_json(response_json: str) -> str:
+    """
+    Calculate and format a recipe string from JSON ingredient data.
+
+    Args:
+        response_json: JSON string containing ingredients data
+
+    Returns:
+        Formatted recipe string, e.g., "Recipe: Salt: 15.2 mM, Sugar: 8.7 mM, Citric Acid: 3.1 mM"
+    """
+    import json
+
+    # Handle edge cases
+    if not response_json:
+        return "No recipe yet"
+
+    try:
+        # Parse JSON data
+        ingredient_data = json.loads(response_json)
+
+        if not ingredient_data or not isinstance(ingredient_data, dict):
+            return "No recipe yet"
+
+        # Build recipe components
+        recipe_parts = []
+        for ingredient_name, concentration in ingredient_data.items():
+            if concentration is not None and concentration > 0:
+                # Format concentration to 1 decimal place
+                recipe_parts.append(f"{ingredient_name}: {concentration:.1f} mM")
+
+        # Return formatted recipe
+        if recipe_parts:
+            return f"Recipe: {', '.join(recipe_parts)}"
+        else:
+            return "No recipe yet"
+
+    except json.JSONDecodeError:
+        logger.warning(f"Failed to parse JSON for recipe calculation: {response_json}")
+        return "Error parsing recipe data"
+    except Exception as e:
+        logger.error(f"Error calculating recipe: {e}")
+        return "Error calculating recipe"
+
+
+def get_latest_recipe_for_participant(participant_id: str) -> str:
+    """
+    Get the latest recipe for a participant as a formatted string.
+
+    Args:
+        participant_id: Participant identifier
+
+    Returns:
+        Formatted recipe string or status message
+    """
+    try:
+        response = get_latest_submitted_response(participant_id)
+        if response and response.get('ingredient_concentrations'):
+            # Convert dict back to JSON string for recipe calculation
+            import json
+            ingredient_json = json.dumps(response['ingredient_concentrations'])
+            return calculate_recipe_from_json(ingredient_json)
+        else:
+            return "No recipe yet"
+    except Exception as e:
+        logger.error(f"Error getting latest recipe for {participant_id}: {e}")
+        return "Error getting recipe"
 
 
 # =============================================================================
