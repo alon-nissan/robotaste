@@ -562,7 +562,7 @@ def start_trial(
         x, y = generate_random_position()
 
         # Determine interface type
-        interface_type = "grid_2d" if num_ingredients == 2 else "slider_based"
+        interface_type = INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
 
         # Get session code - create one if missing
         session_code = st.session_state.get("session_code")
@@ -578,7 +578,7 @@ def start_trial(
         # Generate random starting positions for sliders if enabled and using slider interface
         random_slider_values = {}
         random_concentrations = {}
-        if use_random_start and interface_type == "slider_based":
+        if use_random_start and interface_type == INTERFACE_SLIDERS:
             # Generate random starting positions for each ingredient (10-90%)
             mixture = MultiComponentMixture(ingredients)
             for ingredient in ingredients:
@@ -622,6 +622,27 @@ def start_trial(
         # Store initial position in session state (for backward compatibility)
         st.session_state.x = x
         st.session_state.y = y
+
+        # Store experiment configuration in session database for subject synchronization
+        try:
+            import json
+            from session_manager import update_session_activity
+
+            experiment_config = {
+                "num_ingredients": num_ingredients,
+                "interface_type": interface_type,
+                "method": method,
+                "ingredients": [ing for ing in ingredients]  # Store ingredient configuration
+            }
+
+            update_session_activity(
+                session_code,
+                phase="trial_started",
+                config=json.dumps(experiment_config)
+            )
+
+        except Exception as e:
+            st.warning(f"⚠️ Could not update session config: {e}")
 
         # Also update old database for backward compatibility
         try:
@@ -1073,7 +1094,7 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
             participant_id=participant_id,
             session_id=session_id,
             method=method,
-            interface_type="slider_based",
+            interface_type=INTERFACE_SLIDERS,
             ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
             questionnaire_response=questionnaire_response,
@@ -1090,7 +1111,7 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
                 "concentrations": concentrations,
                 "method": method,
                 "reaction_time_ms": reaction_time_ms or 0,
-                "interface_type": "slider_based",
+                "interface_type": INTERFACE_SLIDERS,
             }
 
             logger.info(f"Successfully saved slider trial for {participant_id}")

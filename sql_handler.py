@@ -77,6 +77,14 @@ from contextlib import contextmanager
 from typing import Optional, Tuple, Dict, Any, List
 import logging
 
+# Import interface constants
+try:
+    from callback import INTERFACE_2D_GRID, INTERFACE_SLIDERS
+except ImportError:
+    # Fallback constants if import fails
+    INTERFACE_2D_GRID = "2d_grid"
+    INTERFACE_SLIDERS = "sliders"
+
 # Configuration
 DB_PATH = "experiment_sync.db"
 
@@ -121,7 +129,7 @@ def init_database() -> bool:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_type TEXT NOT NULL CHECK(user_type IN ('mod', 'sub')),
                     participant_id TEXT NOT NULL,
-                    method TEXT CHECK(method IN ('linear', 'logarithmic', 'exponential', 'slider_based')),
+                    method TEXT,
                     x_position REAL,
                     y_position REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -452,7 +460,7 @@ def _migrate_database(cursor) -> None:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_type TEXT NOT NULL CHECK(user_type IN ('mod', 'sub')),
                     participant_id TEXT NOT NULL,
-                    method TEXT CHECK(method IN ('linear', 'logarithmic', 'exponential', 'slider_based')),
+                    method TEXT,
                     x_position REAL,
                     y_position REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -579,7 +587,7 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
             if row:
                 return {
                     "method": row["method"],
-                    "interface_type": row["interface_type"] or "grid_2d",
+                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
                     "num_ingredients": 2,  # Default for backward compatibility
                     "created_at": row["created_at"],
                 }
@@ -600,7 +608,7 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
             if row:
                 return {
                     "method": row["method"],
-                    "interface_type": "grid_2d",  # Default for legacy data
+                    "interface_type": INTERFACE_2D_GRID,  # Default for legacy data
                     "num_ingredients": 2,  # Default for backward compatibility
                     "created_at": row["created_at"],
                 }
@@ -644,7 +652,7 @@ def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any
                     "method": row["method"],
                     "created_at": row["created_at"],
                     "reaction_time_ms": row["reaction_time_ms"],
-                    "interface_type": row["interface_type"] or "grid_2d",
+                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
                     "ingredient_concentrations": ingredient_concentrations,
                     "concentration_data": ingredient_concentrations,  # For compatibility
                 }
@@ -688,7 +696,7 @@ def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]
                 return {
                     "method": row["method"],
                     "created_at": row["created_at"],
-                    "interface_type": row["interface_type"] or "grid_2d",
+                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
                     "reaction_time_ms": row["reaction_time_ms"],
                     "ingredient_concentrations": ingredient_concentrations,
                     "concentration_data": ingredient_concentrations,  # For compatibility
@@ -748,7 +756,7 @@ def get_latest_slider_interaction(participant_id: str) -> Optional[Dict[str, Any
                         logger.warning(f"Failed to parse ingredient data for {participant_id}")
 
                 return {
-                    "interface_type": "slider_based",
+                    "interface_type": INTERFACE_SLIDERS,
                     "method": row["method"],
                     "created_at": row["created_at"],
                     "is_submitted": bool(row["is_final_response"]),
@@ -857,7 +865,7 @@ def save_response(
                  ingredient_data, reaction_time_ms, is_final_response, extra_data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (participant_id, selection_number, "grid_2d", method, ingredient_data_json, reaction_time_ms, is_final, extra_data_json),
+                (participant_id, selection_number, INTERFACE_2D_GRID, method, ingredient_data_json, reaction_time_ms, is_final, extra_data_json),
             )
 
             conn.commit()
@@ -1407,7 +1415,7 @@ def initialize_database_v2():
                     session_code TEXT NOT NULL,
                     participant_id TEXT NOT NULL,
                     interface_type TEXT NOT NULL CHECK(interface_type IN ('grid_2d', 'slider_based')),
-                    method TEXT CHECK(method IN ('linear', 'logarithmic', 'exponential', 'slider_based')),
+                    method TEXT,
                     num_ingredients INTEGER NOT NULL CHECK(num_ingredients BETWEEN 2 AND 6),
                     use_random_start BOOLEAN DEFAULT 0,
                     experiment_start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

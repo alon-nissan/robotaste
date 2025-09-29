@@ -297,6 +297,26 @@ def sync_session_state(session_code: str, role: str):
         st.session_state.device_role = role
         st.session_state.last_sync = datetime.now()
 
+        # Sync experiment configuration from database to session state
+        experiment_config_str = session_info.get("experiment_config")
+        if experiment_config_str:
+            try:
+                import json
+                experiment_config = json.loads(experiment_config_str)
+
+                # Set interface and ingredient configuration for subjects
+                if "interface_type" in experiment_config:
+                    st.session_state.interface_type = experiment_config["interface_type"]
+                if "num_ingredients" in experiment_config:
+                    st.session_state.num_ingredients = experiment_config["num_ingredients"]
+                if "method" in experiment_config:
+                    st.session_state.method = experiment_config["method"]
+                if "ingredients" in experiment_config:
+                    st.session_state.ingredients = experiment_config["ingredients"]
+
+            except (json.JSONDecodeError, Exception) as e:
+                st.warning(f"⚠️ Could not parse experiment config: {e}")
+
         return True
     return False
 

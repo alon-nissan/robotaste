@@ -772,7 +772,7 @@ def subject_interface():
 
         # Determine interface type based on session state set by start_trial
         num_ingredients = st.session_state.get("num_ingredients", 2)
-        interface_type = st.session_state.get("interface_type", "grid_2d")
+        interface_type = st.session_state.get("interface_type", INTERFACE_2D_GRID)
 
         # Ensure DEFAULT_INGREDIENT_CONFIG is available
         from callback import DEFAULT_INGREDIENT_CONFIG
@@ -1258,7 +1258,7 @@ def subject_interface():
                             actual_concentrations=actual_concentrations,
                             is_final_response=False,
                             extra_data={
-                                "interface_type": "slider_based",
+                                "interface_type": INTERFACE_SLIDERS,
                                 "real_time_update": True,
                             },
                         )
@@ -1314,8 +1314,8 @@ def subject_interface():
                 success = save_multi_ingredient_response(
                     participant_id=st.session_state.participant,
                     session_id=st.session_state.get("session_code", "default_session"),
-                    method="slider_based",
-                    interface_type="slider_based",
+                    method=INTERFACE_SLIDERS,
+                    interface_type=INTERFACE_SLIDERS,
                     ingredient_concentrations=ingredient_concentrations,
                     reaction_time_ms=reaction_time_ms,
                     questionnaire_response=None,  # Will be updated in questionnaire phase
@@ -1350,7 +1350,7 @@ def subject_interface():
                         "slider_values": final_slider_values,
                         "concentrations": concentrations,
                     }
-                    st.session_state.pending_method = "slider_based"
+                    st.session_state.pending_method = INTERFACE_SLIDERS
 
                     st.success("✅ Slider selection recorded!")
                     # Go to questionnaire
@@ -1468,8 +1468,8 @@ def subject_interface():
                             session_id=st.session_state.get(
                                 "session_code", "default_session"
                             ),
-                            method="slider_based",
-                            interface_type="slider_based",
+                            method=INTERFACE_SLIDERS,
+                            interface_type=INTERFACE_SLIDERS,
                             ingredient_concentrations=ingredient_concentrations,
                             reaction_time_ms=reaction_time_ms,
                             questionnaire_response=responses,  # Include questionnaire responses
@@ -1638,7 +1638,7 @@ def moderator_interface():
                 method_display = (
                     st.session_state.get("mapping_method", "linear")
                     if num_ingredients == 2
-                    else "slider_based"
+                    else INTERFACE_SLIDERS
                 )
                 st.info(
                     f"**Interface:** {interface_type} | **Method:** {method_display}"
@@ -1843,7 +1843,7 @@ def moderator_interface():
             }
             st.info(method_info[method])
         else:
-            method = "slider_based"
+            method = INTERFACE_SLIDERS
             st.info("🎛️ Slider-based concentration control")
 
             # Random start option for sliders
@@ -1958,20 +1958,20 @@ def moderator_interface():
 
             with col1:
                 if current_response:
-                    interface_type = current_response.get("interface_type", "grid_2d")
-                    method = current_response.get("method", "grid_2d")
+                    interface_type = current_response.get("interface_type", INTERFACE_2D_GRID)
+                    method = current_response.get("method", INTERFACE_2D_GRID)
                     status_text = "🎯 Live Subject Position"
                     st.markdown(f"#### {status_text}")
 
-                    if interface_type == "slider_based" or method == "slider_based":
+                    # Initialize concentration_data for all interface types
+                    concentration_data = current_response.get(
+                        "ingredient_concentrations",
+                        current_response.get("concentration_data", {})
+                    )
+
+                    if interface_type == INTERFACE_SLIDERS or method == INTERFACE_SLIDERS:
                         # Monitor slider interface using new database function
                         st.markdown("**🎛️ Slider Interface Monitoring**")
-
-                        # Use ingredient_concentrations as the primary data source
-                        concentration_data = current_response.get(
-                            "ingredient_concentrations",
-                            current_response.get("concentration_data", {})
-                        )
                         # For slider positions, we can derive from concentrations if needed
                         slider_data = concentration_data
                         is_submitted = current_response.get("is_submitted", False)
@@ -2045,10 +2045,10 @@ def moderator_interface():
 
             with col2:
                 if current_response:
-                    method = current_response.get("method", "grid_2d")
+                    method = current_response.get("method", INTERFACE_2D_GRID)
                     st.markdown("#### 📊 Live Metrics")
 
-                    if method == "slider_based":
+                    if method == INTERFACE_SLIDERS:
                         # Slider-based metrics
                         current_sliders = getattr(
                             st.session_state, "current_slider_values", {}
