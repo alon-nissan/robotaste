@@ -189,10 +189,16 @@ class ConcentrationMapper:
 
         Returns:
             (sugar_concentration, salt_concentration) in mM
+
+        Note:
+            Y-axis is flipped so that minimum is at bottom (canvas y=canvas_size)
+            and maximum is at top (canvas y=0), creating a standard coordinate system
+            where bottom-left = (min, min) and top-right = (max, max)
         """
         # Normalize coordinates to [0, 1]
         x_norm = max(0.0, min(1.0, x / canvas_size))
-        y_norm = max(0.0, min(1.0, y / canvas_size))
+        # Flip y-axis: canvas y=0 (top) should map to max, canvas y=canvas_size (bottom) to min
+        y_norm = max(0.0, min(1.0, (canvas_size - y) / canvas_size))
 
         if method == "linear":
             sugar = sugar_range[0] + x_norm * (sugar_range[1] - sugar_range[0])
