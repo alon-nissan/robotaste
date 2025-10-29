@@ -15,7 +15,7 @@ import time
 
 def landing_page():
     """Multi-device landing page with session management."""
-    create_header("RoboTaste Multi-Device System", "Create or join a session", "🧪")
+    create_header("RoboTaste Multi-Device System", "Create or join a session", "")
 
     # Check URL parameters for session joining
     role = st.query_params.get("role", "")
@@ -26,22 +26,22 @@ def landing_page():
         if role == "subject":
             if join_session(session_code):
                 sync_session_state(session_code, "subject")
-                st.success(f"✅ Joined session {session_code}")
+                st.success(f"Joined session {session_code}")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error(f"❌ Invalid or expired session code: {session_code}")
+                st.error(f"Invalid or expired session code: {session_code}")
                 st.query_params.clear()
                 st.rerun()
         elif role == "moderator":
             session_info = get_session_info(session_code)
             if session_info and session_info["is_active"]:
                 sync_session_state(session_code, "moderator")
-                st.success(f"✅ Resumed moderator session {session_code}")
+                st.success(f"Resumed moderator session {session_code}")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error(f"❌ Invalid or expired session code: {session_code}")
+                st.error(f"Invalid or expired session code: {session_code}")
                 st.query_params.clear()
                 st.rerun()
 
@@ -49,7 +49,7 @@ def landing_page():
 
     with col2:
         # Tab selection for different entry modes
-        tab1, tab2, tab3 = st.tabs(["🎮 New Session", "📱 Join Session", "ℹ️ About"])
+        tab1, tab2, tab3 = st.tabs(["New Session", "Join Session", "About"])
 
         with tab1:
             st.markdown("### 🔧 Create New Session (Moderator)")
@@ -65,7 +65,7 @@ def landing_page():
             )
 
             if st.button(
-                "🚀 Create New Session",
+                "Create New Session",
                 type="primary",
                 use_container_width=True,
                 key="landing_create_session_button",
@@ -77,14 +77,14 @@ def landing_page():
                     st.query_params.update(
                         {"role": "moderator", "session": new_session_code}
                     )
-                    st.success(f"✅ Session created: {new_session_code}")
+                    st.success(f"Session created: {new_session_code}")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("❌ Failed to create session. Please try again.")
+                    st.error("Failed to create session. Please try again.")
 
         with tab2:
-            st.markdown("### 👤 Join Existing Session (Subject)")
+            st.markdown("### Join Existing Session (Subject)")
             st.info(
                 "Enter the session code provided by your moderator to join an active experiment."
             )
@@ -98,7 +98,7 @@ def landing_page():
             ).upper()
 
             if st.button(
-                "📱 Join Session",
+                "Join Session",
                 type="primary",
                 use_container_width=True,
                 key="landing_join_session_button",
@@ -110,13 +110,13 @@ def landing_page():
                         st.query_params.update(
                             {"role": "subject", "session": input_session_code}
                         )
-                        st.success(f"✅ Joined session {input_session_code}")
+                        st.success(f"Joined session {input_session_code}")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("❌ Invalid or expired session code")
+                        st.error("Invalid or expired session code")
                 else:
-                    st.error("❌ Please enter a valid 6-character session code")
+                    st.error("Please enter a valid 6-character session code")
 
         with tab3:
             st.markdown("### 📖 About RoboTaste")
@@ -125,10 +125,10 @@ def landing_page():
             **Multi-Device Taste Preference Experiment Platform**
             
             **Features:**
-            - 🎯 **2D Grid Interface**: Binary mixtures with coordinate selection
-            - 🎛️ **Vertical Sliders**: Multi-component concentration control
-            - 📱 **Multi-Device**: Moderator dashboard + subject interface
-            - 📊 **Real-time Sync**: Live monitoring and data collection
+            - **2D Grid Interface**: Binary mixtures with coordinate selection
+            - **Vertical Sliders**: Multi-component concentration control
+            - **Multi-Device**: Moderator dashboard + subject interface
+            - **Real-time Sync**: Live monitoring and data collection
             - ☁️ **Cloud Ready**: Deployed on Streamlit Cloud
             
             **How to Use:**
@@ -154,7 +154,7 @@ def landing_page():
                     for session in sessions:
                         st.write(
                             f"- {session['session_code']}: {session['moderator_name']} "
-                            f"({'✅ Subject Connected' if session['subject_connected'] else '⏳ Waiting for Subject'})"
+                            f"({'Subject Connected' if session['subject_connected'] else 'Waiting for Subject'})"
                         )
                 else:
                     st.write("No active sessions found")

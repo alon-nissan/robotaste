@@ -9,16 +9,16 @@ from callback import INTERFACE_2D_GRID, INTERFACE_SLIDERS, MultiComponentMixture
 
 def test_interface_constants():
     """Test that interface constants are defined correctly."""
-    print("🧪 Testing Interface Constants...")
+    print("Testing Interface Constants...")
 
     assert INTERFACE_2D_GRID == "2d_grid", f"Expected '2d_grid', got '{INTERFACE_2D_GRID}'"
     assert INTERFACE_SLIDERS == "sliders", f"Expected 'sliders', got '{INTERFACE_SLIDERS}'"
 
-    print("✅ Interface constants are correct")
+    print("Interface constants are correct")
 
 def test_interface_selection_logic():
     """Test interface selection based on ingredient count."""
-    print("\n🧪 Testing Interface Selection Logic...")
+    print("\nTesting Interface Selection Logic...")
 
     # Test 2 ingredients -> grid interface
     mixture_2 = MultiComponentMixture(DEFAULT_INGREDIENT_CONFIG[:2])
@@ -44,11 +44,11 @@ def test_interface_selection_logic():
     print(f"   6 ingredients: {interface_6}")
     assert interface_6 == INTERFACE_SLIDERS, f"6 ingredients should give sliders, got {interface_6}"
 
-    print("✅ Interface selection logic is correct")
+    print("Interface selection logic is correct")
 
 def test_experiment_config_serialization():
     """Test that experiment config can be serialized/deserialized correctly."""
-    print("\n🧪 Testing Experiment Config Serialization...")
+    print("\nTesting Experiment Config Serialization...")
 
     # Create test config
     test_config = {
@@ -71,11 +71,11 @@ def test_experiment_config_serialization():
     assert restored_config["method"] == INTERFACE_SLIDERS
     assert len(restored_config["ingredients"]) == 4
 
-    print("✅ Config serialization works correctly")
+    print("Config serialization works correctly")
 
 def test_database_schema():
     """Test that database has experiment_config column."""
-    print("\n🧪 Testing Database Schema...")
+    print("\nTesting Database Schema...")
 
     try:
         conn = sqlite3.connect("experiment_sync.db")
@@ -86,18 +86,18 @@ def test_database_schema():
         columns = [col[1] for col in cursor.fetchall()]
 
         if "experiment_config" in columns:
-            print("✅ Database has experiment_config column")
+            print("Database has experiment_config column")
         else:
-            print("❌ Database missing experiment_config column")
+            print("Database missing experiment_config column")
 
         conn.close()
 
     except Exception as e:
-        print(f"⚠️ Could not check database: {e}")
+        print(f"Could not check database: {e}")
 
 def run_all_tests():
     """Run all interface fix tests."""
-    print("🎯 Running Interface Selection Fix Tests")
+    print("Running Interface Selection Fix Tests")
     print("=" * 50)
 
     try:
@@ -108,7 +108,7 @@ def run_all_tests():
 
         print("\n" + "=" * 50)
         print("🎉 All tests passed! Interface fixes are working correctly.")
-        print("\n✅ Summary of fixes:")
+        print("\nSummary of fixes:")
         print("   • UnboundLocalError for concentration_data fixed")
         print("   • Interface constants unified (2d_grid/sliders)")
         print("   • Interface selection based on ingredient count working")
@@ -118,10 +118,10 @@ def run_all_tests():
         return True
 
     except AssertionError as e:
-        print(f"\n❌ Test failed: {e}")
+        print(f"\nTest failed: {e}")
         return False
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print(f"\nUnexpected error: {e}")
         return False
 
 if __name__ == "__main__":

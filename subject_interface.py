@@ -35,7 +35,7 @@ def subject_interface():
     # Check if we have a valid session
     if not st.session_state.session_code:
         st.error(
-            "❌ No active session. Please join a session using the code provided by your moderator."
+            "No active session. Please join a session using the code provided by your moderator."
         )
         if st.button("🏠 Return to Home", key="subject_return_home_no_session"):
             st.query_params.clear()
@@ -44,7 +44,7 @@ def subject_interface():
 
     session_info = get_session_info(st.session_state.session_code)
     if not session_info or not session_info["is_active"]:
-        st.error("❌ Session expired or invalid.")
+        st.error("Session expired or invalid.")
         st.session_state.session_code = None
         if st.button("🏠 Return to Home", key="subject_return_home_invalid_session"):
             st.query_params.clear()
@@ -52,7 +52,7 @@ def subject_interface():
         return
 
     create_header(
-        f"Session {st.session_state.session_code}", f"Taste Preference Experiment", "👤"
+        f"Session {st.session_state.session_code}", f"Taste Preference Experiment", ""
     )
 
     # Update session activity
@@ -63,7 +63,7 @@ def subject_interface():
         # TODO: Remove unused col1, col3 variables
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown("### 👋 Welcome!")
+            st.markdown("### Welcome!")
             st.write("Please enter your participant ID to begin the experiment.")
 
             participant_id = st.text_input(
@@ -78,7 +78,7 @@ def subject_interface():
 
             # Check if activated by moderator
             if st.button(
-                "🚀 Check Status",
+                "Check Status",
                 type="primary",
                 use_container_width=True,
                 key="subject_check_status_button",
@@ -87,11 +87,11 @@ def subject_interface():
                     # Sync session state from database to get experiment configuration
                     sync_session_state(st.session_state.session_code, "subject")
                     st.session_state.phase = "pre_questionnaire"
-                    st.success("✅ Ready to begin!")
+                    st.success("Ready to begin!")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.warning("⏳ Waiting for moderator to start your session.")
+                    st.warning("Waiting for moderator to start your session.")
 
             # Auto-check disabled to prevent infinite reload loops
             # User can manually check status using the button above
@@ -111,7 +111,7 @@ def subject_interface():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.info(
-                "📍 Please provide your initial impression of the random starting solution shown on the canvas."
+                "Please provide your initial impression of the random starting solution shown on the canvas."
             )
             responses = render_questionnaire(
                 "unified_feedback", st.session_state.participant
@@ -130,7 +130,7 @@ def subject_interface():
         # Get moderator settings
         mod_settings = get_moderator_settings(st.session_state.participant)
         if not mod_settings:
-            st.error("❌ No experiment settings found. Please contact the moderator.")
+            st.error("No experiment settings found. Please contact the moderator.")
             return
 
         # Determine interface type based on session state set by start_trial
@@ -149,7 +149,7 @@ def subject_interface():
             # Last resort: Use defaults (backward compatibility)
             from callback import DEFAULT_INGREDIENT_CONFIG
             ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
-            st.warning("⚠️ Using default ingredients - moderator selection not found")
+            st.warning("Using default ingredients - moderator selection not found")
 
         experiment_config = {
             "num_ingredients": num_ingredients,
@@ -168,7 +168,7 @@ def subject_interface():
 
         if interface_type == INTERFACE_2D_GRID:
             # Traditional 2D grid interface
-            st.markdown("### 🎯 Make Your Selection")
+            st.markdown("### Make Your Selection")
             st.write(
                 "Click anywhere on the grid below to indicate your taste preference."
             )
@@ -288,7 +288,7 @@ def subject_interface():
 
         else:
             # Multi-ingredient slider interface
-            st.markdown("### 🎛️ Adjust Ingredient Concentrations")
+            st.markdown("### Adjust Ingredient Concentrations")
             st.write(
                 "Use the vertical sliders below to adjust the concentration of each ingredient in your mixture."
             )
@@ -610,7 +610,7 @@ def subject_interface():
 
             # Only show finish button if user has made some adjustments or show it by default
             finish_button_clicked = st.button(
-                "🎯 Finish Selection",
+                "Finish Selection",
                 type="primary",
                 use_container_width=False,
                 help="Complete your mixture selection and proceed to the questionnaire",
@@ -713,12 +713,12 @@ def subject_interface():
                     }
                     st.session_state.pending_method = INTERFACE_SLIDERS
 
-                    st.success("✅ Slider selection recorded!")
+                    st.success("Slider selection recorded!")
                     # Go to questionnaire (will update the same record with questionnaire data)
                     st.session_state.phase = "post_questionnaire"
                     st.rerun()
                 else:
-                    st.error("❌ Failed to save slider selection. Please try again.")
+                    st.error("Failed to save slider selection. Please try again.")
 
             # Display selection history
             if (
@@ -841,13 +841,13 @@ def subject_interface():
             if hasattr(st.session_state, "last_response"):
                 resp = st.session_state.last_response
 
-                st.markdown("#### 📊 Your Selection:")
+                st.markdown("#### Your Selection:")
                 col_a, col_b = st.columns(2)
                 with col_a:
                     st.metric("Position", f"({resp['x']:.0f}, {resp['y']:.0f})")
                 with col_b:
                     st.metric(
-                        "⏱️ Response Time", f"{resp.get('reaction_time_ms', 0)} ms"
+                        "Response Time", f"{resp.get('reaction_time_ms', 0)} ms"
                     )
 
             # Auto-refresh disabled to prevent blank screen issues
@@ -856,7 +856,7 @@ def subject_interface():
             )
 
             # Check if moderator started a new trial (only on user action, not automatic)
-            if st.button("🔄 Check for New Trial", key="subject_check_new_trial"):
+            if st.button("Check for New Trial", key="subject_check_new_trial"):
                 if is_participant_activated(st.session_state.participant):
                     mod_settings = get_moderator_settings(st.session_state.participant)
                     if mod_settings and mod_settings["created_at"] != getattr(

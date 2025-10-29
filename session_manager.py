@@ -255,7 +255,7 @@ def display_session_qr_code(
     subject_url = urls["subject"]
     qr_code_data = create_qr_code(subject_url)
 
-    st.markdown("### 📱 Subject Access")
+    st.markdown("### Subject Access")
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -276,7 +276,7 @@ def display_session_qr_code(
         st.code(subject_url, language="text")
 
         if st.button(
-            "📋 Copy Subject URL",
+            "Copy Subject URL",
             help="Copy URL to clipboard",
             key=f"session_qr_copy_url_{context}_{session_code}",
         ):
@@ -315,7 +315,7 @@ def sync_session_state(session_code: str, role: str):
                     st.session_state.ingredients = experiment_config["ingredients"]
 
             except (json.JSONDecodeError, Exception) as e:
-                st.warning(f"⚠️ Could not parse experiment config: {e}")
+                st.warning(f"Could not parse experiment config: {e}")
 
         return True
     return False

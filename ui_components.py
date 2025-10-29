@@ -8,7 +8,7 @@ different interfaces to maintain consistency and avoid circular imports.
 import streamlit as st
 
 
-def create_header(title: str, subtitle: str = "", icon: str = "🧪"):
+def create_header(title: str, subtitle: str = "", icon: str = ""):
     """Create a beautiful, accessible header section."""
 
     # Theme toggle in header
@@ -46,42 +46,42 @@ def display_phase_status(phase: str, participant_id: str):
     """Display current phase with beautiful, accessible status card."""
     phase_info = {
         "welcome": {
-            "icon": "👋",
+            "icon": "",
             "title": "Welcome Phase",
             "desc": "Waiting to begin experiment",
             "class": "phase-welcome",
             "color": "var(--warning-color)",
         },
         "pre_questionnaire": {
-            "icon": "📋",
+            "icon": "",
             "title": "Pre-Sample Questionnaire",
             "desc": "Please complete the initial questionnaire",
             "class": "phase-respond",
             "color": "var(--primary-color)",
         },
         "respond": {
-            "icon": "🎯",
+            "icon": "",
             "title": "Response Phase",
             "desc": "Experiment in progress - make your selection",
             "class": "phase-respond",
             "color": "var(--primary-color)",
         },
         "post_response_message": {
-            "icon": "🧪",
+            "icon": "",
             "title": "Solution Preparation",
             "desc": "Thank you for your response - solution is being prepared",
             "class": "phase-respond",
             "color": "var(--primary-color)",
         },
         "post_questionnaire": {
-            "icon": "📋",
+            "icon": "",
             "title": "Post-Response Questionnaire",
             "desc": "Please answer questions about your response",
             "class": "phase-respond",
             "color": "var(--primary-color)",
         },
         "done": {
-            "icon": "✅",
+            "icon": "",
             "title": "Completed",
             "desc": "Trial finished successfully",
             "class": "phase-done",

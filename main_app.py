@@ -53,7 +53,7 @@ from session_manager import (
 # Page configuration
 st.set_page_config(
     page_title="Taste Experiment System",
-    page_icon="🧪",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="auto",
 )
@@ -453,7 +453,7 @@ if "db_initialized" not in st.session_state:
     if init_database():
         st.session_state.db_initialized = True
     else:
-        st.error("⚠️ Database initialization failed. Please check your setup.")
+        st.error("Database initialization failed. Please check your setup.")
         st.stop()
 
 

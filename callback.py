@@ -1,5 +1,5 @@
 """
-🧪 RoboTaste Callback Functions - Experimental Logic & Data Processing
+RoboTaste Callback Functions - Experimental Logic & Data Processing
 
 OVERVIEW:
 =========
@@ -552,7 +552,7 @@ def create_ingredient_sliders(
     if current_values is None:
         current_values = {}
 
-    st.markdown("### 🧪 Adjust Ingredient Concentrations")
+    st.markdown("### Adjust Ingredient Concentrations")
     st.info(
         "Move each slider to adjust the concentration of each ingredient. The position on each slider determines the mixture composition."
     )
@@ -596,7 +596,7 @@ def create_ingredient_sliders(
 
         # Submit button (this will be moved to questionnaire later)
         submitted = st.form_submit_button(
-            "🔄 Update Mixture",
+            "Update Mixture",
             type="primary",
             use_container_width=True,
             key=f"update_mixture_{participant_id}",
@@ -646,7 +646,7 @@ def start_trial(
         if not session_code:
             session_code = f"session_{int(time.time())}"
             st.session_state.session_code = session_code
-            st.warning(f"⚠️ Created new session code: {session_code}")
+            st.warning(f"Created new session code: {session_code}")
         use_random_start = st.session_state.get("use_random_start", False)
 
         # Get ingredient configuration - FIXED: Use moderator's actual ingredient selection
@@ -679,7 +679,7 @@ def start_trial(
                 f"Ingredient count mismatch: expected {num_ingredients}, got {len(ingredients)}"
             )
             st.error(
-                f"⚠️ Configuration error: Expected {num_ingredients} ingredients, got {len(ingredients)}"
+                f"Configuration error: Expected {num_ingredients} ingredients, got {len(ingredients)}"
             )
 
         # Generate random starting positions for sliders if enabled and using slider interface
@@ -784,13 +784,13 @@ def start_trial(
 
                 if initial_success:
                     st.info(
-                        f"📍 Initial random position registered for {participant_id}"
+                        f"Initial random position registered for {participant_id}"
                     )
                 else:
-                    st.warning("⚠️ Could not register initial position")
+                    st.warning("Could not register initial position")
 
         except Exception as e:
-            st.warning(f"⚠️ Could not register initial position: {e}")
+            st.warning(f"Could not register initial position: {e}")
 
         # Update Streamlit session state
         st.session_state.phase = "respond"
@@ -840,7 +840,7 @@ def start_trial(
             )
 
         except Exception as e:
-            st.warning(f"⚠️ Could not update session config: {e}")
+            st.warning(f"Could not update session config: {e}")
 
         # Also update old database for backward compatibility
         try:
@@ -853,11 +853,11 @@ def start_trial(
                 num_ingredients=num_ingredients,
             )
             if success:
-                st.success(f"✅ Trial started successfully for {participant_id}")
+                st.success(f"Trial started successfully for {participant_id}")
             else:
-                st.warning("⚠️ Trial started (old database compatibility issue)")
+                st.warning("Trial started (old database compatibility issue)")
         except:
-            st.warning("⚠️ Trial started (old database compatibility issue)")
+            st.warning("Trial started (old database compatibility issue)")
 
         return True
 
@@ -1245,12 +1245,12 @@ def render_questionnaire(
     instance_key = f"questionnaire_{questionnaire_type}_{participant_id}"
 
     # Show placeholder notice
-    st.markdown("### 🚧 [QUESTIONNAIRE PLACEHOLDER - TO BE IMPLEMENTED]")
+    st.markdown("### [QUESTIONNAIRE PLACEHOLDER - TO BE IMPLEMENTED]")
     st.info(
-        "⚠️ This is a temporary placeholder. The actual questionnaire content will be implemented based on research requirements."
+        "This is a temporary placeholder. The actual questionnaire content will be implemented based on research requirements."
     )
 
-    st.markdown(f"### 📋 {config['title']}")
+    st.markdown(f"### {config['title']}")
     st.write(config["description"])
 
     # Form to collect all responses
@@ -1314,9 +1314,9 @@ def render_questionnaire(
 
 def show_preparation_message():
     """Display the solution preparation message."""
-    st.success("✅ Thank you for your response!")
+    st.success("Thank you for your response!")
     st.info(
-        "🧪 The solution is being prepared. Please answer the questionnaire while you wait."
+        "The solution is being prepared. Please answer the questionnaire while you wait."
     )
 
     # Add a small loading animation
@@ -1501,7 +1501,7 @@ def ensure_random_values_loaded(participant_id: str) -> bool:
         return False
 
     except Exception as e:
-        st.error(f"❌ Error ensuring random values loaded: {e}")
+        st.error(f"Error ensuring random values loaded: {e}")
         import traceback
 
         st.error(f"Full traceback: {traceback.format_exc()}")

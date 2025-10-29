@@ -32,7 +32,7 @@ def moderator_interface():
 
     # Validate session
     if not st.session_state.session_code:
-        st.error("❌ No active session. Please create or join a session.")
+        st.error("No active session. Please create or join a session.")
         if st.button("🏠 Return to Home", key="moderator_return_home_no_session"):
             st.query_params.clear()
             st.rerun()
@@ -40,7 +40,7 @@ def moderator_interface():
 
     session_info = get_session_info(st.session_state.session_code)
     if not session_info or not session_info["is_active"]:
-        st.error("❌ Session expired or invalid.")
+        st.error("Session expired or invalid.")
         st.session_state.session_code = None
         if st.button("🏠 Return to Home", key="moderator_return_home_invalid_session"):
             st.query_params.clear()
@@ -51,11 +51,11 @@ def moderator_interface():
     create_header(
         f"Moderator Dashboard - {st.session_state.session_code}",
         f"Managing session for {session_info['moderator_name']}",
-        "🎮",
+        "",
     )
 
     # ===== TOP SECTION: Essential Session Info & Quick Actions =====
-    st.markdown("### 📊 Session Overview")
+    st.markdown("### Session Overview")
 
     # Essential session metrics in a clean layout
     overview_col1, overview_col2, overview_col3, overview_col4 = st.columns(4)
@@ -73,10 +73,10 @@ def moderator_interface():
         status_color = (
             "🟢" if connection_status.get("subject_connected", False) else "🟡"
         )
-        st.metric("👤 Subject Status", f"{status_color} {status_text}")
+        st.metric("Subject Status", f"{status_color} {status_text}")
 
     with overview_col3:
-        st.metric("🧪 Current Phase", session_info["current_phase"].title())
+        st.metric("Current Phase", session_info["current_phase"].title())
 
     with overview_col4:
         st.metric("⏰ Status", "🟢 Active")
@@ -92,12 +92,12 @@ def moderator_interface():
     # Show different views based on session state
     if not st.session_state.session_active:
         # SETUP MODE: Show experiment configuration
-        st.markdown("### 🚀 Experiment Setup & Launch")
+        st.markdown("### Experiment Setup & Launch")
     else:
         # MONITORING MODE: Show session controls and configuration summary
         col_config, col_reset = st.columns([3, 1])
         with col_config:
-            st.markdown("### 📊 Active Session Configuration")
+            st.markdown("### Active Session Configuration")
 
             # Display current session configuration
             if st.session_state.get("selected_ingredients") and st.session_state.get(
@@ -126,7 +126,7 @@ def moderator_interface():
                 st.session_state.session_active = False
                 if "participant" in st.session_state:
                     clear_participant_session(st.session_state.participant)
-                st.toast("Session ended. Returning to setup...", icon="✅")
+                st.toast("Session ended. Returning to setup...")
                 time.sleep(1)
                 st.rerun()
 
@@ -137,7 +137,7 @@ def moderator_interface():
 
         with config_col1:
             # Multi-component mixture configuration
-            st.markdown("#### 🧪 Ingredient Configuration")
+            st.markdown("#### Ingredient Configuration")
 
             # Number of ingredients selection
             # Import ingredient list for selection
@@ -154,7 +154,7 @@ def moderator_interface():
                 ]  # Default to first 2
 
             selected_ingredients = st.multiselect(
-                "🧪 Select Ingredients:",
+                "Select Ingredients:",
                 options=available_ingredients,
                 default=st.session_state.selected_ingredients,
                 help="Choose 2-6 ingredients for your experiment (2 = 2D grid, 3+ = sliders)",
@@ -163,12 +163,12 @@ def moderator_interface():
 
             # Validation: ensure 2-6 ingredients are selected
             if len(selected_ingredients) < 2:
-                st.error("⚠️ Please select at least 2 ingredients")
+                st.error("Please select at least 2 ingredients")
                 selected_ingredients = (
                     st.session_state.selected_ingredients
                 )  # Keep previous valid selection
             elif len(selected_ingredients) > 6:
-                st.error("⚠️ Maximum 6 ingredients allowed")
+                st.error("Maximum 6 ingredients allowed")
                 selected_ingredients = selected_ingredients[:6]  # Truncate to 6
 
             # Update session state
@@ -246,7 +246,7 @@ def moderator_interface():
 
                     # Validation: ensure min < max
                     if min_val >= max_val:
-                        st.error(f"⚠️ Min must be less than Max for {ingredient_name}")
+                        st.error(f"Min must be less than Max for {ingredient_name}")
                         # Keep previous valid values
                         min_val = current_range["min"]
                         max_val = current_range["max"]
@@ -290,8 +290,8 @@ def moderator_interface():
 
         # Show interface type
         interface_info = {
-            INTERFACE_2D_GRID: "🎯 2D Grid Interface (X-Y coordinates)",
-            INTERFACE_SLIDERS: "🎛️ Slider Interface (Independent concentrations)",
+            INTERFACE_2D_GRID: "2D Grid Interface (X-Y coordinates)",
+            INTERFACE_SLIDERS: "Slider Interface (Independent concentrations)",
         }
         st.info(f"Interface: {interface_info[interface_type]}")
 
@@ -306,25 +306,25 @@ def moderator_interface():
 
             # Method explanation
             method_info = {
-                "linear": "📈 Direct proportional mapping",
-                "logarithmic": "📊 Logarithmic scale mapping",
+                "linear": "Direct proportional mapping",
+                "logarithmic": "Logarithmic scale mapping",
                 "exponential": "📉 Exponential scale mapping",
             }
             st.info(method_info[method])
         else:
             method = INTERFACE_SLIDERS
-            st.info("🎛️ Slider-based concentration control")
+            st.info("Slider-based concentration control")
 
             # Random start option for sliders
             st.session_state.use_random_start = st.checkbox(
-                "🎲 Random Starting Positions",
+                "Random Starting Positions",
                 value=st.session_state.get("use_random_start", True),
                 help="Start sliders at randomized positions instead of 50% for each trial",
                 key="moderator_random_start_toggle",
             )
 
         with config_col2:
-            st.markdown("#### 🚀 Launch Trial")
+            st.markdown("#### Launch Trial")
 
             # Show current participant
             participant_display = st.session_state.get("participant", "None selected")
@@ -332,7 +332,7 @@ def moderator_interface():
 
             # Start trial button (prominent)
             if st.button(
-                "🚀 Start Trial",
+                "Start Trial",
                 type="primary",
                 use_container_width=True,
                 key="moderator_start_trial_button",
@@ -357,7 +357,7 @@ def moderator_interface():
 
                     if not base_config:
                         st.error(
-                            f"⚠️ Ingredient '{ingredient_name}' not found in configuration"
+                            f"Ingredient '{ingredient_name}' not found in configuration"
                         )
                         continue
 
@@ -374,7 +374,7 @@ def moderator_interface():
                 # Validate ingredient count matches
                 if len(ingredient_configs) != num_ingredients:
                     st.error(
-                        f"⚠️ Configuration error: Expected {num_ingredients} ingredients, got {len(ingredient_configs)}"
+                        f"Configuration error: Expected {num_ingredients} ingredients, got {len(ingredient_configs)}"
                     )
                 else:
                     # Start trial with moderator's ingredient selection
@@ -389,23 +389,20 @@ def moderator_interface():
                     if success:
                         clear_canvas_state()  # Clear any previous canvas state
                         st.session_state.session_active = True  # Activate session
-                        st.toast(
-                            f"✅ Trial started for {st.session_state.participant}",
-                            icon="✅",
-                        )
+                        st.toast(f"Trial started for {st.session_state.participant}")
                         time.sleep(1)
                         st.rerun()
 
             # Reset session button
             if st.button(
-                "🔄 Reset Session",
+                "Reset Session",
                 use_container_width=True,
                 key="moderator_reset_session_main_top",
             ):
                 if "participant" in st.session_state:
                     success = clear_participant_session(st.session_state.participant)
                     if success:
-                        st.toast("✅ Session reset successfully!", icon="✅")
+                        st.toast("Session reset successfully!")
                         time.sleep(1)
                         st.rerun()
 
@@ -413,9 +410,9 @@ def moderator_interface():
     st.markdown("---")
 
     if not connection_status["subject_connected"]:
-        with st.expander("📱 Subject Access - QR Code & Session Info", expanded=False):
+        with st.expander("Subject Access - QR Code & Session Info", expanded=False):
             st.info(
-                "⏳ Waiting for subject to join session... Share the QR code or session code below."
+                "Waiting for subject to join session... Share the QR code or session code below."
             )
 
             # Smart URL detection - production first, then localhost for development
@@ -437,7 +434,7 @@ def moderator_interface():
                 st.session_state.session_code, base_url, context="waiting"
             )
     else:
-        st.success("✅ Subject device connected and active")
+        st.success("Subject device connected and active")
 
     # ===== ORGANIZED TABS FOR MONITORING & MANAGEMENT =====
     # Only show monitoring tabs when session is active
@@ -446,18 +443,18 @@ def moderator_interface():
 
         # Streamlined tabs - keep essential functionality organized
         main_tab1, main_tab2, main_tab3 = st.tabs(
-            ["📊 Live Monitor", "📈 Analytics", "⚙️ Settings"]
+            ["Live Monitor", "Analytics", "Settings"]
         )
 
         with main_tab1:
-            st.markdown("### 👁️ Live Subject Monitoring")
+            st.markdown("### Live Subject Monitoring")
 
             # Header with refresh and status
             col_refresh, col_status, col_time = st.columns([1, 2, 2])
 
             with col_refresh:
                 if st.button(
-                    "🔄 Refresh", key="live_monitor_refresh", use_container_width=True
+                    "Refresh", key="live_monitor_refresh", use_container_width=True
                 ):
                     st.rerun()
 
@@ -465,7 +462,7 @@ def moderator_interface():
             current_response = get_live_subject_position(st.session_state.participant)
 
             if not current_response:
-                st.info("⏳ Waiting for subject to start...")
+                st.info("Waiting for subject to start...")
             else:
                 # Extract data
                 concentrations = current_response.get("ingredient_concentrations", {})
@@ -474,11 +471,10 @@ def moderator_interface():
                 created_at = current_response.get("created_at", "Unknown")
 
                 with col_status:
-                    status_icon = "✅" if is_submitted else "🔴"
                     status_text = (
                         "Final Submission" if is_submitted else "Live Adjustment"
                     )
-                    st.markdown(f"**Status:** {status_icon} {status_text}")
+                    st.markdown(f"**Status:** {status_text}")
 
                 with col_time:
                     st.caption(f"Last update: {created_at}")
@@ -490,7 +486,7 @@ def moderator_interface():
 
                 # ============= LEFT PANEL: Current Selection =============
                 with col_left:
-                    st.markdown("#### 🎯 Current Selection")
+                    st.markdown("#### Current Selection")
 
                     if not concentrations:
                         st.warning("No concentration data available")
@@ -541,9 +537,9 @@ def moderator_interface():
                                 # Values below bar
                                 col_conc, col_pct = st.columns(2)
                                 with col_conc:
-                                    st.caption(f"🧪 {concentration_mM:.3f} mM")
+                                    st.caption(f"{concentration_mM:.3f} mM")
                                 with col_pct:
-                                    st.caption(f"📊 {percentage:.1f}% of scale")
+                                    st.caption(f"{percentage:.1f}% of scale")
 
                                 st.markdown("")  # Spacing
 
@@ -607,10 +603,10 @@ def moderator_interface():
                 st.rerun()
 
         with main_tab3:
-            st.markdown("### ⚙️ Session Settings")
+            st.markdown("### Session Settings")
 
             # Theme Settings
-            st.markdown("#### 🎨 Theme & Display")
+            st.markdown("#### Theme & Display")
 
             # Force dark mode option for better readability
             force_dark_mode = st.checkbox(
@@ -638,7 +634,7 @@ def moderator_interface():
 
             # Display Settings
             auto_refresh = st.checkbox(
-                "🔄 Auto-refresh monitoring",
+                "Auto-refresh monitoring",
                 value=st.session_state.get("auto_refresh", True),
                 key="moderator_auto_refresh_setting",
                 help="Automatically refresh live monitoring every 5 seconds",
@@ -648,7 +644,7 @@ def moderator_interface():
             st.divider()
 
             # Data Export Section
-            st.markdown("#### 📊 Data Export")
+            st.markdown("#### Data Export")
 
             if st.button(
                 "📥 Export Session Data (CSV)",
@@ -665,32 +661,32 @@ def moderator_interface():
                     if csv_data:
                         # Create download button
                         st.download_button(
-                            label="💾 Download CSV File",
+                            label="Download CSV File",
                             data=csv_data,
                             file_name=f"robotaste_session_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                             mime="text/csv",
                             key="download_csv_data",
                         )
-                        st.success("✅ Export data ready for download!")
+                        st.success("Export data ready for download!")
                     else:
-                        st.warning("⚠️ No data found to export for this session.")
+                        st.warning("No data found to export for this session.")
 
                 except Exception as e:
-                    st.error(f"❌ Error exporting data: {e}")
+                    st.error(f"Error exporting data: {e}")
 
             # Summary of data that will be exported
-            with st.expander("ℹ️ What data gets exported?"):
+            with st.expander("What data gets exported?"):
                 st.markdown(
                     """
                 **CSV Export includes:**
-                - 👤 Participant IDs and session information
-                - 🎛️ Interface type (grid vs. slider) and method used
-                - 🎲 Random start settings and initial positions
-                - 📍 All user interactions (clicks, slider adjustments)
-                - ⏱️ Reaction times and timestamps
-                - 🧪 Actual concentrations (mM values) for all ingredients
-                - ✅ Final response indicators
-                - 📋 Questionnaire responses (if any)
+                - Participant IDs and session information
+                - Interface type (grid vs. slider) and method used
+                - Random start settings and initial positions
+                - All user interactions (clicks, slider adjustments)
+                - Reaction times and timestamps
+                - Actual concentrations (mM values) for all ingredients
+                - Final response indicators
+                - Questionnaire responses (if any)
                 
                 **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
                 """
