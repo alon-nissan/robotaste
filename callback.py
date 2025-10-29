@@ -102,6 +102,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 73.0,
         "molecular_weight": 342.3,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
     {
         "name": "Salt",
@@ -109,6 +110,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 10.0,
         "molecular_weight": 58.44,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
     {
         "name": "Citric Acid",
@@ -116,6 +118,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 5.0,
         "molecular_weight": 192.12,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
     {
         "name": "Caffeine",
@@ -123,6 +126,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 1.0,
         "molecular_weight": 194.19,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
     {
         "name": "Vanilla",
@@ -130,6 +134,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 0.1,
         "molecular_weight": 152.15,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
     {
         "name": "Menthol",
@@ -137,6 +142,7 @@ DEFAULT_INGREDIENT_CONFIG = [
         "max_concentration": 0.5,
         "molecular_weight": 156.27,
         "unit": "mM",
+        "stock_concentration_mM": 1000.0,  # Stock solution concentration - CHANGE THIS AS NEEDED
     },
 ]
 
@@ -467,6 +473,68 @@ class MultiComponentMixture:
         return masses
 
 
+def calculate_stock_volumes(
+    concentrations: dict, ingredient_configs: list, final_volume_mL: float = 10.0
+) -> dict:
+    """
+    Calculate volume of each stock solution needed for preparation.
+
+    Args:
+        concentrations: Dict of {ingredient_name: desired_mM}
+        ingredient_configs: List of ingredient config dicts with stock_concentration_mM
+        final_volume_mL: Final solution volume in mL (default 10.0 mL)
+
+    Returns:
+        Dict with:
+        {
+            "stock_volumes": {ingredient_name: volume_µL, ...},
+            "water_volume": µL of water to add,
+            "total_volume": final volume in mL,
+            "ingredient_configs": reference to configs used
+        }
+
+    Formula:
+        volume_stock_mL = (desired_mM × final_volume_mL) / stock_mM
+        volume_stock_µL = volume_stock_mL × 1000
+
+    Example:
+        If you want 12.5 mM Sugar in 10 mL final volume, with 1000 mM stock:
+        volume_stock = (12.5 × 10.0) / 1000 = 0.125 mL = 125 µL
+    """
+    stock_volumes = {}
+    total_stock_volume = 0.0
+
+    for ingredient_name, desired_mM in concentrations.items():
+        # Find ingredient config
+        config = next(
+            (ing for ing in ingredient_configs if ing["name"] == ingredient_name), None
+        )
+
+        if config and "stock_concentration_mM" in config:
+            stock_mM = config["stock_concentration_mM"]
+
+            # Calculate volume of stock solution needed
+            # Formula: C1*V1 = C2*V2 → V1 = (C2*V2)/C1
+            volume_stock_mL = (desired_mM * final_volume_mL) / stock_mM
+            volume_stock_µL = volume_stock_mL * 1000  # Convert to microliters
+
+            stock_volumes[ingredient_name] = round(
+                volume_stock_µL, 3
+            )  # Round to 3 decimal in µL
+            total_stock_volume += volume_stock_mL
+
+    # Calculate water volume needed to reach final volume
+    water_volume_mL = final_volume_mL - total_stock_volume
+    water_volume_µL = water_volume_mL * 1000  # Convert to microliters
+
+    return {
+        "stock_volumes": stock_volumes,
+        "water_volume": round(water_volume_µL, 1),
+        "total_volume": final_volume_mL,
+        "ingredient_configs": ingredient_configs,  # Include for reference
+    }
+
+
 def create_ingredient_sliders(
     ingredients_config: list, participant_id: str, current_values: dict = None
 ) -> dict:
@@ -541,7 +609,12 @@ def create_ingredient_sliders(
 
 
 def start_trial(
-    user_type: str, participant_id: str, method: str, num_ingredients: int = 2
+    user_type: str,
+    participant_id: str,
+    method: str,
+    num_ingredients: int = 2,
+    selected_ingredients: Optional[list] = None,
+    ingredient_configs: Optional[list] = None,
 ) -> bool:
     """
     Initialize a new trial with random starting position using new database schema.
@@ -551,6 +624,8 @@ def start_trial(
         participant_id: Unique participant identifier
         method: Concentration mapping method
         num_ingredients: Number of ingredients
+        selected_ingredients: List of selected ingredient names (e.g., ['Sugar', 'Salt', 'Citric Acid'])
+        ingredient_configs: List of ingredient configuration dicts with custom ranges
 
     Returns:
         Success status
@@ -562,7 +637,9 @@ def start_trial(
         x, y = generate_random_position()
 
         # Determine interface type
-        interface_type = INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
+        interface_type = (
+            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
+        )
 
         # Get session code - create one if missing
         session_code = st.session_state.get("session_code")
@@ -572,8 +649,38 @@ def start_trial(
             st.warning(f"⚠️ Created new session code: {session_code}")
         use_random_start = st.session_state.get("use_random_start", False)
 
-        # Get ingredient configuration
-        ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+        # Get ingredient configuration - FIXED: Use moderator's actual ingredient selection
+        if ingredient_configs:
+            # Use moderator's custom configuration with custom concentration ranges
+            ingredients = ingredient_configs
+            logger.info(
+                f"Using custom ingredient configuration: {[ing['name'] for ing in ingredients]}"
+            )
+        elif selected_ingredients:
+            # Build configuration from selected ingredient names
+            ingredients = [
+                ing
+                for ing in DEFAULT_INGREDIENT_CONFIG
+                if ing["name"] in selected_ingredients
+            ]
+            logger.info(
+                f"Using selected ingredients: {[ing['name'] for ing in ingredients]}"
+            )
+        else:
+            # Fallback to defaults (for backward compatibility with old code)
+            ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+            logger.warning(
+                f"Using default ingredient configuration (first {num_ingredients} ingredients)"
+            )
+
+        # Validate we have the correct number of ingredients
+        if len(ingredients) != num_ingredients:
+            logger.error(
+                f"Ingredient count mismatch: expected {num_ingredients}, got {len(ingredients)}"
+            )
+            st.error(
+                f"⚠️ Configuration error: Expected {num_ingredients} ingredients, got {len(ingredients)}"
+            )
 
         # Generate random starting positions for sliders if enabled and using slider interface
         random_slider_values = {}
@@ -590,9 +697,9 @@ def start_trial(
                 random_slider_values
             )
             for ingredient_name, conc_data in concentrations.items():
-                random_concentrations[ingredient_name] = conc_data[
-                    "actual_concentration_mM"
-                ]
+                random_concentrations[ingredient_name] = round(
+                    conc_data["actual_concentration_mM"], 3
+                )
 
             # Store initial slider positions in database
             ingredient_names = [ing["name"] for ing in ingredients]
@@ -605,6 +712,86 @@ def start_trial(
                 ingredient_names=ingredient_names,
             )
 
+        # Register initial random positions as first response
+        try:
+            from sql_handler import save_multi_ingredient_response
+
+            # Calculate initial concentrations based on interface type
+            initial_concentrations = {}
+            if interface_type == INTERFACE_SLIDERS and random_concentrations:
+                # Use calculated random concentrations for slider interface
+                initial_concentrations = random_concentrations
+            elif interface_type == INTERFACE_2D_GRID:
+                # Calculate concentrations from random grid position for 2D grid
+                sugar_mm, salt_mm = (
+                    ConcentrationMapper.map_coordinates_to_concentrations(
+                        x, y, method=method
+                    )
+                )
+                initial_concentrations = {
+                    "Sugar": round(sugar_mm, 3),
+                    "Salt": round(salt_mm, 3),
+                }
+
+            # Save initial position as first response with is_initial=True
+            if initial_concentrations:
+                initial_success = save_multi_ingredient_response(
+                    participant_id=participant_id,
+                    session_id=session_code,
+                    method=method,
+                    interface_type=interface_type,
+                    ingredient_concentrations=initial_concentrations,
+                    reaction_time_ms=0,  # No reaction time for initial position
+                    questionnaire_response=None,
+                    is_final_response=False,
+                    is_initial=True,  # Mark as initial random position
+                    extra_data={
+                        "interface_type": interface_type,
+                        "method": method,
+                        "response_metadata": {
+                            "is_initial_random": True,
+                            "is_finish_button": False,
+                            "is_final_submission": False,
+                        },
+                        "ui_data": {
+                            "grid_position": (
+                                {"x": x, "y": y}
+                                if interface_type == INTERFACE_2D_GRID
+                                else None
+                            ),
+                            "slider_percentages": (
+                                random_slider_values
+                                if interface_type == INTERFACE_SLIDERS
+                                else None
+                            ),
+                            "concentrations_summary": None,
+                        },
+                        "ingredient_metadata": {
+                            "ingredient_names": [ing["name"] for ing in ingredients],
+                            "ingredient_order": list(range(len(ingredients))),
+                            "ingredient_ranges": {
+                                ing["name"]: {
+                                    "min": ing["min_concentration"],
+                                    "max": ing["max_concentration"],
+                                    "unit": ing.get("unit", "mM"),
+                                    "molecular_weight": ing.get("molecular_weight", 0),
+                                }
+                                for ing in ingredients
+                            },
+                        },
+                    },
+                )
+
+                if initial_success:
+                    st.info(
+                        f"📍 Initial random position registered for {participant_id}"
+                    )
+                else:
+                    st.warning("⚠️ Could not register initial position")
+
+        except Exception as e:
+            st.warning(f"⚠️ Could not register initial position: {e}")
+
         # Update Streamlit session state
         st.session_state.phase = "respond"
         st.session_state.trial_start_time = time.perf_counter()
@@ -612,6 +799,9 @@ def start_trial(
         st.session_state.method = method
         st.session_state.num_ingredients = num_ingredients
         st.session_state.interface_type = interface_type
+        st.session_state.ingredients = (
+            ingredients  # FIXED: Store for subject interface to use
+        )
 
         # Store initial positions in session state for immediate use
         if random_slider_values:
@@ -632,13 +822,21 @@ def start_trial(
                 "num_ingredients": num_ingredients,
                 "interface_type": interface_type,
                 "method": method,
-                "ingredients": [ing for ing in ingredients]  # Store ingredient configuration
+                "ingredients": [
+                    ing for ing in ingredients
+                ],  # Store ingredient configuration
+                "ingredient_metadata": {
+                    "ingredient_names": [ing["name"] for ing in ingredients],
+                    "ingredient_order": list(range(len(ingredients))),
+                    "custom_ranges_used": ingredient_configs is not None,
+                    "selected_by_moderator": selected_ingredients is not None,
+                },
             }
 
             update_session_activity(
                 session_code,
                 phase="trial_started",
-                config=json.dumps(experiment_config)
+                config=json.dumps(experiment_config),
             )
 
         except Exception as e:
@@ -734,17 +932,54 @@ def finish_trial(
 
         # Create ingredient concentrations dictionary
         ingredient_concentrations = {
-            "Sugar": sugar_mm,
-            "Salt": salt_mm
+            "Sugar": round(sugar_mm, 3),
+            "Salt": round(salt_mm, 3),
         }
+
+        # Get session code for database storage
+        session_code = st.session_state.get("session_code", "default_session")
 
         # Save final response to responses table
         success = save_response(
             participant_id=participant_id,
+            session_id=session_code,  # Add session_id parameter
             method=method,
             ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
             is_final=True,  # Mark as final response
+            is_initial=False,  # User-generated response
+            extra_data={
+                "interface_type": INTERFACE_2D_GRID,
+                "method": method,
+                "response_metadata": {
+                    "is_initial_random": False,
+                    "is_finish_button": False,
+                    "is_final_submission": True,
+                },
+                "ui_data": {
+                    "grid_position": {"x": x, "y": y},
+                    "slider_percentages": None,
+                    "concentrations_summary": None,
+                },
+                "ingredient_metadata": {
+                    "ingredient_names": ["Sugar", "Salt"],
+                    "ingredient_order": [0, 1],
+                    "ingredient_ranges": {
+                        "Sugar": {
+                            "min": 0.73,
+                            "max": 73.0,
+                            "unit": "mM",
+                            "molecular_weight": 342.3,
+                        },
+                        "Salt": {
+                            "min": 0.10,
+                            "max": 10.0,
+                            "unit": "mM",
+                            "molecular_weight": 58.44,
+                        },
+                    },
+                },
+            },
         )
 
         if success:
@@ -792,16 +1027,53 @@ def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
 
         # Create ingredient concentrations dictionary
         ingredient_concentrations = {
-            "Sugar": sugar_mm,
-            "Salt": salt_mm
+            "Sugar": round(sugar_mm, 3),
+            "Salt": round(salt_mm, 3),
         }
+
+        # Get session code for database storage
+        session_code = st.session_state.get("session_code", "default_session")
 
         return save_response(
             participant_id=participant_id,
+            session_id=session_code,  # Add session_id parameter
             method=method,
             ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
             is_final=False,
+            is_initial=False,
+            extra_data={
+                "interface_type": INTERFACE_2D_GRID,
+                "method": method,
+                "response_metadata": {
+                    "is_initial_random": False,
+                    "is_finish_button": False,
+                    "is_final_submission": False,
+                },
+                "ui_data": {
+                    "grid_position": {"x": x, "y": y},
+                    "slider_percentages": None,
+                    "concentrations_summary": None,
+                },
+                "ingredient_metadata": {
+                    "ingredient_names": ["Sugar", "Salt"],
+                    "ingredient_order": [0, 1],
+                    "ingredient_ranges": {
+                        "Sugar": {
+                            "min": 0.73,
+                            "max": 73.0,
+                            "unit": "mM",
+                            "molecular_weight": 342.3,
+                        },
+                        "Salt": {
+                            "min": 0.10,
+                            "max": 10.0,
+                            "unit": "mM",
+                            "molecular_weight": 58.44,
+                        },
+                    },
+                },
+            },
         )
 
     except Exception as e:
@@ -1080,9 +1352,9 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
         # Extract actual mM concentrations for database storage
         ingredient_concentrations = {}
         for ingredient_name, conc_data in concentrations.items():
-            ingredient_concentrations[ingredient_name] = conc_data[
-                "actual_concentration_mM"
-            ]
+            ingredient_concentrations[ingredient_name] = round(
+                conc_data["actual_concentration_mM"], 3
+            )
 
         # Get questionnaire responses if available
         questionnaire_response = st.session_state.get(
@@ -1099,9 +1371,36 @@ def save_slider_trial(participant_id: str, concentrations: dict, method: str) ->
             reaction_time_ms=reaction_time_ms,
             questionnaire_response=questionnaire_response,
             is_final_response=True,
+            is_initial=False,
             extra_data={
-                "concentrations_summary": concentrations,  # Store full concentration data including slider positions
-                "slider_interface": True,
+                "interface_type": INTERFACE_SLIDERS,
+                "method": method,
+                "response_metadata": {
+                    "is_initial_random": False,
+                    "is_finish_button": False,
+                    "is_final_submission": True,
+                },
+                "ui_data": {
+                    "grid_position": None,
+                    "slider_percentages": {
+                        ing: concentrations[ing]["slider_position"]
+                        for ing in concentrations
+                    },
+                    "concentrations_summary": concentrations,
+                },
+                "ingredient_metadata": {
+                    "ingredient_names": list(ingredient_concentrations.keys()),
+                    "ingredient_order": list(range(len(ingredient_concentrations))),
+                    "ingredient_ranges": {
+                        ing: {
+                            "min": concentrations[ing]["min_mM"],
+                            "max": concentrations[ing]["max_mM"],
+                            "unit": "mM",
+                            "molecular_weight": concentrations[ing]["molecular_weight"],
+                        }
+                        for ing in concentrations
+                    },
+                },
             },
         )
 

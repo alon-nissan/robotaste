@@ -11,13 +11,13 @@ from callback import (
     show_preparation_message,
 )
 from ui_components import create_header, display_phase_status
-from session_manager import get_session_info, update_session_activity
+from session_manager import get_session_info, sync_session_state, update_session_activity
 from sql_handler import (
     get_initial_slider_positions,
     get_moderator_settings,
     is_participant_activated,
     save_multi_ingredient_response,
-    store_user_interaction_v2,
+    update_response_with_questionnaire,
     update_session_state,
 )
 
@@ -84,6 +84,8 @@ def subject_interface():
                 key="subject_check_status_button",
             ):
                 if is_participant_activated(participant_id):
+                    # Sync session state from database to get experiment configuration
+                    sync_session_state(st.session_state.session_code, "subject")
                     st.session_state.phase = "pre_questionnaire"
                     st.success("✅ Ready to begin!")
                     time.sleep(1)
@@ -135,12 +137,23 @@ def subject_interface():
         num_ingredients = st.session_state.get("num_ingredients", 2)
         interface_type = st.session_state.get("interface_type", INTERFACE_2D_GRID)
 
-        # Ensure DEFAULT_INGREDIENT_CONFIG is available
-        from callback import DEFAULT_INGREDIENT_CONFIG
+        # FIXED: Get ingredient configuration from session state (set by start_trial)
+        # This preserves the moderator's actual ingredient selection instead of using defaults
+        if hasattr(st.session_state, "ingredients") and st.session_state.ingredients:
+            # Use the ingredients from start_trial (correct moderator selection)
+            ingredients = st.session_state.ingredients
+        elif hasattr(st.session_state, "experiment_config") and "ingredients" in st.session_state.experiment_config:
+            # Fallback: Try to get from experiment_config in session state
+            ingredients = st.session_state.experiment_config["ingredients"]
+        else:
+            # Last resort: Use defaults (backward compatibility)
+            from callback import DEFAULT_INGREDIENT_CONFIG
+            ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
+            st.warning("⚠️ Using default ingredients - moderator selection not found")
 
         experiment_config = {
             "num_ingredients": num_ingredients,
-            "ingredients": DEFAULT_INGREDIENT_CONFIG[:num_ingredients],
+            "ingredients": ingredients,  # Now uses correct moderator selection!
         }
 
         mixture = MultiComponentMixture(experiment_config["ingredients"])
@@ -586,48 +599,11 @@ def subject_interface():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Store current slider values and update database for real-time monitoring
+            # Store current slider values in session state (no database write until Finish clicked)
             if slider_changed:
                 st.session_state.current_slider_values = slider_values
-
-                # Store real-time slider movements for monitoring
-                try:
-
-                    # Calculate actual concentrations for monitoring
-                    concentrations = mixture.calculate_concentrations_from_sliders(
-                        slider_values
-                    )
-
-                    # Prepare concentration data for storage
-                    slider_concentrations = {}
-                    actual_concentrations = {}
-
-                    for ingredient_name, conc_data in concentrations.items():
-                        slider_concentrations[ingredient_name] = conc_data[
-                            "slider_position"
-                        ]
-                        actual_concentrations[ingredient_name] = conc_data[
-                            "actual_concentration_mM"
-                        ]
-
-                    # Store as real-time interaction (not final response)
-                    experiment_id = st.session_state.get("experiment_id")
-                    if experiment_id and st.session_state.get("participant"):
-                        store_user_interaction_v2(
-                            experiment_id=experiment_id,
-                            participant_id=st.session_state.participant,
-                            interaction_type="slider_adjustment",
-                            slider_concentrations=slider_concentrations,
-                            actual_concentrations=actual_concentrations,
-                            is_final_response=False,
-                            extra_data={
-                                "interface_type": INTERFACE_SLIDERS,
-                                "real_time_update": True,
-                            },
-                        )
-                except Exception as e:
-                    # Don't break the UI if monitoring storage fails
-                    pass
+                # Real-time monitoring removed - was causing database lock errors
+                # Future: implement proper real-time monitoring with v2 schema
 
             # Add Finish button with enhanced styling
             st.markdown('<div class="finish-button-container">', unsafe_allow_html=True)
@@ -657,8 +633,6 @@ def subject_interface():
                     final_slider_values
                 )
 
-                # Save to database immediately when Finish button is clicked
-
                 # Calculate reaction time from trial start
                 reaction_time_ms = None
                 if hasattr(st.session_state, "trial_start_time"):
@@ -669,11 +643,12 @@ def subject_interface():
                 # Extract actual mM concentrations for database storage
                 ingredient_concentrations = {}
                 for ingredient_name, conc_data in concentrations.items():
-                    ingredient_concentrations[ingredient_name] = conc_data[
-                        "actual_concentration_mM"
-                    ]
+                    ingredient_concentrations[ingredient_name] = round(
+                        conc_data["actual_concentration_mM"], 3
+                    )
 
-                # Save slider response to database
+                # FIXED: Save immediately to database with is_final_response=False
+                # This will be updated to is_final_response=True after questionnaire
                 success = save_multi_ingredient_response(
                     participant_id=st.session_state.participant,
                     session_id=st.session_state.get("session_code", "default_session"),
@@ -683,10 +658,33 @@ def subject_interface():
                     reaction_time_ms=reaction_time_ms,
                     questionnaire_response=None,  # Will be updated in questionnaire phase
                     is_final_response=False,  # Not final until questionnaire completed
+                    is_initial=False,
                     extra_data={
-                        "concentrations_summary": concentrations,
-                        "slider_interface": True,
-                        "finish_button_clicked": True,
+                        "interface_type": INTERFACE_SLIDERS,
+                        "method": INTERFACE_SLIDERS,
+                        "response_metadata": {
+                            "is_initial_random": False,
+                            "is_finish_button": True,
+                            "is_final_submission": False
+                        },
+                        "ui_data": {
+                            "grid_position": None,
+                            "slider_percentages": {ing: concentrations[ing]["slider_position"] for ing in concentrations},
+                            "concentrations_summary": concentrations
+                        },
+                        "ingredient_metadata": {
+                            "ingredient_names": list(ingredient_concentrations.keys()),
+                            "ingredient_order": list(range(len(ingredient_concentrations))),
+                            "ingredient_ranges": {
+                                ing: {
+                                    "min": concentrations[ing]["min_mM"],
+                                    "max": concentrations[ing]["max_mM"],
+                                    "unit": "mM",
+                                    "molecular_weight": concentrations[ing]["molecular_weight"]
+                                }
+                                for ing in concentrations
+                            }
+                        }
                     },
                 )
 
@@ -695,7 +693,7 @@ def subject_interface():
                     if not hasattr(st.session_state, "selection_history"):
                         st.session_state.selection_history = []
 
-                    # Add final selection to history
+                    # Add final selection to history for display
                     selection_number = len(st.session_state.selection_history) + 1
                     st.session_state.selection_history.append(
                         {
@@ -707,7 +705,7 @@ def subject_interface():
                         }
                     )
 
-                    # Store final values and trigger questionnaire
+                    # Store final values in session state for questionnaire phase
                     st.session_state.current_slider_values = final_slider_values
                     st.session_state.pending_slider_result = {
                         "slider_values": final_slider_values,
@@ -716,7 +714,7 @@ def subject_interface():
                     st.session_state.pending_method = INTERFACE_SLIDERS
 
                     st.success("✅ Slider selection recorded!")
-                    # Go to questionnaire
+                    # Go to questionnaire (will update the same record with questionnaire data)
                     st.session_state.phase = "post_questionnaire"
                     st.rerun()
                 else:
@@ -802,46 +800,16 @@ def subject_interface():
                             st.session_state.pending_method,
                         )
                     elif hasattr(st.session_state, "pending_slider_result"):
-                        # Slider-based submission - update existing record with questionnaire and mark as final
-                        slider_data = st.session_state.pending_slider_result
+                        # Slider-based submission - UPDATE existing record with questionnaire and mark as final
+                        # This prevents duplicate database records
 
-                        # Extract actual mM concentrations for database storage
-                        ingredient_concentrations = {}
-                        for ingredient_name, conc_data in slider_data[
-                            "concentrations"
-                        ].items():
-                            ingredient_concentrations[ingredient_name] = conc_data[
-                                "actual_concentration_mM"
-                            ]
-
-                        # Calculate reaction time from trial start
-                        reaction_time_ms = None
-                        if hasattr(st.session_state, "trial_start_time"):
-                            reaction_time_ms = int(
-                                (
-                                    time.perf_counter()
-                                    - st.session_state.trial_start_time
-                                )
-                                * 1000
-                            )
-
-                        # Save final response with questionnaire data
-                        success = save_multi_ingredient_response(
+                        # Update the existing response (saved when "Finish" was clicked) with questionnaire data
+                        success = update_response_with_questionnaire(
                             participant_id=st.session_state.participant,
                             session_id=st.session_state.get(
                                 "session_code", "default_session"
                             ),
-                            method=INTERFACE_SLIDERS,
-                            interface_type=INTERFACE_SLIDERS,
-                            ingredient_concentrations=ingredient_concentrations,
-                            reaction_time_ms=reaction_time_ms,
-                            questionnaire_response=responses,  # Include questionnaire responses
-                            is_final_response=True,  # Mark as final
-                            extra_data={
-                                "concentrations_summary": slider_data["concentrations"],
-                                "slider_interface": True,
-                                "final_submission": True,
-                            },
+                            questionnaire_response=responses,  # Add questionnaire to existing response
                         )
 
                     if success:

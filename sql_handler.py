@@ -154,6 +154,7 @@ def init_database() -> bool:
                     reaction_time_ms INTEGER,
                     questionnaire_response TEXT,
                     is_final_response BOOLEAN DEFAULT 0,
+                    is_initial BOOLEAN DEFAULT 0,  -- Track initial random starting positions
                     extra_data TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -447,6 +448,14 @@ def _migrate_database(cursor) -> None:
             logger.info("Adding extra_data column to responses table")
             cursor.execute("ALTER TABLE responses ADD COLUMN extra_data TEXT")
 
+        # Check if is_initial column exists in responses table
+        cursor.execute("PRAGMA table_info(responses)")
+        responses_columns = [column[1] for column in cursor.fetchall()]
+
+        if 'is_initial' not in responses_columns:
+            logger.info("Adding is_initial column to responses table for tracking initial random positions")
+            cursor.execute("ALTER TABLE responses ADD COLUMN is_initial BOOLEAN DEFAULT 0")
+
         # Check if we need to update the method constraint
         cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='session_state'")
         table_sql = cursor.fetchone()
@@ -732,13 +741,13 @@ def get_live_subject_position(participant_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_latest_slider_interaction(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest slider interaction from the responses table (JSON-based)."""
+    """Get the latest interaction from the responses table (works for both slider and grid interfaces)."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT * FROM responses
-                WHERE participant_id = ? AND interface_type = 'slider_based'
+                WHERE participant_id = ?
                 ORDER BY created_at DESC
                 LIMIT 1
             """, (participant_id,))
@@ -756,7 +765,7 @@ def get_latest_slider_interaction(participant_id: str) -> Optional[Dict[str, Any
                         logger.warning(f"Failed to parse ingredient data for {participant_id}")
 
                 return {
-                    "interface_type": INTERFACE_SLIDERS,
+                    "interface_type": row["interface_type"],  # Use actual interface type from database
                     "method": row["method"],
                     "created_at": row["created_at"],
                     "is_submitted": bool(row["is_final_response"]),
@@ -811,15 +820,32 @@ def update_session_state(
 
 def save_response(
     participant_id: str,
+    session_id: str,
     method: str,
     ingredient_concentrations: Optional[Dict[str, float]] = None,
     sugar_conc: Optional[float] = None,
     salt_conc: Optional[float] = None,
     reaction_time_ms: Optional[int] = None,
     is_final: bool = False,
+    is_initial: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Save a complete response to the responses table (JSON-based).
+
+    Args:
+        participant_id: Participant identifier
+        session_id: Session identifier
+        method: Method used (linear, logarithmic, exponential)
+        ingredient_concentrations: Dict of ingredient concentrations (mM values)
+        sugar_conc: Legacy sugar concentration parameter (deprecated)
+        salt_conc: Legacy salt concentration parameter (deprecated)
+        reaction_time_ms: Response time in milliseconds
+        is_final: Whether this is the final response
+        is_initial: Whether this is an initial random position
+        extra_data: Additional data as dict
+
+    Returns:
+        Success status
 
     TODO: Add data validation before saving
     TODO: Implement batch saving for better performance
@@ -861,11 +887,11 @@ def save_response(
             cursor.execute(
                 """
                 INSERT INTO responses
-                (participant_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, is_final_response, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (participant_id, session_id, selection_number, interface_type, method,
+                 ingredient_data, reaction_time_ms, is_final_response, is_initial, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (participant_id, selection_number, INTERFACE_2D_GRID, method, ingredient_data_json, reaction_time_ms, is_final, extra_data_json),
+                (participant_id, session_id, selection_number, INTERFACE_2D_GRID, method, ingredient_data_json, reaction_time_ms, is_final, is_initial, extra_data_json),
             )
 
             conn.commit()
@@ -887,6 +913,69 @@ def save_response(
         return False
 
 
+def update_response_with_questionnaire(
+    participant_id: str,
+    session_id: str,
+    questionnaire_response: Dict[str, Any],
+) -> bool:
+    """
+    Update the most recent non-final response with questionnaire data and mark as final.
+    This prevents duplicate responses.
+
+    Args:
+        participant_id: Participant identifier
+        session_id: Session identifier
+        questionnaire_response: Questionnaire responses as dict
+
+    Returns:
+        Success status
+    """
+    try:
+        import json
+
+        questionnaire_json = json.dumps(questionnaire_response)
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            # Find the most recent non-final response for this participant/session
+            cursor.execute(
+                """
+                UPDATE responses
+                SET questionnaire_response = ?,
+                    is_final_response = 1
+                WHERE id = (
+                    SELECT id FROM responses
+                    WHERE participant_id = ?
+                    AND session_id = ?
+                    AND is_final_response = 0
+                    AND is_initial = 0
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
+                """,
+                (questionnaire_json, participant_id, session_id),
+            )
+
+            rows_affected = cursor.rowcount
+            conn.commit()
+
+            if rows_affected > 0:
+                logger.info(
+                    f"Successfully updated response with questionnaire for {participant_id}"
+                )
+                return True
+            else:
+                logger.warning(
+                    f"No non-final response found to update for {participant_id}"
+                )
+                return False
+
+    except Exception as e:
+        logger.error(f"Error updating response with questionnaire: {e}")
+        return False
+
+
 def save_multi_ingredient_response(
     participant_id: str,
     session_id: str,
@@ -896,6 +985,7 @@ def save_multi_ingredient_response(
     reaction_time_ms: Optional[int] = None,
     questionnaire_response: Optional[Dict[str, Any]] = None,
     is_final_response: bool = False,
+    is_initial: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
@@ -942,11 +1032,11 @@ def save_multi_ingredient_response(
                 """
                 INSERT INTO responses
                 (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, questionnaire_response, is_final_response, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ingredient_data, reaction_time_ms, questionnaire_response, is_final_response, is_initial, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data_json, reaction_time_ms, questionnaire_json, is_final_response, extra_data_json),
+                 ingredient_data_json, reaction_time_ms, questionnaire_json, is_final_response, is_initial, extra_data_json),
             )
 
             conn.commit()

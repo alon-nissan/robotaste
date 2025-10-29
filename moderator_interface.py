@@ -15,8 +15,6 @@ from sql_handler import (
     clear_participant_session,
     export_responses_csv,
     get_all_participants,
-    get_latest_recipe_for_participant,
-    get_latest_submitted_response,
     get_live_subject_position,
     get_participant_responses,
 )
@@ -113,20 +111,7 @@ def moderator_interface():
                             f"{ingredient_name}: {ranges['min']:.1f}-{ranges['max']:.1f} mM"
                         )
 
-                config_display = " | ".join(config_parts)
-                st.info(f"**Ingredients:** {config_display}")
-
-                # Show interface and method info
-                num_ingredients = len(st.session_state.selected_ingredients)
-                interface_type = "🎯 2D Grid" if num_ingredients == 2 else "🎛️ Slider"
-                method_display = (
-                    st.session_state.get("mapping_method", "linear")
-                    if num_ingredients == 2
-                    else INTERFACE_SLIDERS
-                )
-                st.info(
-                    f"**Interface:** {interface_type} | **Method:** {method_display}"
-                )
+                # Configuration is saved in session state, no need to display persistent messages here
 
         with col_reset:
             # New Session button to reset back to setup
@@ -141,7 +126,7 @@ def moderator_interface():
                 st.session_state.session_active = False
                 if "participant" in st.session_state:
                     clear_participant_session(st.session_state.participant)
-                st.success("Session ended. Returning to setup...")
+                st.toast("Session ended. Returning to setup...", icon="✅")
                 time.sleep(1)
                 st.rerun()
 
@@ -333,7 +318,7 @@ def moderator_interface():
             # Random start option for sliders
             st.session_state.use_random_start = st.checkbox(
                 "🎲 Random Starting Positions",
-                value=st.session_state.get("use_random_start", False),
+                value=st.session_state.get("use_random_start", True),
                 help="Start sliders at randomized positions instead of 50% for each trial",
                 key="moderator_random_start_toggle",
             )
@@ -353,15 +338,63 @@ def moderator_interface():
                 key="moderator_start_trial_button",
             ):
                 num_ingredients = st.session_state.experiment_config["num_ingredients"]
-                success = start_trial(
-                    "mod", st.session_state.participant, method, num_ingredients
-                )
-                if success:
-                    clear_canvas_state()  # Clear any previous canvas state
-                    st.session_state.session_active = True  # Activate session
-                    st.success(f"✅ Trial started for {st.session_state.participant}")
-                    time.sleep(1)
-                    st.rerun()
+
+                # Build ingredient configs with custom ranges
+                # FIXED: Pass moderator's actual ingredient selection to start_trial
+                ingredient_configs = []
+                for ingredient_name in st.session_state.selected_ingredients:
+                    # Get base configuration from defaults
+                    from callback import DEFAULT_INGREDIENT_CONFIG
+
+                    base_config = next(
+                        (
+                            ing
+                            for ing in DEFAULT_INGREDIENT_CONFIG
+                            if ing["name"] == ingredient_name
+                        ),
+                        None,
+                    )
+
+                    if not base_config:
+                        st.error(
+                            f"⚠️ Ingredient '{ingredient_name}' not found in configuration"
+                        )
+                        continue
+
+                    # Create a copy and apply custom ranges if set
+                    custom_config = base_config.copy()
+
+                    if ingredient_name in st.session_state.ingredient_ranges:
+                        ranges = st.session_state.ingredient_ranges[ingredient_name]
+                        custom_config["min_concentration"] = ranges["min"]
+                        custom_config["max_concentration"] = ranges["max"]
+
+                    ingredient_configs.append(custom_config)
+
+                # Validate ingredient count matches
+                if len(ingredient_configs) != num_ingredients:
+                    st.error(
+                        f"⚠️ Configuration error: Expected {num_ingredients} ingredients, got {len(ingredient_configs)}"
+                    )
+                else:
+                    # Start trial with moderator's ingredient selection
+                    success = start_trial(
+                        "mod",
+                        st.session_state.participant,
+                        method,
+                        num_ingredients,
+                        selected_ingredients=st.session_state.selected_ingredients,
+                        ingredient_configs=ingredient_configs,
+                    )
+                    if success:
+                        clear_canvas_state()  # Clear any previous canvas state
+                        st.session_state.session_active = True  # Activate session
+                        st.toast(
+                            f"✅ Trial started for {st.session_state.participant}",
+                            icon="✅",
+                        )
+                        time.sleep(1)
+                        st.rerun()
 
             # Reset session button
             if st.button(
@@ -372,7 +405,7 @@ def moderator_interface():
                 if "participant" in st.session_state:
                     success = clear_participant_session(st.session_state.participant)
                     if success:
-                        st.success("✅ Session reset successfully!")
+                        st.toast("✅ Session reset successfully!", icon="✅")
                         time.sleep(1)
                         st.rerun()
 
@@ -417,226 +450,161 @@ def moderator_interface():
         )
 
         with main_tab1:
-            # Add refresh button at the top
-            col_header, col_refresh = st.columns([4, 1])
-            with col_header:
-                st.markdown("### 📡 Real-time Monitoring")
+            st.markdown("### 👁️ Live Subject Monitoring")
+
+            # Header with refresh and status
+            col_refresh, col_status, col_time = st.columns([1, 2, 2])
+
             with col_refresh:
                 if st.button(
-                    "🔄 Refresh",
-                    key="live_monitor_refresh",
-                    help="Refresh monitoring data",
-                    use_container_width=True,
+                    "🔄 Refresh", key="live_monitor_refresh", use_container_width=True
                 ):
                     st.rerun()
 
-            # Show current participant session info
-            st.info(
-                "Live monitoring functionality - shows real-time participant responses"
-            )
-
-            # Get live or latest submitted response
+            # Get current position
             current_response = get_live_subject_position(st.session_state.participant)
 
-            col1, col2 = st.columns([2, 1])
+            if not current_response:
+                st.info("⏳ Waiting for subject to start...")
+            else:
+                # Extract data
+                concentrations = current_response.get("ingredient_concentrations", {})
+                is_submitted = current_response.get("is_submitted", False)
+                interface_type = current_response.get("interface_type", "slider_based")
+                created_at = current_response.get("created_at", "Unknown")
 
-            with col1:
-                if current_response:
-                    interface_type = current_response.get(
-                        "interface_type", INTERFACE_2D_GRID
+                with col_status:
+                    status_icon = "✅" if is_submitted else "🔴"
+                    status_text = (
+                        "Final Submission" if is_submitted else "Live Adjustment"
                     )
-                    method = current_response.get("method", INTERFACE_2D_GRID)
-                    status_text = "🎯 Live Subject Position"
-                    st.markdown(f"#### {status_text}")
+                    st.markdown(f"**Status:** {status_icon} {status_text}")
 
-                    # Initialize concentration_data for all interface types
-                    concentration_data = current_response.get(
-                        "ingredient_concentrations",
-                        current_response.get("concentration_data", {}),
-                    )
+                with col_time:
+                    st.caption(f"Last update: {created_at}")
 
-                    if (
-                        interface_type == INTERFACE_SLIDERS
-                        or method == INTERFACE_SLIDERS
-                    ):
-                        # Monitor slider interface using new database function
-                        st.markdown("**🎛️ Slider Interface Monitoring**")
-                        # For slider positions, we can derive from concentrations if needed
-                        slider_data = concentration_data
-                        is_submitted = current_response.get("is_submitted", False)
+                st.markdown("---")
 
-                        status_emoji = "✅" if is_submitted else "🔄"
-                        status_text = (
-                            "Final Submission" if is_submitted else "Live Adjustment"
-                        )
-                        st.markdown(f"**Status:** {status_emoji} {status_text}")
+                # Main layout: Left = Current Selection, Right = Recipe
+                col_left, col_right = st.columns([1.2, 1])
 
-                        if concentration_data:
-                            # Display concentrations and visual representation
-                            st.markdown("#### 🧪 Current Ingredient Concentrations")
+                # ============= LEFT PANEL: Current Selection =============
+                with col_left:
+                    st.markdown("#### 🎯 Current Selection")
 
-                            # Create visual representation of concentrations
-                            for ingredient_name, conc_mM in concentration_data.items():
-                                col_name, col_bar, col_value = st.columns([2, 4, 1])
-
-                                with col_name:
-                                    st.markdown(f"**{ingredient_name}**")
-
-                                with col_bar:
-                                    # Assume typical range 0-50 mM for progress bar (adjustable)
-                                    max_concentration = 50.0
-                                    progress_value = min(
-                                        conc_mM / max_concentration, 1.0
-                                    )
-                                    st.progress(progress_value)
-
-                                with col_value:
-                                    st.markdown(f"**{conc_mM:.1f} mM**")
-                        else:
-                            st.info("🔄 Subject hasn't started adjusting sliders yet")
-
-                            # Show what ingredients are being tested
-                            num_ingredients = current_response.get("num_ingredients", 4)
-                            if num_ingredients:
-                                from callback import DEFAULT_INGREDIENT_CONFIG
-
-                                ingredients = DEFAULT_INGREDIENT_CONFIG[
-                                    :num_ingredients
-                                ]
-                                st.markdown("#### 🧪 Expected Ingredients:")
-                                for ing in ingredients:
-                                    st.markdown(
-                                        f"• {ing['name']} ({ing['min_concentration']}-{ing['max_concentration']} {ing['unit']})"
-                                    )
-
+                    if not concentrations:
+                        st.warning("No concentration data available")
                     else:
-                        # Monitor grid interface - show ingredient concentrations instead of coordinates
-                        st.markdown("**🎯 Grid Interface Monitoring**")
-
-                        # Show ingredient concentrations for grid interface too
-                        if concentration_data:
-                            st.markdown("#### 🧪 Current Ingredient Concentrations")
-
-                            for ingredient_name, conc_mM in concentration_data.items():
-                                col_name, col_value = st.columns([3, 1])
-
-                                with col_name:
-                                    st.markdown(f"**{ingredient_name}**")
-
-                                with col_value:
-                                    st.markdown(f"**{conc_mM:.1f} mM**")
-                        else:
-                            st.info("🔄 No grid data available yet")
-
-                        # Legacy canvas drawing code removed since we no longer use x/y positions
-                        # Grid interface now shows concentration data above instead of canvas visualization
-
-                else:
-                    st.info("🔍 No participant activity detected yet.")
-
-            with col2:
-                if current_response:
-                    method = current_response.get("method", INTERFACE_2D_GRID)
-                    st.markdown("#### 📊 Live Metrics")
-
-                    if method == INTERFACE_SLIDERS:
-                        # Slider-based metrics
-                        current_sliders = getattr(
-                            st.session_state, "current_slider_values", {}
-                        )
-                        if current_sliders:
-                            st.metric("Interface Type", "🎛️ Multi-Slider")
-                            st.metric("Ingredients", str(len(current_sliders)))
-
-                            # Show average position
-                            avg_pos = sum(current_sliders.values()) / len(
-                                current_sliders
-                            )
-                            st.metric("Avg Position", f"{avg_pos:.1f}%")
-                        else:
-                            st.metric("Interface Type", "🎛️ Multi-Slider")
-                            st.metric("Status", "⏳ Starting...")
-                    else:
-                        # Grid-based metrics - show concentration data instead of coordinates
-                        if concentration_data:
-                            # Show total ingredients metric
-                            num_ingredients = len(concentration_data)
-                            st.metric("Active Ingredients", f"{num_ingredients}")
-
-                            # Show total concentration
-                            total_conc = sum(concentration_data.values())
-                            st.metric("Total Concentration", f"{total_conc:.1f} mM")
-                        else:
-                            st.metric("Interface Type", "🎯 Grid-based")
-                            st.metric("Status", "⏳ No data yet")
-
-                    # Show current recipe - works for both live and submitted responses
-                    if st.session_state.get("participant"):
-                        st.markdown("##### 🧪 Current Recipe")
-
-                        # Get latest recipe for the participant
-                        current_recipe = get_latest_recipe_for_participant(
-                            st.session_state.participant
-                        )
-
-                        if current_recipe and current_recipe != "No recipe yet":
-                            # Display the recipe prominently
-                            st.success(current_recipe)
-
-                            # Show individual ingredient metrics if available
-                            latest_submitted = get_latest_submitted_response(
-                                st.session_state.participant
-                            )
-                            if latest_submitted and latest_submitted.get(
-                                "ingredient_concentrations"
-                            ):
-                                ingredients = latest_submitted[
-                                    "ingredient_concentrations"
-                                ]
-
-                                # Display metrics for each ingredient
-                                for (
-                                    ingredient_name,
-                                    concentration,
-                                ) in ingredients.items():
-                                    if concentration > 0:
-                                        st.metric(
-                                            f"🧪 {ingredient_name}",
-                                            f"{concentration:.1f} mM",
-                                        )
-                        else:
-                            # Show placeholder when no recipe is available
-                            if current_response.get("is_submitted", False):
-                                st.info("⏳ Calculating recipe...")
-                            else:
-                                st.info("👀 Waiting for participant response...")
-
-                    # Show reaction time if available
-                    if current_response.get("is_submitted", False):
-                        latest_submitted = get_latest_submitted_response(
-                            st.session_state.participant
-                        )
-                        if latest_submitted and latest_submitted.get(
-                            "reaction_time_ms"
+                        # Get ingredient configs from session state
+                        if (
+                            hasattr(st.session_state, "ingredients")
+                            and st.session_state.ingredients
                         ):
-                            st.metric(
-                                "⏱️ Reaction Time",
-                                f"{latest_submitted['reaction_time_ms']} ms",
+                            ingredient_configs = st.session_state.ingredients
+                        else:
+                            # Fallback to defaults
+                            from callback import DEFAULT_INGREDIENT_CONFIG
+
+                            num_ing = len(concentrations)
+                            ingredient_configs = DEFAULT_INGREDIENT_CONFIG[:num_ing]
+
+                        # Display each ingredient with bar
+                        for ingredient_name, concentration_mM in concentrations.items():
+                            # Find config for this ingredient
+                            config = next(
+                                (
+                                    ing
+                                    for ing in ingredient_configs
+                                    if ing["name"] == ingredient_name
+                                ),
+                                None,
                             )
 
+                            if config:
+                                min_mM = config["min_concentration"]
+                                max_mM = config["max_concentration"]
+
+                                # Calculate percentage of scale
+                                percentage = (
+                                    (concentration_mM - min_mM) / (max_mM - min_mM)
+                                ) * 100
+                                percentage = max(
+                                    0, min(100, percentage)
+                                )  # Clamp to 0-100
+
+                                # Display ingredient name
+                                st.markdown(f"**{ingredient_name}**")
+
+                                # Progress bar
+                                st.progress(percentage / 100.0)
+
+                                # Values below bar
+                                col_conc, col_pct = st.columns(2)
+                                with col_conc:
+                                    st.caption(f"🧪 {concentration_mM:.3f} mM")
+                                with col_pct:
+                                    st.caption(f"📊 {percentage:.1f}% of scale")
+
+                                st.markdown("")  # Spacing
+
+                # ============= RIGHT PANEL: Recipe Card =============
+                with col_right:
+                    st.markdown("#### 📝 Preparation Recipe")
+
+                    if concentrations and ingredient_configs:
+                        # Calculate stock volumes
+                        from callback import calculate_stock_volumes
+
+                        recipe = calculate_stock_volumes(
+                            concentrations=concentrations,
+                            ingredient_configs=ingredient_configs,
+                            final_volume_mL=10.0,  # CONFIGURABLE - 10 mL final volume
+                        )
+
+                        # Display recipe card
+                        st.markdown("**Stock Solutions:**")
+
+                        for ingredient_name, volume_µL in recipe[
+                            "stock_volumes"
+                        ].items():
+                            # Get stock concentration for display
+                            config = next(
+                                (
+                                    ing
+                                    for ing in ingredient_configs
+                                    if ing["name"] == ingredient_name
+                                ),
+                                None,
+                            )
+                            stock_mM = (
+                                config.get("stock_concentration_mM", 1000)
+                                if config
+                                else 1000
+                            )
+
+                            st.markdown(
+                                f"**{ingredient_name}** Stock ({stock_mM:.0f} mM)"
+                            )
+                            st.markdown(f"└─ `{volume_µL:.3f} µL`")
+                            st.markdown("")
+
+                        # Water volume
+                        st.markdown("**Water**")
+                        st.markdown(f"└─ `{recipe['water_volume']:.1f} µL`")
+                        st.markdown("")
+
+                        # Total
+                        st.markdown("---")
+                        st.markdown(
+                            f"**Total Volume:** `{recipe['total_volume']:.1f} mL`"
+                        )
                     else:
-                        # For live positioning, calculate concentrations
-                        st.write("here")
+                        st.info("Configure ingredients to see recipe")
 
-                    st.caption(f"Last update: {current_response['created_at']}")
-                else:
-                    st.write("Waiting for participant data...")
-
-        # Auto-refresh disabled to prevent blank screen issues
-        # User can manually refresh using browser or button controls
-        # if st.session_state.auto_refresh:
-        #     time.sleep(2)
-        #     st.rerun()
+            # Auto-refresh every 5 seconds
+            if st.session_state.get("auto_refresh", True):
+                time.sleep(5)
+                st.rerun()
 
         with main_tab3:
             st.markdown("### ⚙️ Session Settings")
@@ -670,10 +638,10 @@ def moderator_interface():
 
             # Display Settings
             auto_refresh = st.checkbox(
-                "🔄 Auto-refresh monitoring (experimental)",
-                value=st.session_state.get("auto_refresh", False),
+                "🔄 Auto-refresh monitoring",
+                value=st.session_state.get("auto_refresh", True),
                 key="moderator_auto_refresh_setting",
-                help="Automatically refresh live monitoring data (may cause performance issues)",
+                help="Automatically refresh live monitoring every 5 seconds",
             )
             st.session_state.auto_refresh = auto_refresh
 
