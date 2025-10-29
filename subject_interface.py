@@ -20,6 +20,7 @@ from sql_handler import (
     update_response_with_questionnaire,
     update_session_state,
 )
+from state_machine import ExperimentStateMachine, ExperimentPhase, initialize_phase
 
 
 import streamlit as st
@@ -55,6 +56,9 @@ def subject_interface():
         f"Session {st.session_state.session_code}", f"Taste Preference Experiment", ""
     )
 
+    # Initialize phase if not set
+    initialize_phase(default_phase="welcome")
+
     # Update session activity
     update_session_activity(st.session_state.session_code)
 
@@ -86,7 +90,22 @@ def subject_interface():
                 if is_participant_activated(participant_id):
                     # Sync session state from database to get experiment configuration
                     sync_session_state(st.session_state.session_code, "subject")
-                    st.session_state.phase = "pre_questionnaire"
+
+                    # Use state machine for validated transition
+                    try:
+                        ExperimentStateMachine.transition(
+                            new_phase=ExperimentPhase.PRE_QUESTIONNAIRE,
+                            session_code=st.session_state.session_code,
+                            participant_id=participant_id,
+                            sync_to_database=True
+                        )
+                    except Exception as e:
+                        # Fallback: directly set phase if state machine fails
+                        # (can happen if database phase doesn't match session state)
+                        import logging
+                        logging.warning(f"State machine transition failed: {e}. Using direct assignment.")
+                        st.session_state.phase = "pre_questionnaire"
+
                     st.success("Ready to begin!")
                     time.sleep(1)
                     st.rerun()
@@ -120,8 +139,13 @@ def subject_interface():
             if responses:
                 # Store questionnaire responses in session state for potential database storage
                 st.session_state.initial_questionnaire_responses = responses
-                # Move to respond phase
-                st.session_state.phase = "respond"
+                # Move to respond phase using state machine
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.TRIAL_ACTIVE,
+                    session_code=st.session_state.session_code,
+                    participant_id=st.session_state.participant,
+                    sync_to_database=True
+                )
                 st.rerun()
 
     elif st.session_state.phase == "respond":
@@ -272,7 +296,12 @@ def subject_interface():
                                 st.session_state.pending_method = mod_settings["method"]
 
                                 # Immediately go to questionnaire (no submit button needed)
-                                st.session_state.phase = "post_questionnaire"
+                                ExperimentStateMachine.transition(
+                                    new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
+                                    session_code=st.session_state.session_code,
+                                    participant_id=st.session_state.participant,
+                                    sync_to_database=True
+                                )
                                 st.rerun()
 
                             # Display current position and selection history
@@ -715,7 +744,12 @@ def subject_interface():
 
                     st.success("Slider selection recorded!")
                     # Go to questionnaire (will update the same record with questionnaire data)
-                    st.session_state.phase = "post_questionnaire"
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
+                        session_code=st.session_state.session_code,
+                        participant_id=st.session_state.participant,
+                        sync_to_database=True
+                    )
                     st.rerun()
                 else:
                     st.error("Failed to save slider selection. Please try again.")
@@ -752,7 +786,12 @@ def subject_interface():
                 use_container_width=True,
                 key="subject_continue_questionnaire_button",
             ):
-                st.session_state.phase = "post_questionnaire"
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
+                    session_code=st.session_state.session_code,
+                    participant_id=st.session_state.participant,
+                    sync_to_database=True
+                )
                 st.rerun()
 
     elif st.session_state.phase == "post_questionnaire":
@@ -813,7 +852,12 @@ def subject_interface():
                         )
 
                     if success:
-                        st.session_state.phase = "done"
+                        ExperimentStateMachine.transition(
+                            new_phase=ExperimentPhase.TRIAL_COMPLETE,
+                            session_code=st.session_state.session_code,
+                            participant_id=st.session_state.participant,
+                            sync_to_database=True
+                        )
                         # Clean up temporary storage
                         cleanup_pending_results()
                         st.rerun()
@@ -826,7 +870,12 @@ def subject_interface():
                     # Clean up temporary storage since we're not submitting yet
                     cleanup_pending_results()
 
-                    st.session_state.phase = "respond"
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.TRIAL_ACTIVE,
+                        session_code=st.session_state.session_code,
+                        participant_id=st.session_state.participant,
+                        sync_to_database=True
+                    )
                     st.success("Continue making selections!")
                     st.rerun()
 
@@ -862,8 +911,12 @@ def subject_interface():
                     if mod_settings and mod_settings["created_at"] != getattr(
                         st.session_state, "last_trial_time", None
                     ):
-                        st.session_state.phase = (
-                            "respond"  # Skip pre-questionnaire for subsequent trials
+                        # Skip pre-questionnaire for subsequent trials
+                        ExperimentStateMachine.transition(
+                            new_phase=ExperimentPhase.TRIAL_ACTIVE,
+                            session_code=st.session_state.session_code,
+                            participant_id=st.session_state.participant,
+                            sync_to_database=True
                         )
                         st.session_state.last_trial_time = mod_settings["created_at"]
                         st.rerun()

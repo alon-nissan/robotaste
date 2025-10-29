@@ -4,6 +4,7 @@ from callback import (
     MultiComponentMixture,
     clear_canvas_state,
     start_trial,
+    calculate_stock_volumes,
 )
 from ui_components import create_header
 from session_manager import (
@@ -14,10 +15,9 @@ from session_manager import (
 from sql_handler import (
     clear_participant_session,
     export_responses_csv,
-    get_all_participants,
     get_live_subject_position,
-    get_participant_responses,
 )
+from state_machine import ExperimentPhase, ExperimentStateMachine
 
 
 import streamlit as st
@@ -65,18 +65,40 @@ def moderator_interface():
 
     with overview_col2:
         connection_status = get_connection_status(st.session_state.session_code)
-        status_text = (
-            "Connected"
-            if connection_status.get("subject_connected", False)
-            else "Waiting"
-        )
-        status_color = (
-            "🟢" if connection_status.get("subject_connected", False) else "🟡"
-        )
-        st.metric("Subject Status", f"{status_color} {status_text}")
+        is_connected = connection_status.get("subject_connected", False)
+
+        # Get subject phase from database
+        current_phase_str = session_info.get("current_phase", "waiting")
+        phase = ExperimentPhase.from_string(current_phase_str)
+
+        if is_connected and phase:
+            phase_display = ExperimentStateMachine.get_phase_display_name(phase)
+            # Show connection + phase
+            st.metric("Subject Status", f"Connected - {phase_display}")
+        else:
+            st.metric("Subject Status", "🟡 Waiting")
 
     with overview_col3:
-        st.metric("Current Phase", session_info["current_phase"].title())
+        # Show color-coded phase badge
+        current_phase_str = session_info.get("current_phase", "waiting")
+        phase = ExperimentPhase.from_string(current_phase_str)
+        if phase:
+            phase_color = ExperimentStateMachine.get_phase_color(phase)
+            phase_name = ExperimentStateMachine.get_phase_display_name(phase)
+            # Use colored markdown badge
+            if phase_color == "green":
+                badge = f":green[{phase_name}]"
+            elif phase_color == "blue":
+                badge = f":blue[{phase_name}]"
+            elif phase_color == "orange":
+                badge = f":orange[{phase_name}]"
+            elif phase_color == "yellow":
+                badge = f":red[{phase_name}]"
+            else:
+                badge = f":gray[{phase_name}]"
+            st.metric("Current Phase", badge)
+        else:
+            st.metric("Current Phase", "Waiting")
 
     with overview_col4:
         st.metric("⏰ Status", "🟢 Active")
@@ -103,15 +125,33 @@ def moderator_interface():
             if st.session_state.get("selected_ingredients") and st.session_state.get(
                 "ingredient_ranges"
             ):
-                config_parts = []
-                for ingredient_name in st.session_state.selected_ingredients:
-                    if ingredient_name in st.session_state.ingredient_ranges:
-                        ranges = st.session_state.ingredient_ranges[ingredient_name]
-                        config_parts.append(
-                            f"{ingredient_name}: {ranges['min']:.1f}-{ranges['max']:.1f} mM"
-                        )
+                # Get interface and method info
+                num_ingredients = len(st.session_state.selected_ingredients)
+                interface_type = "2D Grid" if num_ingredients == 2 else "Slider-based"
+                method = st.session_state.get("mapping_method", "linear") if num_ingredients == 2 else "Independent"
+                random_start = st.session_state.get("use_random_start", False)
 
-                # Configuration is saved in session state, no need to display persistent messages here
+                # Display configuration in a compact format
+                config_col1, config_col2, config_col3 = st.columns(3)
+
+                with config_col1:
+                    st.caption("**Interface:**")
+                    st.write(f"{interface_type}")
+
+                with config_col2:
+                    st.caption("**Method:**")
+                    st.write(f"{method}")
+
+                with config_col3:
+                    st.caption("**Random Start:**")
+                    st.write(f"{'Yes' if random_start else 'No'}")
+
+                # Display ingredient ranges in a compact expander
+                with st.expander("View Ingredient Ranges", expanded=False):
+                    for ingredient_name in st.session_state.selected_ingredients:
+                        if ingredient_name in st.session_state.ingredient_ranges:
+                            ranges = st.session_state.ingredient_ranges[ingredient_name]
+                            st.write(f"**{ingredient_name}:** {ranges['min']:.1f} - {ranges['max']:.1f} mM")
 
         with col_reset:
             # New Session button to reset back to setup
@@ -393,19 +433,6 @@ def moderator_interface():
                         time.sleep(1)
                         st.rerun()
 
-            # Reset session button
-            if st.button(
-                "Reset Session",
-                use_container_width=True,
-                key="moderator_reset_session_main_top",
-            ):
-                if "participant" in st.session_state:
-                    success = clear_participant_session(st.session_state.participant)
-                    if success:
-                        st.toast("Session reset successfully!")
-                        time.sleep(1)
-                        st.rerun()
-
     # ===== SUBJECT CONNECTION & ACCESS SECTION =====
     st.markdown("---")
 
@@ -597,9 +624,10 @@ def moderator_interface():
                     else:
                         st.info("Configure ingredients to see recipe")
 
-            # Auto-refresh every 5 seconds
+            # Auto-refresh every 15 seconds (reduced flicker)
             if st.session_state.get("auto_refresh", True):
-                time.sleep(5)
+                st.caption("Auto-refresh enabled (15s interval)")
+                time.sleep(15)
                 st.rerun()
 
         with main_tab3:
@@ -637,7 +665,7 @@ def moderator_interface():
                 "Auto-refresh monitoring",
                 value=st.session_state.get("auto_refresh", True),
                 key="moderator_auto_refresh_setting",
-                help="Automatically refresh live monitoring every 5 seconds",
+                help="Automatically refresh live monitoring every 15 seconds",
             )
             st.session_state.auto_refresh = auto_refresh
 
@@ -690,33 +718,6 @@ def moderator_interface():
                 
                 **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
                 """
-                )
-
-            st.divider()
-
-            # Debug: Check database directly
-            with st.expander("🔍 Debug Database"):
-                if st.button(
-                    "Check Responses Table", key="moderator_check_responses_debug"
-                ):
-                    responses_df = get_participant_responses(
-                        st.session_state.participant
-                    )
-                    st.write(
-                        f"Found {len(responses_df)} responses for {st.session_state.participant}"
-                    )
-                    if not responses_df.empty:
-                        st.dataframe(responses_df)
-                    else:
-                        st.write("No responses found in database")
-
-                    # Also check all participants
-                    all_participants = get_all_participants()
-                    st.write(f"All participants in database: {all_participants}")
-
-                # Get response history
-                responses_df = get_participant_responses(
-                    st.session_state.participant, limit=50
                 )
 
     if not st.session_state.session_active:
