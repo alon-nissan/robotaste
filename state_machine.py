@@ -238,6 +238,45 @@ class ExperimentStateMachine:
         }
         return colors.get(phase, "gray")
 
+    @staticmethod
+    def should_show_setup() -> bool:
+        """
+        Check if moderator should see experiment setup UI.
+
+        Returns:
+            True if phase is WAITING (setup mode), False otherwise
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase == ExperimentPhase.WAITING
+
+    @staticmethod
+    def should_show_monitoring() -> bool:
+        """
+        Check if moderator should see monitoring UI (tabs with live data).
+
+        Returns:
+            True if trial is in any active phase, False if waiting or complete
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase in [
+            ExperimentPhase.TRIAL_STARTED,
+            ExperimentPhase.SUBJECT_WELCOME,
+            ExperimentPhase.PRE_QUESTIONNAIRE,
+            ExperimentPhase.TRIAL_ACTIVE,
+            ExperimentPhase.POST_RESPONSE_MESSAGE,
+            ExperimentPhase.POST_QUESTIONNAIRE,
+        ]
+
+    @staticmethod
+    def is_trial_active() -> bool:
+        """
+        Check if trial is in an active phase (not waiting, not complete).
+
+        Returns:
+            True if trial is active, False otherwise
+        """
+        return ExperimentStateMachine.should_show_monitoring()
+
 
 def initialize_phase(default_phase: str = "waiting") -> None:
     """

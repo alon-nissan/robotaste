@@ -17,7 +17,7 @@ from sql_handler import (
     export_responses_csv,
     get_live_subject_position,
 )
-from state_machine import ExperimentPhase, ExperimentStateMachine
+from state_machine import ExperimentPhase, ExperimentStateMachine, initialize_phase
 
 
 import streamlit as st
@@ -46,6 +46,24 @@ def moderator_interface():
             st.query_params.clear()
             st.rerun()
         return
+
+    # Recover phase from database on browser refresh
+    # Moderator interface uses simplified phase logic: either setup or monitoring
+    if "phase" not in st.session_state:
+        from state_machine import recover_phase_from_database
+        recovered_phase = recover_phase_from_database(st.session_state.session_code)
+
+        # Moderator UI has only two states:
+        # 1. "waiting" = setup mode (configure trial)
+        # 2. "trial_started" = monitoring mode (watch subject, regardless of exact subject phase)
+
+        if recovered_phase == "waiting" or recovered_phase is None:
+            # Fresh session or explicitly waiting - show setup
+            st.session_state.phase = "waiting"
+        else:
+            # Any other phase (welcome, pre_questionnaire, respond, etc.) means trial is active
+            # Normalize to "trial_started" for moderator UI to show monitoring
+            st.session_state.phase = "trial_started"
 
     # Header
     create_header(
@@ -104,15 +122,14 @@ def moderator_interface():
         st.metric("⏰ Status", "🟢 Active")
 
     # ===== SESSION STATE MANAGEMENT =====
-    # Initialize session active state
-    if "session_active" not in st.session_state:
-        st.session_state.session_active = False
+    # Initialize phase if not set (moderator starts in waiting phase)
+    initialize_phase(default_phase="waiting")
 
     # ===== EXPERIMENT CONFIGURATION & START CONTROLS (HIGHEST PRIORITY) =====
     st.markdown("---")
 
-    # Show different views based on session state
-    if not st.session_state.session_active:
+    # Show different views based on experiment phase
+    if ExperimentStateMachine.should_show_setup():
         # SETUP MODE: Show experiment configuration
         st.markdown("### Experiment Setup & Launch")
     else:
@@ -162,16 +179,31 @@ def moderator_interface():
                 key="new_session_button",
                 help="End current session and return to setup",
             ):
-                # Reset session state
-                st.session_state.session_active = False
+                # Clear participant session first
                 if "participant" in st.session_state:
                     clear_participant_session(st.session_state.participant)
-                st.toast("Session ended. Returning to setup...")
-                time.sleep(1)
-                st.rerun()
 
-    # Show setup section only if session is not active
-    if not st.session_state.session_active:
+                # Transition back to WAITING phase (replaces session_active = False)
+                try:
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.WAITING,
+                        session_code=st.session_state.session_code,
+                        sync_to_database=True
+                    )
+                    st.toast("Session ended. Returning to setup...")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    # Fallback: directly set phase if state machine fails
+                    import logging
+                    logging.warning(f"State machine transition failed: {e}. Using direct assignment.")
+                    st.session_state.phase = "waiting"
+                    st.toast("Session ended. Returning to setup...")
+                    time.sleep(1)
+                    st.rerun()
+
+    # Show setup section only in waiting phase
+    if ExperimentStateMachine.should_show_setup():
         # Two-column layout for configuration and start controls
         config_col1, config_col2 = st.columns([2, 1])
 
@@ -428,10 +460,17 @@ def moderator_interface():
                     )
                     if success:
                         clear_canvas_state()  # Clear any previous canvas state
-                        st.session_state.session_active = True  # Activate session
+                        # Transition to trial_started phase (replaces session_active = True)
+                        # Note: start_trial() in callback.py handles the phase transition
                         st.toast(f"Trial started for {st.session_state.participant}")
                         time.sleep(1)
                         st.rerun()
+
+        # Helper message at bottom of setup section
+        st.markdown("---")
+        st.info(
+            "Configure your experiment above and click 'Start Trial' to begin monitoring."
+        )
 
     # ===== SUBJECT CONNECTION & ACCESS SECTION =====
     st.markdown("---")
@@ -464,8 +503,8 @@ def moderator_interface():
         st.success("Subject device connected and active")
 
     # ===== ORGANIZED TABS FOR MONITORING & MANAGEMENT =====
-    # Only show monitoring tabs when session is active
-    if st.session_state.session_active:
+    # Only show monitoring tabs when trial is in active phase
+    if ExperimentStateMachine.should_show_monitoring():
         st.markdown("---")
 
         # Streamlined tabs - keep essential functionality organized
@@ -719,9 +758,3 @@ def moderator_interface():
                 **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
                 """
                 )
-
-    if not st.session_state.session_active:
-        # Show message when session is not active
-        st.info(
-            "👆 Configure your experiment above and click 'Start Trial' to begin monitoring."
-        )

@@ -799,7 +799,6 @@ def start_trial(
             st.warning(f"Could not register initial position: {e}")
 
         # Update Streamlit session state
-        st.session_state.phase = "respond"
         st.session_state.trial_start_time = time.perf_counter()
         st.session_state.participant = participant_id
         st.session_state.method = method
@@ -823,6 +822,7 @@ def start_trial(
         try:
             import json
             from session_manager import update_session_activity
+            from state_machine import ExperimentPhase, ExperimentStateMachine
 
             experiment_config = {
                 "num_ingredients": num_ingredients,
@@ -839,11 +839,27 @@ def start_trial(
                 },
             }
 
+            # First update the config in database
             update_session_activity(
                 session_code,
-                phase="trial_started",
+                phase=None,  # Don't set phase here, let state machine handle it
                 config=json.dumps(experiment_config),
             )
+
+            # Use state machine to transition to TRIAL_STARTED phase
+            # This syncs both session state and database atomically
+            try:
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.TRIAL_STARTED,
+                    session_code=session_code,
+                    participant_id=participant_id,
+                    sync_to_database=True
+                )
+            except Exception as sm_error:
+                # Fallback: directly set phase if state machine fails
+                logger.warning(f"State machine transition failed: {sm_error}. Using direct assignment.")
+                st.session_state.phase = "trial_started"
+                update_session_activity(session_code, phase="trial_started", config=None)
 
         except Exception as e:
             st.warning(f"Could not update session config: {e}")
