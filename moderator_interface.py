@@ -331,6 +331,61 @@ def moderator_interface():
 
             st.markdown("---")
 
+        # ===== QUESTIONNAIRE CONFIGURATION =====
+        st.markdown("#### 📋 Questionnaire Selection")
+        st.info("Choose the questionnaire type for post-selection feedback")
+
+        # Import questionnaire configuration
+        from questionnaire_config import list_available_questionnaires, get_default_questionnaire_type, get_questionnaire_config
+
+        # Get available questionnaires
+        available_questionnaires = list_available_questionnaires()
+        questionnaire_options = {q[0]: f"{q[1]} - {q[2]}" for q in available_questionnaires}
+
+        # Initialize questionnaire type in session state
+        if "selected_questionnaire_type" not in st.session_state:
+            st.session_state.selected_questionnaire_type = get_default_questionnaire_type()
+
+        # Questionnaire selector
+        selected_questionnaire_type = st.selectbox(
+            "Questionnaire Type:",
+            options=list(questionnaire_options.keys()),
+            format_func=lambda x: questionnaire_options[x],
+            index=list(questionnaire_options.keys()).index(st.session_state.selected_questionnaire_type),
+            help="Select the type of questionnaire participants will complete",
+            key="moderator_questionnaire_selector"
+        )
+
+        # Update session state
+        st.session_state.selected_questionnaire_type = selected_questionnaire_type
+
+        # Show questionnaire preview
+        questionnaire_config = get_questionnaire_config(selected_questionnaire_type)
+        if questionnaire_config:
+            with st.expander("Preview Questionnaire Questions", expanded=False):
+                st.markdown(f"**{questionnaire_config['name']}**")
+                st.caption(questionnaire_config.get('description', ''))
+
+                for i, question in enumerate(questionnaire_config.get('questions', []), 1):
+                    st.markdown(f"{i}. **{question['label']}**")
+                    st.caption(f"   Type: {question['type'].title()}")
+                    if question['type'] == 'slider':
+                        st.caption(f"   Range: {question['min']} - {question['max']}")
+                        if 'scale_labels' in question:
+                            st.caption(f"   Labels: {question['min']}=\"{question['scale_labels'].get(question['min'], '')}\" ... {question['max']}=\"{question['scale_labels'].get(question['max'], '')}\"")
+                    elif question['type'] == 'dropdown':
+                        st.caption(f"   Options: {', '.join(question.get('options', []))}")
+
+                # Show Bayesian optimization target
+                if 'bayesian_target' in questionnaire_config:
+                    st.markdown("---")
+                    st.markdown("**Bayesian Optimization Target:**")
+                    target = questionnaire_config['bayesian_target']
+                    st.caption(f"Variable: {target['variable']}")
+                    st.caption(f"Goal: {target['description']}")
+
+        st.markdown("---")
+
         # Auto-determine number of ingredients from selection
         num_ingredients = len(selected_ingredients)
 

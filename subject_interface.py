@@ -5,7 +5,6 @@ from callback import (
     MultiComponentMixture,
     cleanup_pending_results,
     create_canvas_drawing,
-    finish_trial,
     render_questionnaire,
     save_intermediate_click,
     show_preparation_message,
@@ -21,6 +20,7 @@ from sql_handler import (
     update_session_state,
 )
 from state_machine import ExperimentStateMachine, ExperimentPhase, initialize_phase
+from questionnaire_config import get_default_questionnaire_type
 
 
 import streamlit as st
@@ -29,6 +29,27 @@ from streamlit_drawable_canvas import st_canvas
 
 
 import time
+
+
+def get_questionnaire_type_from_config() -> str:
+    """
+    Retrieve the questionnaire type from the current experiment configuration.
+
+    Returns:
+        Questionnaire type string (defaults to 'hedonic_preference' if not found)
+    """
+    # Try to get from session state's experiment_config
+    if hasattr(st.session_state, "experiment_config") and isinstance(st.session_state.experiment_config, dict):
+        questionnaire_type = st.session_state.experiment_config.get("questionnaire_type")
+        if questionnaire_type:
+            return questionnaire_type
+
+    # Try to get from session state directly
+    if hasattr(st.session_state, "selected_questionnaire_type"):
+        return st.session_state.selected_questionnaire_type
+
+    # Fallback to default
+    return get_default_questionnaire_type()
 
 
 def subject_interface():
@@ -125,28 +146,42 @@ def subject_interface():
     elif st.session_state.phase == "pre_questionnaire":
         display_phase_status("pre_questionnaire", st.session_state.participant)
 
-        # Render initial impression questionnaire (using unified questionnaire)
+        # Render initial impression questionnaire (using configured questionnaire type)
         # TODO: Remove unused col1, col3 variables for cleaner code
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.info(
                 "Please provide your initial impression of the random starting solution shown on the canvas."
             )
+            # Get questionnaire type from experiment configuration
+            questionnaire_type = get_questionnaire_type_from_config()
             responses = render_questionnaire(
-                "unified_feedback", st.session_state.participant
+                questionnaire_type, st.session_state.participant
             )
 
             if responses:
                 # Store questionnaire responses in session state for potential database storage
                 st.session_state.initial_questionnaire_responses = responses
-                # Move to respond phase using state machine
-                ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.TRIAL_ACTIVE,
-                    session_code=st.session_state.session_code,
+
+                # Save initial questionnaire to database (update is_initial=TRUE record)
+                success = update_response_with_questionnaire(
                     participant_id=st.session_state.participant,
-                    sync_to_database=True
+                    session_id=st.session_state.get("session_code", "default_session"),
+                    questionnaire_response=responses,
+                    sample_id=None,  # For initial, match by is_initial=True
                 )
-                st.rerun()
+
+                if success:
+                    # Move to respond phase using state machine
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.TRIAL_ACTIVE,
+                        session_code=st.session_state.session_code,
+                        participant_id=st.session_state.participant,
+                        sync_to_database=True
+                    )
+                    st.rerun()
+                else:
+                    st.error("Failed to save initial questionnaire. Please try again.")
 
     elif st.session_state.phase == "respond":
         display_phase_status("respond", st.session_state.participant)
@@ -254,11 +289,16 @@ def subject_interface():
                                 st.session_state, "last_saved_position"
                             ) or st.session_state.last_saved_position != (x, y):
 
+                                # Generate unique sample ID for this selection
+                                import uuid
+                                sample_id = str(uuid.uuid4())
+                                st.session_state.current_sample_id = sample_id
+
                                 # Initialize selection history if it doesn't exist
                                 if not hasattr(st.session_state, "selection_history"):
                                     st.session_state.selection_history = []
 
-                                # Add selection to history with order number
+                                # Add selection to history with order number and sample_id
                                 selection_number = (
                                     len(st.session_state.selection_history) + 1
                                 )
@@ -266,17 +306,19 @@ def subject_interface():
                                     {
                                         "x": x,
                                         "y": y,
+                                        "sample_id": sample_id,
                                         "order": selection_number,
                                         "timestamp": time.time(),
                                     }
                                 )
 
-                                # Save intermediate click to responses table (for trajectory tracking)
+                                # Save click to database with sample_id
                                 success = save_intermediate_click(
                                     st.session_state.participant,
                                     x,
                                     y,
                                     mod_settings["method"],
+                                    sample_id=sample_id,
                                 )
 
                                 if success:
@@ -650,6 +692,11 @@ def subject_interface():
 
             # Handle finish button click
             if finish_button_clicked:
+                # Generate unique sample ID for this selection
+                import uuid
+                sample_id = str(uuid.uuid4())
+                st.session_state.current_sample_id = sample_id
+
                 # Use current slider values (from session state or current values)
                 final_slider_values = (
                     st.session_state.current_slider_values
@@ -676,7 +723,7 @@ def subject_interface():
                         conc_data["actual_concentration_mM"], 3
                     )
 
-                # FIXED: Save immediately to database with is_final_response=False
+                # Save to database with sample_id and is_final_response=False
                 # This will be updated to is_final_response=True after questionnaire
                 success = save_multi_ingredient_response(
                     participant_id=st.session_state.participant,
@@ -685,7 +732,8 @@ def subject_interface():
                     interface_type=INTERFACE_SLIDERS,
                     ingredient_concentrations=ingredient_concentrations,
                     reaction_time_ms=reaction_time_ms,
-                    questionnaire_response=None,  # Will be updated in questionnaire phase
+                    questionnaire_response={},  # Empty dict, will be updated in questionnaire phase
+                    sample_id=sample_id,  # Link to this specific sample
                     is_final_response=False,  # Not final until questionnaire completed
                     is_initial=False,
                     extra_data={
@@ -816,8 +864,10 @@ def subject_interface():
                 key=f"subject_ready_final_response_{st.session_state.participant}_{st.session_state.session_code}",
             )
 
+            # Get questionnaire type from experiment configuration
+            questionnaire_type = get_questionnaire_type_from_config()
             responses = render_questionnaire(
-                "unified_feedback",
+                questionnaire_type,
                 st.session_state.participant,
                 show_final_response=show_final,
             )
@@ -826,32 +876,21 @@ def subject_interface():
                 # Store questionnaire responses
                 st.session_state.post_questionnaire_responses = responses
 
-                if responses.get("is_final", False):
-                    # Complete the trial with final submission
-                    success = False
+                # ALWAYS save questionnaire response for every sample (not just final)
+                # Get sample_id if available (for UUID-based linking)
+                sample_id = st.session_state.get("current_sample_id", None)
 
-                    # Handle both canvas and slider results
-                    if hasattr(st.session_state, "pending_canvas_result"):
-                        # Traditional 2D grid submission
-                        success = finish_trial(
-                            st.session_state.pending_canvas_result,
-                            st.session_state.participant,
-                            st.session_state.pending_method,
-                        )
-                    elif hasattr(st.session_state, "pending_slider_result"):
-                        # Slider-based submission - UPDATE existing record with questionnaire and mark as final
-                        # This prevents duplicate database records
+                # Update the existing response with questionnaire data
+                success = update_response_with_questionnaire(
+                    participant_id=st.session_state.participant,
+                    session_id=st.session_state.get("session_code", "default_session"),
+                    questionnaire_response=responses,  # Add questionnaire to existing response
+                    sample_id=sample_id,  # Link to specific sample via UUID
+                )
 
-                        # Update the existing response (saved when "Finish" was clicked) with questionnaire data
-                        success = update_response_with_questionnaire(
-                            participant_id=st.session_state.participant,
-                            session_id=st.session_state.get(
-                                "session_code", "default_session"
-                            ),
-                            questionnaire_response=responses,  # Add questionnaire to existing response
-                        )
-
-                    if success:
+                if success:
+                    if responses.get("is_final", False):
+                        # Complete the trial with final submission
                         ExperimentStateMachine.transition(
                             new_phase=ExperimentPhase.TRIAL_COMPLETE,
                             session_code=st.session_state.session_code,
@@ -860,23 +899,30 @@ def subject_interface():
                         )
                         # Clean up temporary storage
                         cleanup_pending_results()
+                        # Clear sample_id for next trial
+                        if hasattr(st.session_state, "current_sample_id"):
+                            del st.session_state.current_sample_id
                         st.rerun()
                     else:
-                        st.error(
-                            "Failed to submit response. Please contact the moderator."
-                        )
-                else:
-                    # Return to interface for more selections
-                    # Clean up temporary storage since we're not submitting yet
-                    cleanup_pending_results()
+                        # Intermediate save successful - allow another sample
+                        # Clean up temporary storage
+                        cleanup_pending_results()
+                        # Clear sample_id so new click generates new UUID
+                        if hasattr(st.session_state, "current_sample_id"):
+                            del st.session_state.current_sample_id
 
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.TRIAL_ACTIVE,
-                        session_code=st.session_state.session_code,
-                        participant_id=st.session_state.participant,
-                        sync_to_database=True
+                        ExperimentStateMachine.transition(
+                            new_phase=ExperimentPhase.TRIAL_ACTIVE,
+                            session_code=st.session_state.session_code,
+                            participant_id=st.session_state.participant,
+                            sync_to_database=True
+                        )
+                        st.success("Questionnaire saved! You can test another sample or check the box above to submit your final response.")
+                        st.rerun()
+                else:
+                    st.error(
+                        "Failed to save questionnaire response. Please contact the moderator."
                     )
-                    st.success("Continue making selections!")
                     st.rerun()
 
     elif st.session_state.phase == "done":

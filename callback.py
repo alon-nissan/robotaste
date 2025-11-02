@@ -824,10 +824,15 @@ def start_trial(
             from session_manager import update_session_activity
             from state_machine import ExperimentPhase, ExperimentStateMachine
 
+            # Get questionnaire type from session state (set by moderator)
+            from questionnaire_config import get_default_questionnaire_type
+            questionnaire_type = st.session_state.get("selected_questionnaire_type", get_default_questionnaire_type())
+
             experiment_config = {
                 "num_ingredients": num_ingredients,
                 "interface_type": interface_type,
                 "method": method,
+                "questionnaire_type": questionnaire_type,  # Store selected questionnaire type
                 "ingredients": [
                     ing for ing in ingredients
                 ],  # Store ingredient configuration
@@ -1029,7 +1034,7 @@ def finish_trial(
         return False
 
 
-def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
+def save_click(participant_id: str, x: float, y: float, method: str, sample_id: Optional[str] = None) -> bool:
     """Save an intermediate click (part of the trajectory)."""
     try:
         # Calculate concentrations for every click
@@ -1062,6 +1067,7 @@ def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
             method=method,
             ingredient_concentrations=ingredient_concentrations,
             reaction_time_ms=reaction_time_ms,
+            sample_id=sample_id,
             is_final=False,
             is_initial=False,
             extra_data={
@@ -1104,11 +1110,11 @@ def save_click(participant_id: str, x: float, y: float, method: str) -> bool:
 
 
 def save_intermediate_click(
-    participant_id: str, x: float, y: float, method: str
+    participant_id: str, x: float, y: float, method: str, sample_id: Optional[str] = None
 ) -> bool:
     """Save an intermediate click to track the subject's path."""
     try:
-        return save_click(participant_id, x, y, method)
+        return save_click(participant_id, x, y, method, sample_id)
     except Exception as e:
         st.error(f"Error saving intermediate click: {e}")
         return False
@@ -1247,74 +1253,105 @@ def render_questionnaire(
     questionnaire_type: str, participant_id: str, show_final_response: bool = False
 ) -> dict:
     """
-    Render a modular questionnaire component.
+    Render a modular questionnaire component using the centralized questionnaire configuration.
 
     Args:
-        questionnaire_type: Type of questionnaire ('pre_sample' or 'post_response')
+        questionnaire_type: Type of questionnaire (e.g., 'hedonic_preference', 'unified_feedback')
         participant_id: Participant identifier
         show_final_response: Whether to show Final Response button instead of Continue
 
     Returns:
         dict: Questionnaire responses or None if not completed
     """
-    if questionnaire_type not in QUESTIONNAIRE_CONFIG:
+    from questionnaire_config import get_questionnaire_config
+
+    # Get questionnaire configuration from centralized system
+    config = get_questionnaire_config(questionnaire_type)
+
+    if config is None:
         st.error(f"Unknown questionnaire type: {questionnaire_type}")
         return None
-
-    config = QUESTIONNAIRE_CONFIG[questionnaire_type]
 
     # Create unique session state keys for this questionnaire instance
     instance_key = f"questionnaire_{questionnaire_type}_{participant_id}"
 
-    # Show placeholder notice
-    st.markdown("### [QUESTIONNAIRE PLACEHOLDER - TO BE IMPLEMENTED]")
-    st.info(
-        "This is a temporary placeholder. The actual questionnaire content will be implemented based on research requirements."
-    )
-
-    st.markdown(f"### {config['title']}")
-    st.write(config["description"])
+    # Display questionnaire header
+    st.markdown(f"### {config.get('name', 'Questionnaire')}")
+    if config.get("description"):
+        st.info(config["description"])
 
     # Form to collect all responses
     with st.form(key=f"form_{instance_key}"):
         responses = {}
 
         for question in config["questions"]:
-            question_key = f"{instance_key}_{question['key']}"
+            question_id = question["id"]
+            question_key = f"{instance_key}_{question_id}"
+            question_type = question["type"]
 
-            if question["type"] == "slider":
-                responses[question["key"]] = st.slider(
-                    label=question["label"],
-                    min_value=question["min_value"],
-                    max_value=question["max_value"],
-                    key=question_key,
-                    help=question.get("help", None),
-                )
+            if question_type == "slider":
+                # Build scale labels display if available
+                scale_labels = question.get("scale_labels", {})
+                help_text = question.get("help_text", "")
 
-            elif question["type"] == "selectbox":
-                responses[question["key"]] = st.selectbox(
+                # If scale labels exist, show them below the slider
+                if scale_labels:
+                    st.markdown(f"**{question['label']}**")
+                    if help_text:
+                        st.caption(help_text)
+
+                    # Show key scale labels
+                    label_display = " | ".join([f"{val}: {label}" for val, label in sorted(scale_labels.items())])
+                    st.caption(label_display)
+
+                    responses[question_id] = st.slider(
+                        label=question["label"],  # Proper label for accessibility
+                        min_value=int(question["min"]),
+                        max_value=int(question["max"]),
+                        value=int(question.get("default", question["min"])),
+                        step=int(question.get("step", 1)),
+                        key=question_key,
+                        label_visibility="collapsed",  # Hide label since we showed it above
+                        format="%d"  # Show as integers
+                    )
+                else:
+                    responses[question_id] = st.slider(
+                        label=question["label"],
+                        min_value=int(question["min"]),
+                        max_value=int(question["max"]),
+                        value=int(question.get("default", question["min"])),
+                        step=int(question.get("step", 1)),
+                        key=question_key,
+                        help=help_text if help_text else None,
+                    )
+
+            elif question_type == "dropdown":
+                responses[question_id] = st.selectbox(
                     label=question["label"],
                     options=question["options"],
+                    index=question["options"].index(question.get("default", question["options"][0])) if question.get("default") in question["options"] else 0,
                     key=question_key,
-                    help=question.get("help", None),
+                    help=question.get("help_text", None),
                 )
 
-            elif question["type"] == "text_input":
-                responses[question["key"]] = st.text_input(
+            elif question_type == "text_input":
+                responses[question_id] = st.text_input(
                     label=question["label"],
+                    value=question.get("default", ""),
                     key=question_key,
-                    help=question.get("help", None),
+                    help=question.get("help_text", None),
                 )
 
-            elif question["type"] == "text_area":
-                responses[question["key"]] = st.text_area(
+            elif question_type == "text_area":
+                responses[question_id] = st.text_area(
                     label=question["label"],
+                    value=question.get("default", ""),
                     key=question_key,
-                    help=question.get("help", None),
+                    help=question.get("help_text", None),
                 )
 
         # Determine button text based on context
-        button_text = "🏁 Final Response" if show_final_response else "Continue"
+        button_text = "Final Response" if show_final_response else "Continue"
         submitted = st.form_submit_button(
             button_text,
             type="primary",

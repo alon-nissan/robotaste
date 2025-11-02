@@ -256,7 +256,9 @@ def init_database() -> bool:
 
             # Run database migrations
             _migrate_database(cursor)
-            
+            _migrate_questionnaire_support(cursor)
+            _migrate_sample_id_support(cursor)
+
             conn.commit()
             logger.info("Database initialized successfully")
             return True
@@ -553,6 +555,113 @@ def _migrate_database(cursor) -> None:
         # Don't raise exception - let initialization continue
 
 
+def _migrate_questionnaire_support(cursor) -> None:
+    """
+    Add questionnaire type and Bayesian optimization support to database.
+
+    This migration adds columns to support:
+    - Dynamic questionnaire types (hedonic_preference, unified_feedback, etc.)
+    - Bayesian optimization predictions and acquisition values
+    - Target variable tracking for optimization
+
+    All columns are nullable with defaults for backward compatibility.
+    """
+    try:
+        logger.info("Checking for questionnaire support migration...")
+
+        # Check if questionnaire_type column exists
+        cursor.execute("PRAGMA table_info(responses)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        needs_migration = False
+
+        # Add questionnaire_type column if missing
+        if 'questionnaire_type' not in columns:
+            logger.info("Adding questionnaire_type column to responses table")
+            cursor.execute("""
+                ALTER TABLE responses
+                ADD COLUMN questionnaire_type TEXT DEFAULT 'hedonic_preference'
+            """)
+            needs_migration = True
+
+        # Add Bayesian optimization prediction column if missing
+        if 'bo_predicted_value' not in columns:
+            logger.info("Adding bo_predicted_value column to responses table")
+            cursor.execute("""
+                ALTER TABLE responses
+                ADD COLUMN bo_predicted_value REAL DEFAULT NULL
+            """)
+            needs_migration = True
+
+        # Add Bayesian optimization acquisition value column if missing
+        if 'bo_acquisition_value' not in columns:
+            logger.info("Adding bo_acquisition_value column to responses table")
+            cursor.execute("""
+                ALTER TABLE responses
+                ADD COLUMN bo_acquisition_value REAL DEFAULT NULL
+            """)
+            needs_migration = True
+
+        # Add target variable value column (extracted from questionnaire response)
+        if 'target_variable_value' not in columns:
+            logger.info("Adding target_variable_value column to responses table")
+            cursor.execute("""
+                ALTER TABLE responses
+                ADD COLUMN target_variable_value REAL DEFAULT NULL
+            """)
+            needs_migration = True
+
+        if needs_migration:
+            logger.info("Questionnaire support migration completed successfully")
+        else:
+            logger.info("Questionnaire support already present - no migration needed")
+
+    except Exception as e:
+        logger.error(f"Error during questionnaire support migration: {e}")
+        # Don't raise - allow application to continue
+
+
+def _migrate_sample_id_support(cursor) -> None:
+    """
+    Add sample_id column to support UUID-based sample-questionnaire coupling.
+
+    This migration adds:
+    - sample_id: Unique identifier (UUID) for each sample/selection
+    - Enables clear linking between samples and questionnaire responses
+    - Supports tracking multiple samples within a single trial
+
+    The column is nullable for backward compatibility with existing data.
+    """
+    try:
+        logger.info("Checking for sample_id support migration...")
+
+        # Check if sample_id column exists
+        cursor.execute("PRAGMA table_info(responses)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        if 'sample_id' not in columns:
+            logger.info("Adding sample_id column to responses table")
+            cursor.execute("""
+                ALTER TABLE responses
+                ADD COLUMN sample_id TEXT DEFAULT NULL
+            """)
+
+            # Create index for efficient queries
+            logger.info("Creating index on sample_id column")
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_responses_sample_id
+                ON responses(sample_id)
+            """)
+
+            logger.info("Sample ID support migration completed successfully")
+        else:
+            logger.info("Sample ID support already present - no migration needed")
+
+    except Exception as e:
+        logger.error(f"Error during sample_id support migration: {e}")
+        # Don't raise - allow application to continue
+
+
 def is_participant_activated(participant_id: str) -> bool:
     """Check if participant has an active session from moderator."""
     try:
@@ -826,6 +935,8 @@ def save_response(
     sugar_conc: Optional[float] = None,
     salt_conc: Optional[float] = None,
     reaction_time_ms: Optional[int] = None,
+    questionnaire_response: Optional[Dict[str, Any]] = None,
+    sample_id: Optional[str] = None,
     is_final: bool = False,
     is_initial: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
@@ -840,6 +951,8 @@ def save_response(
         sugar_conc: Legacy sugar concentration parameter (deprecated)
         salt_conc: Legacy salt concentration parameter (deprecated)
         reaction_time_ms: Response time in milliseconds
+        questionnaire_response: Questionnaire responses as dict
+        sample_id: Unique identifier (UUID) for this sample/selection
         is_final: Whether this is the final response
         is_initial: Whether this is an initial random position
         extra_data: Additional data as dict
@@ -861,6 +974,11 @@ def save_response(
         extra_data_json = None
         if extra_data:
             extra_data_json = json.dumps(extra_data)
+
+        # Convert questionnaire_response to JSON string if provided
+        questionnaire_json = None
+        if questionnaire_response:
+            questionnaire_json = json.dumps(questionnaire_response)
 
         with get_database_connection() as conn:
             cursor = conn.cursor()
@@ -888,10 +1006,13 @@ def save_response(
                 """
                 INSERT INTO responses
                 (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, is_final_response, is_initial, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ingredient_data, reaction_time_ms, questionnaire_response, sample_id,
+                 is_final_response, is_initial, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (participant_id, session_id, selection_number, INTERFACE_2D_GRID, method, ingredient_data_json, reaction_time_ms, is_final, is_initial, extra_data_json),
+                (participant_id, session_id, selection_number, INTERFACE_2D_GRID, method,
+                 ingredient_data_json, reaction_time_ms, questionnaire_json, sample_id,
+                 is_final, is_initial, extra_data_json),
             )
 
             conn.commit()
@@ -917,6 +1038,7 @@ def update_response_with_questionnaire(
     participant_id: str,
     session_id: str,
     questionnaire_response: Dict[str, Any],
+    sample_id: Optional[str] = None,
 ) -> bool:
     """
     Update the most recent non-final response with questionnaire data and mark as final.
@@ -926,6 +1048,7 @@ def update_response_with_questionnaire(
         participant_id: Participant identifier
         session_id: Session identifier
         questionnaire_response: Questionnaire responses as dict
+        sample_id: Optional sample UUID to match specific response
 
     Returns:
         Success status
@@ -938,36 +1061,59 @@ def update_response_with_questionnaire(
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
-            # Find the most recent non-final response for this participant/session
-            cursor.execute(
-                """
-                UPDATE responses
-                SET questionnaire_response = ?,
-                    is_final_response = 1
-                WHERE id = (
-                    SELECT id FROM responses
-                    WHERE participant_id = ?
-                    AND session_id = ?
-                    AND is_final_response = 0
-                    AND is_initial = 0
-                    ORDER BY created_at DESC
-                    LIMIT 1
+            # If sample_id is provided, use it to find the exact response
+            # Otherwise, fall back to finding most recent non-final response
+            if sample_id:
+                cursor.execute(
+                    """
+                    UPDATE responses
+                    SET questionnaire_response = ?,
+                        is_final_response = 1
+                    WHERE id = (
+                        SELECT id FROM responses
+                        WHERE participant_id = ?
+                        AND session_id = ?
+                        AND sample_id = ?
+                        AND is_final_response = 0
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (questionnaire_json, participant_id, session_id, sample_id),
                 )
-                """,
-                (questionnaire_json, participant_id, session_id),
-            )
+            else:
+                # Legacy behavior: Find most recent non-final response
+                # Note: This now includes is_initial=1 records to support saving initial questionnaires
+                cursor.execute(
+                    """
+                    UPDATE responses
+                    SET questionnaire_response = ?,
+                        is_final_response = 1
+                    WHERE id = (
+                        SELECT id FROM responses
+                        WHERE participant_id = ?
+                        AND session_id = ?
+                        AND is_final_response = 0
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
+                    """,
+                    (questionnaire_json, participant_id, session_id),
+                )
 
             rows_affected = cursor.rowcount
             conn.commit()
 
             if rows_affected > 0:
                 logger.info(
-                    f"Successfully updated response with questionnaire for {participant_id}"
+                    f"Successfully updated response with questionnaire for {participant_id} (sample_id={sample_id})"
                 )
                 return True
             else:
                 logger.warning(
-                    f"No non-final response found to update for {participant_id}"
+                    f"No non-final response found to update for {participant_id} "
+                    f"(session_id={session_id}, sample_id={sample_id}). "
+                    f"This may indicate the response was already marked final or the sample_id doesn't match."
                 )
                 return False
 
@@ -984,6 +1130,7 @@ def save_multi_ingredient_response(
     ingredient_concentrations: Optional[Dict[str, float]] = None,
     reaction_time_ms: Optional[int] = None,
     questionnaire_response: Optional[Dict[str, Any]] = None,
+    sample_id: Optional[str] = None,
     is_final_response: bool = False,
     is_initial: bool = False,
     extra_data: Optional[Dict[str, Any]] = None,
@@ -999,6 +1146,7 @@ def save_multi_ingredient_response(
         ingredient_concentrations: Dict of ingredient concentrations (mM values)
         reaction_time_ms: Response time in milliseconds
         questionnaire_response: Questionnaire responses as dict
+        sample_id: Unique identifier (UUID) for this sample/selection
         is_final_response: Whether this is the final response
         extra_data: Additional data as dict
 
@@ -1012,8 +1160,8 @@ def save_multi_ingredient_response(
 
         # Convert JSON data to strings
         import json
-        questionnaire_json = json.dumps(questionnaire_response) if questionnaire_response else None
-        extra_data_json = json.dumps(extra_data) if extra_data else None
+        questionnaire_json = json.dumps(questionnaire_response) if questionnaire_response is not None else None
+        extra_data_json = json.dumps(extra_data) if extra_data is not None else None
 
         with get_database_connection() as conn:
             cursor = conn.cursor()
@@ -1032,11 +1180,13 @@ def save_multi_ingredient_response(
                 """
                 INSERT INTO responses
                 (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, questionnaire_response, is_final_response, is_initial, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ingredient_data, reaction_time_ms, questionnaire_response, sample_id,
+                 is_final_response, is_initial, extra_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data_json, reaction_time_ms, questionnaire_json, is_final_response, is_initial, extra_data_json),
+                 ingredient_data_json, reaction_time_ms, questionnaire_json, sample_id,
+                 is_final_response, is_initial, extra_data_json),
             )
 
             conn.commit()
@@ -1968,6 +2118,185 @@ def export_experiment_data_csv(session_code: str) -> str:
     except Exception as e:
         print(f"Error exporting CSV data: {e}")
         return ""
+
+
+# =============================================================================
+# QUESTIONNAIRE SUPPORT FUNCTIONS
+# =============================================================================
+
+
+def get_questionnaire_config_from_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve questionnaire configuration from session's experiment_config.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Questionnaire configuration dict or None if not found
+    """
+    try:
+        from questionnaire_config import get_questionnaire_config, get_default_questionnaire_type
+        import json
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT experiment_config FROM sessions WHERE session_code = ?",
+                (session_id,)
+            )
+            row = cursor.fetchone()
+
+            if row and row["experiment_config"]:
+                config = json.loads(row["experiment_config"])
+                questionnaire_type = config.get("questionnaire_type", get_default_questionnaire_type())
+                return get_questionnaire_config(questionnaire_type)
+
+            # Fallback to default
+            return get_questionnaire_config(get_default_questionnaire_type())
+
+    except Exception as e:
+        logger.error(f"Error retrieving questionnaire config for session {session_id}: {e}")
+        # Fallback to default
+        try:
+            from questionnaire_config import get_questionnaire_config, get_default_questionnaire_type
+            return get_questionnaire_config(get_default_questionnaire_type())
+        except:
+            return None
+
+
+def extract_and_save_target_variable(
+    response_id: int,
+    questionnaire_response: Dict[str, Any],
+    questionnaire_type: str
+) -> Optional[float]:
+    """
+    Extract target variable from questionnaire response and save to database.
+
+    Args:
+        response_id: ID of the response record
+        questionnaire_response: Dictionary of questionnaire answers
+        questionnaire_type: Type of questionnaire
+
+    Returns:
+        Extracted target value or None if extraction fails
+    """
+    try:
+        from questionnaire_config import get_questionnaire_config, extract_target_variable
+
+        # Get questionnaire configuration
+        config = get_questionnaire_config(questionnaire_type)
+        if not config:
+            logger.warning(f"Unknown questionnaire type: {questionnaire_type}")
+            return None
+
+        # Extract target variable
+        target_value = extract_target_variable(questionnaire_response, config)
+
+        if target_value is not None:
+            # Save to database
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE responses
+                    SET target_variable_value = ?
+                    WHERE id = ?
+                    """,
+                    (target_value, response_id)
+                )
+                conn.commit()
+                logger.info(f"Saved target variable value {target_value} for response {response_id}")
+
+        return target_value
+
+    except Exception as e:
+        logger.error(f"Error extracting target variable for response {response_id}: {e}")
+        return None
+
+
+def get_participant_target_values(
+    participant_id: str,
+    session_id: str,
+    only_final: bool = True
+) -> pd.DataFrame:
+    """
+    Get all target variable values for a participant.
+
+    Useful for Bayesian optimization to retrieve historical target values.
+
+    Args:
+        participant_id: Participant identifier
+        session_id: Session identifier
+        only_final: If True, only return final responses
+
+    Returns:
+        DataFrame with columns: response_id, ingredient_data, target_variable_value, created_at
+    """
+    try:
+        with get_database_connection() as conn:
+            query = """
+                SELECT
+                    id as response_id,
+                    ingredient_data,
+                    target_variable_value,
+                    questionnaire_type,
+                    created_at
+                FROM responses
+                WHERE participant_id = ?
+                  AND session_id = ?
+                  AND target_variable_value IS NOT NULL
+            """
+
+            params = [participant_id, session_id]
+
+            if only_final:
+                query += " AND is_final_response = 1"
+
+            query += " ORDER BY created_at ASC"
+
+            return pd.read_sql_query(query, conn, params=params)
+
+    except Exception as e:
+        logger.error(f"Error retrieving target values for participant {participant_id}: {e}")
+        return pd.DataFrame()
+
+
+def save_bayesian_prediction(
+    response_id: int,
+    predicted_value: float,
+    acquisition_value: float
+) -> bool:
+    """
+    Save Bayesian optimization predictions to database.
+
+    Args:
+        response_id: ID of the response record
+        predicted_value: Predicted target variable value from Gaussian Process
+        acquisition_value: Acquisition function value (e.g., Expected Improvement)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE responses
+                SET bo_predicted_value = ?,
+                    bo_acquisition_value = ?
+                WHERE id = ?
+                """,
+                (predicted_value, acquisition_value, response_id)
+            )
+            conn.commit()
+            logger.info(f"Saved Bayesian predictions for response {response_id}")
+            return True
+
+    except Exception as e:
+        logger.error(f"Error saving Bayesian predictions: {e}")
+        return False
 
 
 # =============================================================================
