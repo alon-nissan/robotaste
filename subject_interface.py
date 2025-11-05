@@ -10,7 +10,11 @@ from callback import (
     show_preparation_message,
 )
 from ui_components import create_header, display_phase_status
-from session_manager import get_session_info, sync_session_state, update_session_activity
+from session_manager import (
+    get_session_info,
+    sync_session_state,
+    update_session_activity,
+)
 from sql_handler import (
     get_initial_slider_positions,
     get_moderator_settings,
@@ -26,9 +30,10 @@ from questionnaire_config import get_default_questionnaire_type
 import streamlit as st
 import streamlit_vertical_slider as svs
 from streamlit_drawable_canvas import st_canvas
-
-
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_questionnaire_type_from_config() -> str:
@@ -39,8 +44,12 @@ def get_questionnaire_type_from_config() -> str:
         Questionnaire type string (defaults to 'hedonic_preference' if not found)
     """
     # Try to get from session state's experiment_config
-    if hasattr(st.session_state, "experiment_config") and isinstance(st.session_state.experiment_config, dict):
-        questionnaire_type = st.session_state.experiment_config.get("questionnaire_type")
+    if hasattr(st.session_state, "experiment_config") and isinstance(
+        st.session_state.experiment_config, dict
+    ):
+        questionnaire_type = st.session_state.experiment_config.get(
+            "questionnaire_type"
+        )
         if questionnaire_type:
             return questionnaire_type
 
@@ -118,13 +127,16 @@ def subject_interface():
                             new_phase=ExperimentPhase.PRE_QUESTIONNAIRE,
                             session_code=st.session_state.session_code,
                             participant_id=participant_id,
-                            sync_to_database=True
+                            sync_to_database=True,
                         )
                     except Exception as e:
                         # Fallback: directly set phase if state machine fails
                         # (can happen if database phase doesn't match session state)
                         import logging
-                        logging.warning(f"State machine transition failed: {e}. Using direct assignment.")
+
+                        logging.warning(
+                            f"State machine transition failed: {e}. Using direct assignment."
+                        )
                         st.session_state.phase = "pre_questionnaire"
 
                     st.success("Ready to begin!")
@@ -164,12 +176,32 @@ def subject_interface():
                 st.session_state.initial_questionnaire_responses = responses
 
                 # Save initial questionnaire to database (update is_initial=TRUE record)
-                success = update_response_with_questionnaire(
+                success, response_id = update_response_with_questionnaire(
                     participant_id=st.session_state.participant,
                     session_id=st.session_state.get("session_code", "default_session"),
                     questionnaire_response=responses,
                     sample_id=None,  # For initial, match by is_initial=True
                 )
+
+                if success and response_id:
+                    # Extract and save target variable for Bayesian optimization
+                    from sql_handler import extract_and_save_target_variable
+
+                    questionnaire_type = get_questionnaire_type_from_config()
+                    target_value = extract_and_save_target_variable(
+                        response_id=response_id,
+                        questionnaire_response=responses,
+                        questionnaire_type=questionnaire_type,
+                    )
+
+                    if target_value is not None:
+                        logger.info(
+                            f"Initial target variable extracted: {target_value} for response_id={response_id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to extract initial target variable for response_id={response_id}"
+                        )
 
                 if success:
                     # Move to respond phase using state machine
@@ -177,7 +209,7 @@ def subject_interface():
                         new_phase=ExperimentPhase.TRIAL_ACTIVE,
                         session_code=st.session_state.session_code,
                         participant_id=st.session_state.participant,
-                        sync_to_database=True
+                        sync_to_database=True,
                     )
                     st.rerun()
                 else:
@@ -201,12 +233,16 @@ def subject_interface():
         if hasattr(st.session_state, "ingredients") and st.session_state.ingredients:
             # Use the ingredients from start_trial (correct moderator selection)
             ingredients = st.session_state.ingredients
-        elif hasattr(st.session_state, "experiment_config") and "ingredients" in st.session_state.experiment_config:
+        elif (
+            hasattr(st.session_state, "experiment_config")
+            and "ingredients" in st.session_state.experiment_config
+        ):
             # Fallback: Try to get from experiment_config in session state
             ingredients = st.session_state.experiment_config["ingredients"]
         else:
             # Last resort: Use defaults (backward compatibility)
             from callback import DEFAULT_INGREDIENT_CONFIG
+
             ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
             st.warning("Using default ingredients - moderator selection not found")
 
@@ -291,6 +327,7 @@ def subject_interface():
 
                                 # Generate unique sample ID for this selection
                                 import uuid
+
                                 sample_id = str(uuid.uuid4())
                                 st.session_state.current_sample_id = sample_id
 
@@ -342,7 +379,7 @@ def subject_interface():
                                     new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
                                     session_code=st.session_state.session_code,
                                     participant_id=st.session_state.participant,
-                                    sync_to_database=True
+                                    sync_to_database=True,
                                 )
                                 st.rerun()
 
@@ -694,6 +731,7 @@ def subject_interface():
             if finish_button_clicked:
                 # Generate unique sample ID for this selection
                 import uuid
+
                 sample_id = str(uuid.uuid4())
                 st.session_state.current_sample_id = sample_id
 
@@ -742,26 +780,33 @@ def subject_interface():
                         "response_metadata": {
                             "is_initial_random": False,
                             "is_finish_button": True,
-                            "is_final_submission": False
+                            "is_final_submission": False,
                         },
                         "ui_data": {
                             "grid_position": None,
-                            "slider_percentages": {ing: concentrations[ing]["slider_position"] for ing in concentrations},
-                            "concentrations_summary": concentrations
+                            "slider_percentages": {
+                                ing: concentrations[ing]["slider_position"]
+                                for ing in concentrations
+                            },
+                            "concentrations_summary": concentrations,
                         },
                         "ingredient_metadata": {
                             "ingredient_names": list(ingredient_concentrations.keys()),
-                            "ingredient_order": list(range(len(ingredient_concentrations))),
+                            "ingredient_order": list(
+                                range(len(ingredient_concentrations))
+                            ),
                             "ingredient_ranges": {
                                 ing: {
                                     "min": concentrations[ing]["min_mM"],
                                     "max": concentrations[ing]["max_mM"],
                                     "unit": "mM",
-                                    "molecular_weight": concentrations[ing]["molecular_weight"]
+                                    "molecular_weight": concentrations[ing][
+                                        "molecular_weight"
+                                    ],
                                 }
                                 for ing in concentrations
-                            }
-                        }
+                            },
+                        },
                     },
                 )
 
@@ -796,7 +841,7 @@ def subject_interface():
                         new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
                         session_code=st.session_state.session_code,
                         participant_id=st.session_state.participant,
-                        sync_to_database=True
+                        sync_to_database=True,
                     )
                     st.rerun()
                 else:
@@ -838,7 +883,7 @@ def subject_interface():
                     new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
                     session_code=st.session_state.session_code,
                     participant_id=st.session_state.participant,
-                    sync_to_database=True
+                    sync_to_database=True,
                 )
                 st.rerun()
 
@@ -881,12 +926,32 @@ def subject_interface():
                 sample_id = st.session_state.get("current_sample_id", None)
 
                 # Update the existing response with questionnaire data
-                success = update_response_with_questionnaire(
+                success, response_id = update_response_with_questionnaire(
                     participant_id=st.session_state.participant,
                     session_id=st.session_state.get("session_code", "default_session"),
                     questionnaire_response=responses,  # Add questionnaire to existing response
                     sample_id=sample_id,  # Link to specific sample via UUID
                 )
+
+                if success and response_id:
+                    # Extract and save target variable for Bayesian optimization
+                    from sql_handler import extract_and_save_target_variable
+
+                    questionnaire_type = get_questionnaire_type_from_config()
+                    target_value = extract_and_save_target_variable(
+                        response_id=response_id,
+                        questionnaire_response=responses,
+                        questionnaire_type=questionnaire_type,
+                    )
+
+                    if target_value is not None:
+                        logger.info(
+                            f"Target variable extracted: {target_value} for response_id={response_id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to extract target variable for response_id={response_id}"
+                        )
 
                 if success:
                     if responses.get("is_final", False):
@@ -895,7 +960,7 @@ def subject_interface():
                             new_phase=ExperimentPhase.TRIAL_COMPLETE,
                             session_code=st.session_state.session_code,
                             participant_id=st.session_state.participant,
-                            sync_to_database=True
+                            sync_to_database=True,
                         )
                         # Clean up temporary storage
                         cleanup_pending_results()
@@ -915,9 +980,11 @@ def subject_interface():
                             new_phase=ExperimentPhase.TRIAL_ACTIVE,
                             session_code=st.session_state.session_code,
                             participant_id=st.session_state.participant,
-                            sync_to_database=True
+                            sync_to_database=True,
                         )
-                        st.success("Questionnaire saved! You can test another sample or check the box above to submit your final response.")
+                        st.success(
+                            "Questionnaire saved! You can test another sample or check the box above to submit your final response."
+                        )
                         st.rerun()
                 else:
                     st.error(
@@ -941,9 +1008,7 @@ def subject_interface():
                 with col_a:
                     st.metric("Position", f"({resp['x']:.0f}, {resp['y']:.0f})")
                 with col_b:
-                    st.metric(
-                        "Response Time", f"{resp.get('reaction_time_ms', 0)} ms"
-                    )
+                    st.metric("Response Time", f"{resp.get('reaction_time_ms', 0)} ms")
 
             # Auto-refresh disabled to prevent blank screen issues
             st.info(
@@ -962,7 +1027,7 @@ def subject_interface():
                             new_phase=ExperimentPhase.TRIAL_ACTIVE,
                             session_code=st.session_state.session_code,
                             participant_id=st.session_state.participant,
-                            sync_to_database=True
+                            sync_to_database=True,
                         )
                         st.session_state.last_trial_time = mod_settings["created_at"]
                         st.rerun()

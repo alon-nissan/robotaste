@@ -1039,7 +1039,7 @@ def update_response_with_questionnaire(
     session_id: str,
     questionnaire_response: Dict[str, Any],
     sample_id: Optional[str] = None,
-) -> bool:
+) -> tuple[bool, Optional[int]]:
     """
     Update the most recent non-final response with questionnaire data and mark as final.
     This prevents duplicate responses.
@@ -1051,7 +1051,7 @@ def update_response_with_questionnaire(
         sample_id: Optional sample UUID to match specific response
 
     Returns:
-        Success status
+        Tuple of (success status, response_id if successful else None)
     """
     try:
         import json
@@ -1102,24 +1102,51 @@ def update_response_with_questionnaire(
                 )
 
             rows_affected = cursor.rowcount
-            conn.commit()
 
             if rows_affected > 0:
+                # Fetch the response_id that was just updated
+                if sample_id:
+                    cursor.execute(
+                        """
+                        SELECT id FROM responses
+                        WHERE participant_id = ? AND session_id = ? AND sample_id = ?
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (participant_id, session_id, sample_id),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id FROM responses
+                        WHERE participant_id = ? AND session_id = ? AND is_final_response = 1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (participant_id, session_id),
+                    )
+
+                result = cursor.fetchone()
+                response_id = result[0] if result else None
+
+                conn.commit()
+
                 logger.info(
-                    f"Successfully updated response with questionnaire for {participant_id} (sample_id={sample_id})"
+                    f"Successfully updated response with questionnaire for {participant_id} (sample_id={sample_id}, response_id={response_id})"
                 )
-                return True
+                return True, response_id
             else:
+                conn.commit()
                 logger.warning(
                     f"No non-final response found to update for {participant_id} "
                     f"(session_id={session_id}, sample_id={sample_id}). "
                     f"This may indicate the response was already marked final or the sample_id doesn't match."
                 )
-                return False
+                return False, None
 
     except Exception as e:
         logger.error(f"Error updating response with questionnaire: {e}")
-        return False
+        return False, None
 
 
 def save_multi_ingredient_response(

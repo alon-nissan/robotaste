@@ -80,6 +80,7 @@ import streamlit_vertical_slider as svs
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional
 from sql_handler import update_session_state, save_response
+from bayesian_optimizer import get_default_bo_config
 import logging
 
 # Setup logging
@@ -833,6 +834,7 @@ def start_trial(
                 "interface_type": interface_type,
                 "method": method,
                 "questionnaire_type": questionnaire_type,  # Store selected questionnaire type
+                "bayesian_optimization": st.session_state.get("bo_config", get_default_bo_config()),  # Store BO configuration
                 "ingredients": [
                     ing for ing in ingredients
                 ],  # Store ingredient configuration

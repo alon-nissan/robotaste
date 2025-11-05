@@ -386,6 +386,154 @@ def moderator_interface():
 
         st.markdown("---")
 
+        # ===== BAYESIAN OPTIMIZATION CONFIGURATION =====
+        st.markdown("#### 🤖 Bayesian Optimization Settings")
+        st.info("Configure adaptive sampling to intelligently guide participants toward their optimal taste preference using machine learning")
+
+        # Initialize BO config in session state
+        if "bo_config" not in st.session_state:
+            from bayesian_optimizer import get_default_bo_config
+            st.session_state.bo_config = get_default_bo_config()
+
+        # Enable/disable BO
+        bo_enabled = st.checkbox(
+            "Enable Bayesian Optimization",
+            value=st.session_state.bo_config.get("enabled", True),
+            help="Use machine learning to guide participants toward optimal preferences after initial exploration",
+            key="moderator_bo_enabled"
+        )
+        st.session_state.bo_config["enabled"] = bo_enabled
+
+        if bo_enabled:
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Acquisition function selector
+                acq_func = st.selectbox(
+                    "Acquisition Function:",
+                    options=["ei", "ucb"],
+                    index=0 if st.session_state.bo_config["acquisition_function"] == "ei" else 1,
+                    format_func=lambda x: "Expected Improvement (EI) - Recommended" if x == "ei" else "Upper Confidence Bound (UCB)",
+                    help="EI: Balanced exploration-exploitation. UCB: More exploration of uncertain regions",
+                    key="moderator_bo_acq_func"
+                )
+                st.session_state.bo_config["acquisition_function"] = acq_func
+
+                # Minimum samples before BO activates
+                min_samples = st.number_input(
+                    "Min Samples Before BO:",
+                    min_value=2,
+                    max_value=10,
+                    value=st.session_state.bo_config["min_samples_for_bo"],
+                    step=1,
+                    help="Number of random exploration samples before BO starts making intelligent suggestions. Default: 3",
+                    key="moderator_bo_min_samples"
+                )
+                st.session_state.bo_config["min_samples_for_bo"] = min_samples
+
+            with col2:
+                # Dynamic exploration parameter (changes based on acquisition function)
+                if acq_func == "ei":
+                    xi = st.slider(
+                        "Exploration Parameter (xi):",
+                        min_value=0.0,
+                        max_value=0.1,
+                        value=st.session_state.bo_config["ei_xi"],
+                        step=0.01,
+                        format="%.3f",
+                        help="Controls exploration vs exploitation. Higher = more exploration. Default: 0.01",
+                        key="moderator_bo_xi"
+                    )
+                    st.session_state.bo_config["ei_xi"] = xi
+                else:  # UCB
+                    kappa = st.slider(
+                        "Exploration Parameter (kappa):",
+                        min_value=0.1,
+                        max_value=5.0,
+                        value=st.session_state.bo_config["ucb_kappa"],
+                        step=0.1,
+                        help="Controls exploration vs exploitation. Higher = more exploration. Default: 2.0",
+                        key="moderator_bo_kappa"
+                    )
+                    st.session_state.bo_config["ucb_kappa"] = kappa
+
+                # Kernel smoothness (ν parameter)
+                kernel_options = {
+                    0.5: "0.5 - Rough (for noisy data)",
+                    1.5: "1.5 - Moderate (threshold effects)",
+                    2.5: "2.5 - Smooth (recommended)",
+                    float('inf'): "∞ - Very Smooth (theoretical)"
+                }
+                current_nu = st.session_state.bo_config["kernel_nu"]
+                nu_index = list(kernel_options.keys()).index(current_nu) if current_nu in kernel_options else 2
+
+                kernel_nu = st.selectbox(
+                    "Kernel Smoothness (ν):",
+                    options=list(kernel_options.keys()),
+                    index=nu_index,
+                    format_func=lambda x: kernel_options[x],
+                    help="How smooth taste preferences are assumed to be. See docs/bayesian_optimization_kernel_guide.md",
+                    key="moderator_bo_kernel_nu"
+                )
+                st.session_state.bo_config["kernel_nu"] = kernel_nu
+
+            # Advanced settings expander
+            with st.expander("⚙️ Advanced BO Settings", expanded=False):
+                st.caption("For expert users. Leave at defaults unless you understand these parameters.")
+
+                adv_col1, adv_col2 = st.columns(2)
+
+                with adv_col1:
+                    # Noise/regularization parameter
+                    alpha = st.number_input(
+                        "Noise/Regularization (alpha):",
+                        min_value=1e-6,
+                        max_value=1.0,
+                        value=float(st.session_state.bo_config["alpha"]),
+                        format="%.6f",
+                        help="Higher = more noise tolerance. Use higher values for untrained consumer panels. Default: 0.001",
+                        key="moderator_bo_alpha"
+                    )
+                    st.session_state.bo_config["alpha"] = alpha
+
+                    # Only use final responses
+                    only_final = st.checkbox(
+                        "Only Use Final Responses",
+                        value=st.session_state.bo_config["only_final_responses"],
+                        help="Train BO only on participants' final choices (recommended)",
+                        key="moderator_bo_only_final"
+                    )
+                    st.session_state.bo_config["only_final_responses"] = only_final
+
+                with adv_col2:
+                    # Optimizer restarts
+                    n_restarts = st.number_input(
+                        "Hyperparameter Optimizer Restarts:",
+                        min_value=1,
+                        max_value=50,
+                        value=st.session_state.bo_config["n_restarts_optimizer"],
+                        step=1,
+                        help="More restarts = better hyperparameter optimization but slower. Default: 10",
+                        key="moderator_bo_restarts"
+                    )
+                    st.session_state.bo_config["n_restarts_optimizer"] = n_restarts
+
+                    # Random seed
+                    random_state = st.number_input(
+                        "Random Seed:",
+                        min_value=0,
+                        max_value=9999,
+                        value=st.session_state.bo_config["random_state"],
+                        step=1,
+                        help="For reproducibility. Default: 42",
+                        key="moderator_bo_seed"
+                    )
+                    st.session_state.bo_config["random_state"] = random_state
+
+            st.caption("📚 For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`")
+
+        st.markdown("---")
+
         # Auto-determine number of ingredients from selection
         num_ingredients = len(selected_ingredients)
 
