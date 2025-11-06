@@ -11,10 +11,13 @@ from datetime import datetime
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Add parent directory to path to import modules
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
 # Import modules to test
-import sql_handler_new as sql
-import session_manager_new as session_mgr
-import state_machine_new as sm
+import sql_handler as sql
+import session_manager as session_mgr
+import state_machine as sm
 
 # Mock streamlit for testing
 class MockSessionState:
@@ -69,15 +72,13 @@ def setup_test_database():
     assert success, "Database initialization failed"
     print("✓ Database initialized")
 
-    # Insert test questionnaire type
+    # Questionnaire types are already inserted by schema, verify they exist
     with sql.get_database_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO questionnaire_types (id, name, data)
-            VALUES (1, 'hedonic_preference', '{"target_variable": "overall_liking"}')
-        """)
-        conn.commit()
-    print("✓ Test questionnaire type inserted")
+        cursor.execute("SELECT COUNT(*) FROM questionnaire_types WHERE id = 1")
+        count = cursor.fetchone()[0]
+        assert count > 0, "Questionnaire type not found"
+    print("✓ Test questionnaire types verified")
 
 
 def test_state_machine_phases():

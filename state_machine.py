@@ -1,16 +1,18 @@
 """
-State Machine for Experiment Phase Management
+State Machine for Experiment Phase Management - Simplified Architecture
+========================================================================
 
-This module provides centralized, validated phase transitions for the RoboTaste
-experiment application. It ensures that:
-1. All phase transitions are valid and follow the defined workflow
-2. Session state and database are synchronized atomically
-3. Phase changes are logged for audit trails
-4. Invalid transitions are prevented at runtime
+Updated for new database schema (robotaste.db) with simplified workflow.
+
+Key Changes from v1:
+- Reduced from 8 phases to 5 phases
+- No PRE/POST questionnaire distinction
+- No database sync for transient phases (only persist session-level state)
+- Streamlined workflow: WAITING → ROBOT_PREPARING → TASTING → QUESTIONNAIRE → SELECTION
 
 Author: Masters Research Project
-Version: 1.0
-Last Updated: 2025
+Version: 2.0 - Simplified Architecture
+Last Updated: November 2025
 """
 
 from enum import Enum
@@ -24,22 +26,22 @@ logger = logging.getLogger(__name__)
 
 
 class ExperimentPhase(Enum):
-    """All possible phases in the experiment workflow."""
+    """All possible phases in the simplified experiment workflow."""
 
-    # Session-level phases (database tracked)
-    WAITING = "waiting"  # Initial state when session created
-    TRIAL_STARTED = "trial_started"  # Moderator has started the trial
+    # Session-level phases
+    WAITING = "waiting"  # Session created, waiting for moderator to start
 
-    # Subject-level phases (now database synced)
-    SUBJECT_WELCOME = "welcome"  # Subject entering participant ID
-    PRE_QUESTIONNAIRE = "pre_questionnaire"  # Initial impression questionnaire
-    TRIAL_ACTIVE = "respond"  # Main experiment interaction (grid/sliders)
-    POST_RESPONSE_MESSAGE = "post_response_message"  # Brief message after response
-    POST_QUESTIONNAIRE = "post_questionnaire"  # Post-selection questionnaire
-    TRIAL_COMPLETE = "done"  # Trial finished
+    # Cycle phases (repeated for each cycle)
+    ROBOT_PREPARING = "robot_preparing"  # Robot is preparing the solution
+    TASTING = "tasting"  # Subject is tasting the solution
+    QUESTIONNAIRE = "questionnaire"  # Subject answering questionnaire
+    SELECTION = "selection"  # Subject making selection for next cycle
+
+    # Final phase
+    COMPLETE = "complete"  # Session finished
 
     @classmethod
-    def from_string(cls, phase_str: str) -> Optional['ExperimentPhase']:
+    def from_string(cls, phase_str: str) -> Optional["ExperimentPhase"]:
         """Convert string to ExperimentPhase enum."""
         for phase in cls:
             if phase.value == phase_str:
@@ -49,6 +51,7 @@ class ExperimentPhase(Enum):
 
 class InvalidTransitionError(Exception):
     """Raised when attempting an invalid phase transition."""
+
     pass
 
 
@@ -56,40 +59,31 @@ class ExperimentStateMachine:
     """
     Centralized state machine for managing experiment phases.
 
-    Ensures valid transitions and maintains synchronization between
-    Streamlit session state and database.
+    Ensures valid transitions and maintains Streamlit session state.
+    Note: DB only stores session-level state (active/completed/cancelled),
+    not fine-grained phases.
     """
 
     # Define valid transitions (phase -> list of allowed next phases)
     VALID_TRANSITIONS = {
         ExperimentPhase.WAITING: [
-            ExperimentPhase.TRIAL_STARTED,
-            ExperimentPhase.SUBJECT_WELCOME
+            ExperimentPhase.ROBOT_PREPARING  # Moderator starts first cycle
         ],
-        ExperimentPhase.TRIAL_STARTED: [
-            ExperimentPhase.SUBJECT_WELCOME,
-            ExperimentPhase.TRIAL_ACTIVE
+        ExperimentPhase.ROBOT_PREPARING: [
+            ExperimentPhase.TASTING  # Robot finished preparing
         ],
-        ExperimentPhase.SUBJECT_WELCOME: [
-            ExperimentPhase.PRE_QUESTIONNAIRE
+        ExperimentPhase.TASTING: [
+            ExperimentPhase.QUESTIONNAIRE  # Subject finished tasting
         ],
-        ExperimentPhase.PRE_QUESTIONNAIRE: [
-            ExperimentPhase.TRIAL_ACTIVE
+        ExperimentPhase.QUESTIONNAIRE: [
+            ExperimentPhase.SELECTION  # Subject finished questionnaire
         ],
-        ExperimentPhase.TRIAL_ACTIVE: [
-            ExperimentPhase.POST_QUESTIONNAIRE,
-            ExperimentPhase.POST_RESPONSE_MESSAGE
+        ExperimentPhase.SELECTION: [
+            ExperimentPhase.ROBOT_PREPARING,  # Continue to next cycle
+            ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
-        ExperimentPhase.POST_RESPONSE_MESSAGE: [
-            ExperimentPhase.POST_QUESTIONNAIRE
-        ],
-        ExperimentPhase.POST_QUESTIONNAIRE: [
-            ExperimentPhase.TRIAL_ACTIVE,  # Continue selecting (not final)
-            ExperimentPhase.TRIAL_COMPLETE  # Final submission
-        ],
-        ExperimentPhase.TRIAL_COMPLETE: [
-            ExperimentPhase.TRIAL_ACTIVE,  # New trial started
-            ExperimentPhase.WAITING  # Session reset
+        ExperimentPhase.COMPLETE: [
+            ExperimentPhase.WAITING  # Session reset (new session)
         ],
     }
 
@@ -109,7 +103,9 @@ class ExperimentStateMachine:
         return phase
 
     @staticmethod
-    def can_transition(current_phase: ExperimentPhase, new_phase: ExperimentPhase) -> bool:
+    def can_transition(
+        current_phase: ExperimentPhase, new_phase: ExperimentPhase
+    ) -> bool:
         """
         Check if transition is valid.
 
@@ -120,15 +116,14 @@ class ExperimentStateMachine:
         Returns:
             True if transition is allowed, False otherwise
         """
-        allowed_transitions = ExperimentStateMachine.VALID_TRANSITIONS.get(current_phase, [])
+        allowed_transitions = ExperimentStateMachine.VALID_TRANSITIONS.get(
+            current_phase, []
+        )
         return new_phase in allowed_transitions
 
     @staticmethod
     def transition(
-        new_phase: ExperimentPhase,
-        session_code: Optional[str] = None,
-        participant_id: Optional[str] = None,
-        sync_to_database: bool = True
+        new_phase: ExperimentPhase, session_id: Optional[str] = None
     ) -> bool:
         """
         Execute a validated phase transition.
@@ -136,14 +131,13 @@ class ExperimentStateMachine:
         This method:
         1. Validates the transition is allowed
         2. Updates session state
-        3. Optionally syncs to database
-        4. Logs the transition
+        3. Syncs current_phase to database for multi-device sync
+        4. Updates session state to 'completed' if transitioning to COMPLETE
+        5. Logs the transition
 
         Args:
             new_phase: Target phase to transition to
-            session_code: Session code for database sync (optional)
-            participant_id: Participant ID for logging (optional)
-            sync_to_database: Whether to sync to database (default True)
+            session_id: Session ID for database sync (required for sync)
 
         Returns:
             True if transition successful, False otherwise
@@ -166,19 +160,22 @@ class ExperimentStateMachine:
         # Update session state
         st.session_state.phase = new_phase.value
 
-        # Sync to database if requested
-        if sync_to_database and session_code:
+        # Sync to database for multi-device coordination
+        if session_id:
             try:
-                from session_manager import update_session_activity
-                update_session_activity(
-                    session_code,
-                    phase=new_phase.value,
-                    config=None
-                )
-                logger.info(
-                    f"Phase transition synced to database: {current_phase.value} -> {new_phase.value} "
-                    f"(session={session_code}, participant={participant_id})"
-                )
+                import sql_handler as sql
+
+                # Always update current_phase for device sync
+                sql.update_current_phase(session_id, new_phase.value)
+
+                # Additionally update session state if completing
+                if new_phase == ExperimentPhase.COMPLETE:
+                    sql.update_session_state(session_id, "completed")
+                    logger.info(
+                        f"Session state synced to database: completed "
+                        f"(session_id={session_id})"
+                    )
+
             except Exception as e:
                 logger.error(f"Failed to sync phase to database: {e}")
                 # Don't fail the transition if database sync fails
@@ -187,7 +184,7 @@ class ExperimentStateMachine:
         # Log transition
         logger.info(
             f"Phase transition: {current_phase.value} -> {new_phase.value} "
-            f"(participant={participant_id})"
+            f"(session_id={session_id})"
         )
 
         return True
@@ -204,14 +201,12 @@ class ExperimentStateMachine:
             Display-friendly phase name
         """
         display_names = {
-            ExperimentPhase.WAITING: "Waiting for Trial",
-            ExperimentPhase.TRIAL_STARTED: "Trial Started",
-            ExperimentPhase.SUBJECT_WELCOME: "Welcome",
-            ExperimentPhase.PRE_QUESTIONNAIRE: "Pre-Questionnaire",
-            ExperimentPhase.TRIAL_ACTIVE: "Active Selection",
-            ExperimentPhase.POST_RESPONSE_MESSAGE: "Preparing Solution",
-            ExperimentPhase.POST_QUESTIONNAIRE: "Post-Questionnaire",
-            ExperimentPhase.TRIAL_COMPLETE: "Complete",
+            ExperimentPhase.WAITING: "Waiting to Start",
+            ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
+            ExperimentPhase.TASTING: "Tasting in Progress",
+            ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
+            ExperimentPhase.SELECTION: "Making Selection",
+            ExperimentPhase.COMPLETE: "Session Complete",
         }
         return display_names.get(phase, phase.value.title())
 
@@ -228,13 +223,11 @@ class ExperimentStateMachine:
         """
         colors = {
             ExperimentPhase.WAITING: "gray",
-            ExperimentPhase.TRIAL_STARTED: "blue",
-            ExperimentPhase.SUBJECT_WELCOME: "yellow",
-            ExperimentPhase.PRE_QUESTIONNAIRE: "orange",
-            ExperimentPhase.TRIAL_ACTIVE: "green",
-            ExperimentPhase.POST_RESPONSE_MESSAGE: "blue",
-            ExperimentPhase.POST_QUESTIONNAIRE: "orange",
-            ExperimentPhase.TRIAL_COMPLETE: "gray",
+            ExperimentPhase.ROBOT_PREPARING: "blue",
+            ExperimentPhase.TASTING: "orange",
+            ExperimentPhase.QUESTIONNAIRE: "purple",
+            ExperimentPhase.SELECTION: "green",
+            ExperimentPhase.COMPLETE: "gray",
         }
         return colors.get(phase, "gray")
 
@@ -259,12 +252,10 @@ class ExperimentStateMachine:
         """
         current_phase = ExperimentStateMachine.get_current_phase()
         return current_phase in [
-            ExperimentPhase.TRIAL_STARTED,
-            ExperimentPhase.SUBJECT_WELCOME,
-            ExperimentPhase.PRE_QUESTIONNAIRE,
-            ExperimentPhase.TRIAL_ACTIVE,
-            ExperimentPhase.POST_RESPONSE_MESSAGE,
-            ExperimentPhase.POST_QUESTIONNAIRE,
+            ExperimentPhase.ROBOT_PREPARING,
+            ExperimentPhase.TASTING,
+            ExperimentPhase.QUESTIONNAIRE,
+            ExperimentPhase.SELECTION,
         ]
 
     @staticmethod
@@ -276,6 +267,50 @@ class ExperimentStateMachine:
             True if trial is active, False otherwise
         """
         return ExperimentStateMachine.should_show_monitoring()
+
+    @staticmethod
+    def should_show_robot_preparing() -> bool:
+        """
+        Check if UI should show robot preparing message.
+
+        Returns:
+            True if phase is ROBOT_PREPARING
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase == ExperimentPhase.ROBOT_PREPARING
+
+    @staticmethod
+    def should_show_tasting() -> bool:
+        """
+        Check if UI should show tasting instructions.
+
+        Returns:
+            True if phase is TASTING
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase == ExperimentPhase.TASTING
+
+    @staticmethod
+    def should_show_questionnaire() -> bool:
+        """
+        Check if UI should show questionnaire.
+
+        Returns:
+            True if phase is QUESTIONNAIRE
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase == ExperimentPhase.QUESTIONNAIRE
+
+    @staticmethod
+    def should_show_selection() -> bool:
+        """
+        Check if UI should show selection interface (grid/sliders).
+
+        Returns:
+            True if phase is SELECTION
+        """
+        current_phase = ExperimentStateMachine.get_current_phase()
+        return current_phase == ExperimentPhase.SELECTION
 
 
 def initialize_phase(default_phase: str = "waiting") -> None:
@@ -290,23 +325,47 @@ def initialize_phase(default_phase: str = "waiting") -> None:
         logger.info(f"Initialized phase to: {default_phase}")
 
 
-def recover_phase_from_database(session_code: str) -> Optional[str]:
+def recover_phase_from_database(session_id: str) -> Optional[str]:
     """
     Recover phase from database on browser reload.
 
+    Note: In new architecture, only session-level state is persisted.
+    Fine-grained phases are UI-only. On reload, default to WAITING or SELECTION
+    depending on whether session is active or completed.
+
     Args:
-        session_code: Session code to look up
+        session_id: Session ID to look up
 
     Returns:
-        Phase string from database, or None if not found
+        Phase string to initialize, or None if not found
     """
     try:
-        from session_manager import get_session_info
-        session_info = get_session_info(session_code)
-        if session_info and session_info.get('current_phase'):
-            phase = session_info['current_phase']
-            logger.info(f"Recovered phase from database: {phase}")
-            return phase
+        import sql_handler as sql
+
+        session = sql.get_session(session_id)
+
+        if not session:
+            return None
+
+        # Map session state to phase
+        state = session.get("state")
+        if state == "completed":
+            return ExperimentPhase.COMPLETE.value
+        elif state == "cancelled":
+            return ExperimentPhase.COMPLETE.value
+        elif state == "active":
+            # Check if any cycles completed
+            current_cycle = session.get("experiment_config", {}).get("current_cycle", 0)
+            if current_cycle == 0:
+                # No cycles yet, start from waiting
+                return ExperimentPhase.WAITING.value
+            else:
+                # Mid-session, default to selection (safe re-entry point)
+                return ExperimentPhase.SELECTION.value
+
+        return ExperimentPhase.WAITING.value
+
     except Exception as e:
         logger.error(f"Failed to recover phase from database: {e}")
+
     return None

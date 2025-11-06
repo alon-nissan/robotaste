@@ -9,22 +9,56 @@ from callback import (
 from ui_components import create_header
 from session_manager import (
     display_session_qr_code,
-    get_connection_status,
     get_session_info,
 )
 from sql_handler import (
-    clear_participant_session,
-    export_responses_csv,
-    get_live_subject_position,
+    create_session,
+    get_session,
+    update_current_phase,
+    get_current_cycle,
+    increment_cycle,
+    get_session_samples,
+    export_session_csv,
+    get_session_stats,
+    get_bo_config,
+    update_session_state,
+    get_latest_sample_concentrations,
 )
-from state_machine import ExperimentPhase, ExperimentStateMachine, initialize_phase
+from state_machine import (
+    ExperimentPhase,
+    ExperimentStateMachine,
+    initialize_phase,
+    recover_phase_from_database,
+)
+from bayesian_optimizer import get_default_bo_config, validate_bo_config
 
 
 import streamlit as st
-
-
+import pandas as pd
 import time
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def get_current_phase_safe() -> str:
+    """
+    Get current phase safely from session_state or database.
+    Falls back to session_state when session not yet in DB.
+
+    Returns:
+        str: Current phase string (e.g., "waiting", "selection", etc.)
+    """
+    session_created_in_db = st.session_state.get("session_created_in_db", True)
+
+    if session_created_in_db:
+        session_info = get_session_info(st.session_state.session_code)
+        if session_info:
+            return session_info.get("current_phase", "waiting")
+
+    # Session not in DB yet, or session_info is None - use session_state fallback
+    return st.session_state.get("phase", "waiting")
 
 
 def moderator_interface():
@@ -38,19 +72,31 @@ def moderator_interface():
             st.rerun()
         return
 
-    session_info = get_session_info(st.session_state.session_code)
-    if not session_info or not session_info["is_active"]:
-        st.error("Session expired or invalid.")
-        st.session_state.session_code = None
-        if st.button("🏠 Return to Home", key="moderator_return_home_invalid_session"):
-            st.query_params.clear()
-            st.rerun()
-        return
+    # Check if session has been created in database yet
+    session_created_in_db = st.session_state.get("session_created_in_db", True)
+    if session_created_in_db:
+        # Verify session is still valid in database
+        session_info = get_session_info(st.session_state.session_code)
+        if not session_info or session_info.get("state") != "active":
+            st.error("Session expired or invalid.")
+            st.session_state.session_code = None
+            if st.button(
+                "🏠 Return to Home", key="moderator_return_home_invalid_session"
+            ):
+                st.query_params.clear()
+                st.rerun()
+            return
+    else:
+        # Session not yet in database - show configuration message
+        st.info(
+            "📋 Please configure your experiment settings below, then click 'Start Trial' to begin."
+        )
 
     # Recover phase from database on browser refresh
     # Moderator interface uses simplified phase logic: either setup or monitoring
     if "phase" not in st.session_state:
         from state_machine import recover_phase_from_database
+
         recovered_phase = recover_phase_from_database(st.session_state.session_code)
 
         # Moderator UI has only two states:
@@ -65,12 +111,12 @@ def moderator_interface():
             # Normalize to "trial_started" for moderator UI to show monitoring
             st.session_state.phase = "trial_started"
 
-    # Header
-    create_header(
-        f"Moderator Dashboard - {st.session_state.session_code}",
-        f"Managing session for {session_info['moderator_name']}",
-        "",
-    )
+    # # Header
+    # create_header(
+    #     f"Moderator Dashboard - {st.session_state.session_code}",
+    #     f"Managing session for {session_info['moderator_name']}",
+    #     "",
+    # )
 
     # ===== TOP SECTION: Essential Session Info & Quick Actions =====
     st.markdown("### Session Overview")
@@ -82,14 +128,11 @@ def moderator_interface():
         st.metric("🔑 Session Code", st.session_state.session_code)
 
     with overview_col2:
-        connection_status = get_connection_status(st.session_state.session_code)
-        is_connected = connection_status.get("subject_connected", False)
-
         # Get subject phase from database
-        current_phase_str = session_info.get("current_phase", "waiting")
+        current_phase_str = get_current_phase_safe()
         phase = ExperimentPhase.from_string(current_phase_str)
 
-        if is_connected and phase:
+        if phase:
             phase_display = ExperimentStateMachine.get_phase_display_name(phase)
             # Show connection + phase
             st.metric("Subject Status", f"Connected - {phase_display}")
@@ -97,29 +140,55 @@ def moderator_interface():
             st.metric("Subject Status", "🟡 Waiting")
 
     with overview_col3:
-        # Show color-coded phase badge
-        current_phase_str = session_info.get("current_phase", "waiting")
+        # Show color-coded phase badge (6 phases: waiting, robot_preparing, tasting, questionnaire, selection, complete)
+        current_phase_str = get_current_phase_safe()
         phase = ExperimentPhase.from_string(current_phase_str)
         if phase:
             phase_color = ExperimentStateMachine.get_phase_color(phase)
             phase_name = ExperimentStateMachine.get_phase_display_name(phase)
             # Use colored markdown badge
+            # Colors: waiting=gray, robot_preparing=blue, tasting=orange, questionnaire=purple, selection=green, complete=gray
             if phase_color == "green":
                 badge = f":green[{phase_name}]"
             elif phase_color == "blue":
                 badge = f":blue[{phase_name}]"
             elif phase_color == "orange":
                 badge = f":orange[{phase_name}]"
-            elif phase_color == "yellow":
-                badge = f":red[{phase_name}]"
-            else:
+            elif phase_color == "purple":
+                badge = f":violet[{phase_name}]"
+            elif phase_color == "gray":
                 badge = f":gray[{phase_name}]"
+            else:
+                badge = f"{phase_name}"
             st.metric("Current Phase", badge)
         else:
             st.metric("Current Phase", "Waiting")
 
     with overview_col4:
         st.metric("⏰ Status", "🟢 Active")
+
+    # ===== ROBOT PREPARING PHASE CONTROL =====
+    # Show "Sample Prepared" button ONLY in robot_preparing phase
+    current_phase_str = get_current_phase_safe()
+    phase = ExperimentPhase.from_string(current_phase_str)
+
+    if phase == ExperimentPhase.ROBOT_PREPARING:
+        st.markdown("---")
+        col_prep1, col_prep2, col_prep3 = st.columns([1, 2, 1])
+        with col_prep2:
+            if st.button(
+                "✅ Mark Sample Prepared",
+                type="primary",
+                key="mark_prepared",
+                use_container_width=True,
+            ):
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.TASTING,
+                    session_id=st.session_state.session_code,
+                )
+                st.success("Sample marked as prepared! Subject can now taste.")
+                time.sleep(0.5)
+                st.rerun()
 
     # ===== SESSION STATE MANAGEMENT =====
     # Initialize phase if not set (moderator starts in waiting phase)
@@ -145,7 +214,11 @@ def moderator_interface():
                 # Get interface and method info
                 num_ingredients = len(st.session_state.selected_ingredients)
                 interface_type = "2D Grid" if num_ingredients == 2 else "Slider-based"
-                method = st.session_state.get("mapping_method", "linear") if num_ingredients == 2 else "Independent"
+                method = (
+                    st.session_state.get("mapping_method", "linear")
+                    if num_ingredients == 2
+                    else "Independent"
+                )
                 random_start = st.session_state.get("use_random_start", False)
 
                 # Display configuration in a compact format
@@ -168,10 +241,14 @@ def moderator_interface():
                     for ingredient_name in st.session_state.selected_ingredients:
                         if ingredient_name in st.session_state.ingredient_ranges:
                             ranges = st.session_state.ingredient_ranges[ingredient_name]
-                            st.write(f"**{ingredient_name}:** {ranges['min']:.1f} - {ranges['max']:.1f} mM")
+                            st.write(
+                                f"**{ingredient_name}:** {ranges['min']:.1f} - {ranges['max']:.1f} mM"
+                            )
 
         with col_reset:
             # New Session button to reset back to setup
+            st.write("reset_session_placeholder")  # Placeholder for layout alignment
+            """
             if st.button(
                 "🆕 New Session",
                 type="secondary",
@@ -201,6 +278,7 @@ def moderator_interface():
                     st.toast("Session ended. Returning to setup...")
                     time.sleep(1)
                     st.rerun()
+            """
 
     # Show setup section only in waiting phase
     if ExperimentStateMachine.should_show_setup():
@@ -336,51 +414,67 @@ def moderator_interface():
         st.info("Choose the questionnaire type for post-selection feedback")
 
         # Import questionnaire configuration
-        from questionnaire_config import list_available_questionnaires, get_default_questionnaire_type, get_questionnaire_config
+        from questionnaire_config import (
+            list_available_questionnaires,
+            get_default_questionnaire_type,
+            get_questionnaire_config,
+        )
 
         # Get available questionnaires
         available_questionnaires = list_available_questionnaires()
-        questionnaire_options = {q[0]: f"{q[1]} - {q[2]}" for q in available_questionnaires}
+        questionnaire_options = {
+            q[0]: f"{q[1]} - {q[2]}" for q in available_questionnaires
+        }
 
         # Initialize questionnaire type in session state
         if "selected_questionnaire_type" not in st.session_state:
-            st.session_state.selected_questionnaire_type = get_default_questionnaire_type()
+            st.session_state.selected_questionnaire_type = (
+                get_default_questionnaire_type()
+            )
 
         # Questionnaire selector
         selected_questionnaire_type = st.selectbox(
             "Questionnaire Type:",
             options=list(questionnaire_options.keys()),
             format_func=lambda x: questionnaire_options[x],
-            index=list(questionnaire_options.keys()).index(st.session_state.selected_questionnaire_type),
+            index=list(questionnaire_options.keys()).index(
+                st.session_state.selected_questionnaire_type
+            ),
             help="Select the type of questionnaire participants will complete",
-            key="moderator_questionnaire_selector"
+            key="moderator_questionnaire_selector",
         )
 
         # Update session state
         st.session_state.selected_questionnaire_type = selected_questionnaire_type
 
         # Show questionnaire preview
-        questionnaire_config = get_questionnaire_config(selected_questionnaire_type)
+        questionnaire_config = get_questionnaire_config(selected_questionnaire_type)  # type: ignore
         if questionnaire_config:
             with st.expander("Preview Questionnaire Questions", expanded=False):
                 st.markdown(f"**{questionnaire_config['name']}**")
-                st.caption(questionnaire_config.get('description', ''))
+                st.caption(questionnaire_config.get("description", ""))
 
-                for i, question in enumerate(questionnaire_config.get('questions', []), 1):
+                for i, question in enumerate(
+                    questionnaire_config.get("questions", []), 1
+                ):
                     st.markdown(f"{i}. **{question['label']}**")
                     st.caption(f"   Type: {question['type'].title()}")
-                    if question['type'] == 'slider':
+                    if question["type"] == "slider":
                         st.caption(f"   Range: {question['min']} - {question['max']}")
-                        if 'scale_labels' in question:
-                            st.caption(f"   Labels: {question['min']}=\"{question['scale_labels'].get(question['min'], '')}\" ... {question['max']}=\"{question['scale_labels'].get(question['max'], '')}\"")
-                    elif question['type'] == 'dropdown':
-                        st.caption(f"   Options: {', '.join(question.get('options', []))}")
+                        if "scale_labels" in question:
+                            st.caption(
+                                f"   Labels: {question['min']}=\"{question['scale_labels'].get(question['min'], '')}\" ... {question['max']}=\"{question['scale_labels'].get(question['max'], '')}\""
+                            )
+                    elif question["type"] == "dropdown":
+                        st.caption(
+                            f"   Options: {', '.join(question.get('options', []))}"
+                        )
 
                 # Show Bayesian optimization target
-                if 'bayesian_target' in questionnaire_config:
+                if "bayesian_target" in questionnaire_config:
                     st.markdown("---")
                     st.markdown("**Bayesian Optimization Target:**")
-                    target = questionnaire_config['bayesian_target']
+                    target = questionnaire_config["bayesian_target"]
                     st.caption(f"Variable: {target['variable']}")
                     st.caption(f"Goal: {target['description']}")
 
@@ -388,11 +482,14 @@ def moderator_interface():
 
         # ===== BAYESIAN OPTIMIZATION CONFIGURATION =====
         st.markdown("#### 🤖 Bayesian Optimization Settings")
-        st.info("Configure adaptive sampling to intelligently guide participants toward their optimal taste preference using machine learning")
+        st.info(
+            "Configure adaptive sampling to intelligently guide participants toward their optimal taste preference using machine learning"
+        )
 
         # Initialize BO config in session state
         if "bo_config" not in st.session_state:
             from bayesian_optimizer import get_default_bo_config
+
             st.session_state.bo_config = get_default_bo_config()
 
         # Enable/disable BO
@@ -400,7 +497,7 @@ def moderator_interface():
             "Enable Bayesian Optimization",
             value=st.session_state.bo_config.get("enabled", True),
             help="Use machine learning to guide participants toward optimal preferences after initial exploration",
-            key="moderator_bo_enabled"
+            key="moderator_bo_enabled",
         )
         st.session_state.bo_config["enabled"] = bo_enabled
 
@@ -412,10 +509,18 @@ def moderator_interface():
                 acq_func = st.selectbox(
                     "Acquisition Function:",
                     options=["ei", "ucb"],
-                    index=0 if st.session_state.bo_config["acquisition_function"] == "ei" else 1,
-                    format_func=lambda x: "Expected Improvement (EI) - Recommended" if x == "ei" else "Upper Confidence Bound (UCB)",
+                    index=(
+                        0
+                        if st.session_state.bo_config["acquisition_function"] == "ei"
+                        else 1
+                    ),
+                    format_func=lambda x: (
+                        "Expected Improvement (EI) - Recommended"
+                        if x == "ei"
+                        else "Upper Confidence Bound (UCB)"
+                    ),
                     help="EI: Balanced exploration-exploitation. UCB: More exploration of uncertain regions",
-                    key="moderator_bo_acq_func"
+                    key="moderator_bo_acq_func",
                 )
                 st.session_state.bo_config["acquisition_function"] = acq_func
 
@@ -427,7 +532,7 @@ def moderator_interface():
                     value=st.session_state.bo_config["min_samples_for_bo"],
                     step=1,
                     help="Number of random exploration samples before BO starts making intelligent suggestions. Default: 3",
-                    key="moderator_bo_min_samples"
+                    key="moderator_bo_min_samples",
                 )
                 st.session_state.bo_config["min_samples_for_bo"] = min_samples
 
@@ -442,7 +547,7 @@ def moderator_interface():
                         step=0.01,
                         format="%.3f",
                         help="Controls exploration vs exploitation. Higher = more exploration. Default: 0.01",
-                        key="moderator_bo_xi"
+                        key="moderator_bo_xi",
                     )
                     st.session_state.bo_config["ei_xi"] = xi
                 else:  # UCB
@@ -453,7 +558,7 @@ def moderator_interface():
                         value=st.session_state.bo_config["ucb_kappa"],
                         step=0.1,
                         help="Controls exploration vs exploitation. Higher = more exploration. Default: 2.0",
-                        key="moderator_bo_kappa"
+                        key="moderator_bo_kappa",
                     )
                     st.session_state.bo_config["ucb_kappa"] = kappa
 
@@ -462,10 +567,14 @@ def moderator_interface():
                     0.5: "0.5 - Rough (for noisy data)",
                     1.5: "1.5 - Moderate (threshold effects)",
                     2.5: "2.5 - Smooth (recommended)",
-                    float('inf'): "∞ - Very Smooth (theoretical)"
+                    float("inf"): "∞ - Very Smooth (theoretical)",
                 }
                 current_nu = st.session_state.bo_config["kernel_nu"]
-                nu_index = list(kernel_options.keys()).index(current_nu) if current_nu in kernel_options else 2
+                nu_index = (
+                    list(kernel_options.keys()).index(current_nu)
+                    if current_nu in kernel_options
+                    else 2
+                )
 
                 kernel_nu = st.selectbox(
                     "Kernel Smoothness (ν):",
@@ -473,13 +582,15 @@ def moderator_interface():
                     index=nu_index,
                     format_func=lambda x: kernel_options[x],
                     help="How smooth taste preferences are assumed to be. See docs/bayesian_optimization_kernel_guide.md",
-                    key="moderator_bo_kernel_nu"
+                    key="moderator_bo_kernel_nu",
                 )
                 st.session_state.bo_config["kernel_nu"] = kernel_nu
 
             # Advanced settings expander
             with st.expander("⚙️ Advanced BO Settings", expanded=False):
-                st.caption("For expert users. Leave at defaults unless you understand these parameters.")
+                st.caption(
+                    "For expert users. Leave at defaults unless you understand these parameters."
+                )
 
                 adv_col1, adv_col2 = st.columns(2)
 
@@ -492,7 +603,7 @@ def moderator_interface():
                         value=float(st.session_state.bo_config["alpha"]),
                         format="%.6f",
                         help="Higher = more noise tolerance. Use higher values for untrained consumer panels. Default: 0.001",
-                        key="moderator_bo_alpha"
+                        key="moderator_bo_alpha",
                     )
                     st.session_state.bo_config["alpha"] = alpha
 
@@ -501,7 +612,7 @@ def moderator_interface():
                         "Only Use Final Responses",
                         value=st.session_state.bo_config["only_final_responses"],
                         help="Train BO only on participants' final choices (recommended)",
-                        key="moderator_bo_only_final"
+                        key="moderator_bo_only_final",
                     )
                     st.session_state.bo_config["only_final_responses"] = only_final
 
@@ -514,7 +625,7 @@ def moderator_interface():
                         value=st.session_state.bo_config["n_restarts_optimizer"],
                         step=1,
                         help="More restarts = better hyperparameter optimization but slower. Default: 10",
-                        key="moderator_bo_restarts"
+                        key="moderator_bo_restarts",
                     )
                     st.session_state.bo_config["n_restarts_optimizer"] = n_restarts
 
@@ -526,11 +637,13 @@ def moderator_interface():
                         value=st.session_state.bo_config["random_state"],
                         step=1,
                         help="For reproducibility. Default: 42",
-                        key="moderator_bo_seed"
+                        key="moderator_bo_seed",
                     )
                     st.session_state.bo_config["random_state"] = random_state
 
-            st.caption("📚 For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`")
+            st.caption(
+                "📚 For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`"
+            )
 
         st.markdown("---")
 
@@ -612,6 +725,79 @@ def moderator_interface():
                 use_container_width=True,
                 key="moderator_start_trial_button",
             ):
+                # Create session in database if not already created
+                if not st.session_state.get("session_created_in_db", False):
+                    from sql_handler import update_session_with_config
+                    from bayesian_optimizer import get_default_bo_config
+
+                    # Get configuration from session state
+                    num_ingredients = st.session_state.experiment_config[
+                        "num_ingredients"
+                    ]
+                    interface_type = st.session_state.experiment_config.get(
+                        "interface_type", "grid_2d"
+                    )
+                    method = st.session_state.experiment_config.get(
+                        "method", "logarithmic"
+                    )
+
+                    # Build ingredient list for database
+                    ingredients_for_db = []
+                    for idx, ingredient_name in enumerate(
+                        st.session_state.selected_ingredients
+                    ):
+                        ranges = st.session_state.ingredient_ranges.get(
+                            ingredient_name, {}
+                        )
+                        ingredients_for_db.append(
+                            {
+                                "position": idx,
+                                "name": ingredient_name,
+                                "min": ranges.get("min", 0),
+                                "max": ranges.get("max", 100),
+                                "unit": "mM",
+                            }
+                        )
+
+                    # Get BO config or use defaults
+                    bo_config = st.session_state.get(
+                        "bo_config", get_default_bo_config()
+                    )
+
+                    # Build full experiment config
+                    full_experiment_config = {
+                        **st.session_state.experiment_config,
+                        "moderator_name": st.session_state.get(
+                            "moderator_name", "Moderator"
+                        ),
+                        "selected_ingredients": st.session_state.selected_ingredients,
+                        "ingredient_ranges": st.session_state.ingredient_ranges,
+                    }
+
+                    # Create/update session in database
+                    success_db = update_session_with_config(
+                        session_id=st.session_state.session_code,
+                        user_id=st.session_state.participant,
+                        num_ingredients=num_ingredients,
+                        interface_type=interface_type,
+                        method=method,
+                        ingredients=ingredients_for_db,
+                        question_type_id=st.session_state.get(
+                            "selected_questionnaire_type", 1
+                        ),
+                        bo_config=bo_config,
+                        experiment_config=full_experiment_config,
+                    )
+
+                    if success_db:
+                        st.session_state.session_created_in_db = True
+                        st.success("✅ Session created in database")
+                    else:
+                        st.error(
+                            "Failed to create session in database. Please try again."
+                        )
+                        st.stop()
+
                 num_ingredients = st.session_state.experiment_config["num_ingredients"]
 
                 # Build ingredient configs with custom ranges
@@ -677,8 +863,10 @@ def moderator_interface():
 
     # ===== SUBJECT CONNECTION & ACCESS SECTION =====
     st.markdown("---")
+    from state_machine import recover_phase_from_database
 
-    if not connection_status["subject_connected"]:
+    recovered_phase = recover_phase_from_database(st.session_state.session_code)
+    if recovered_phase == "waiting":
         with st.expander("Subject Access - QR Code & Session Info", expanded=False):
             st.info(
                 "Waiting for subject to join session... Share the QR code or session code below."
@@ -727,26 +915,26 @@ def moderator_interface():
                 ):
                     st.rerun()
 
-            # Get current position
-            current_response = get_live_subject_position(st.session_state.participant)
+            # Get current position from latest sample
+            concentrations = get_latest_sample_concentrations(
+                st.session_state.session_code
+            )
 
-            if not current_response:
+            if not concentrations:
                 st.info("Waiting for subject to start...")
             else:
-                # Extract data
-                concentrations = current_response.get("ingredient_concentrations", {})
-                is_submitted = current_response.get("is_submitted", False)
-                interface_type = current_response.get("interface_type", "slider_based")
-                created_at = current_response.get("created_at", "Unknown")
-
                 with col_status:
-                    status_text = (
-                        "Final Submission" if is_submitted else "Live Adjustment"
-                    )
-                    st.markdown(f"**Status:** {status_text}")
+                    st.markdown(f"**Status:** Latest Sample")
 
                 with col_time:
-                    st.caption(f"Last update: {created_at}")
+                    # Get sample timestamp from database
+                    samples = get_session_samples(st.session_state.session_code)
+                    if samples:
+                        latest_sample = samples[-1]  # Most recent
+                        created_at = latest_sample.get("created_at", "Unknown")
+                        st.caption(f"Last update: {created_at}")
+                    else:
+                        st.caption("Last update: Unknown")
 
                 st.markdown("---")
 
@@ -869,8 +1057,143 @@ def moderator_interface():
             # Auto-refresh every 15 seconds (reduced flicker)
             if st.session_state.get("auto_refresh", True):
                 st.caption("Auto-refresh enabled (15s interval)")
+
+                # Sync phase from database (in case subject progressed independently)
+                session_info = get_session_info(st.session_state.session_code)
+                if session_info:
+                    phase_from_db = session_info.get(
+                        "current_phase", st.session_state.get("phase", "waiting")
+                    )
+                    if phase_from_db != st.session_state.get("phase"):
+                        logger.info(
+                            f"Moderator synced phase: {st.session_state.get('phase')} -> {phase_from_db}"
+                        )
+                        st.session_state.phase = phase_from_db
+
                 time.sleep(15)
                 st.rerun()
+
+        with main_tab2:
+            st.markdown("### Session Analytics")
+
+            # ===== SESSION STATISTICS =====
+            try:
+                stats = get_session_stats(st.session_state.session_code)
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Cycles", stats.get("total_cycles", 0))
+                col2.metric("Final Samples", stats.get("final_samples", 0))
+                col3.metric("Status", stats.get("state", "unknown"))
+                col4.metric(
+                    "Created",
+                    stats.get("created_at", "")[:10] if stats.get("created_at") else "",
+                )
+            except Exception as e:
+                st.warning(f"Could not load session stats: {e}")
+
+            st.markdown("---")
+
+            # ===== CYCLE HISTORY TABLE =====
+            st.markdown("### 📊 Cycle History")
+
+            try:
+                cycle_num = get_current_cycle(st.session_state.session_code)
+                st.info(f"Current Cycle: {cycle_num}")
+
+                # Get all samples for this session
+                samples = get_session_samples(
+                    st.session_state.session_code, only_final=False
+                )
+
+                if samples:
+                    # Build display dataframe
+                    history_data = []
+                    for sample in samples:
+                        row = {
+                            "Cycle": sample.get("cycle_number", "?"),
+                            "Concentrations": ", ".join(
+                                [
+                                    f"{k}: {v:.1f}"
+                                    for k, v in sample.get(
+                                        "ingredient_concentration", {}
+                                    ).items()
+                                ]
+                            ),
+                            "Target Score": sample.get("questionnaire_answer", {}).get(
+                                "overall_liking", "N/A"
+                            ),
+                            "Is Final": "✓" if sample.get("is_final") else "",
+                            "Timestamp": (
+                                sample.get("created_at", "")[:19]
+                                if sample.get("created_at")
+                                else ""
+                            ),
+                        }
+                        history_data.append(row)
+
+                    df = pd.DataFrame(history_data)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("No cycles completed yet")
+            except Exception as e:
+                st.warning(f"Could not load cycle history: {e}")
+
+            st.markdown("---")
+
+            # ===== CYCLE MANAGEMENT CONTROLS =====
+            # Show controls when in SELECTION phase
+            if phase == ExperimentPhase.SELECTION:
+                st.markdown("### 🎯 Cycle Management")
+                st.write(
+                    "The participant has completed their selection. What would you like to do?"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(
+                        "▶️ Start Next Cycle",
+                        type="primary",
+                        use_container_width=True,
+                        key="start_next_cycle",
+                    ):
+                        # Increment cycle counter
+                        new_cycle = increment_cycle(st.session_state.session_code)
+                        st.session_state.cycle_number = new_cycle
+
+                        # Transition to robot_preparing
+                        ExperimentStateMachine.transition(
+                            new_phase=ExperimentPhase.ROBOT_PREPARING,
+                            session_id=st.session_state.session_code,
+                        )
+                        st.success(f"Starting Cycle {new_cycle}")
+                        time.sleep(0.5)
+                        st.rerun()
+
+                with col2:
+                    if st.button(
+                        "🏁 Finish Session",
+                        type="secondary",
+                        use_container_width=True,
+                        key="finish_session",
+                    ):
+                        # Show confirmation
+                        if st.session_state.get("confirm_finish"):
+                            # Update session state to completed
+                            update_session_state(
+                                st.session_state.session_code, "completed"
+                            )
+
+                            # Transition to complete
+                            ExperimentStateMachine.transition(
+                                new_phase=ExperimentPhase.COMPLETE,
+                                session_id=st.session_state.session_code,
+                            )
+                            st.success("Session completed!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.session_state.confirm_finish = True
+                            st.warning("Click 'Finish Session' again to confirm")
+                            st.rerun()
 
         with main_tab3:
             st.markdown("### Session Settings")
@@ -922,11 +1245,12 @@ def moderator_interface():
                 help="Download all experiment data for this session as CSV file",
             ):
                 try:
-
                     session_code = st.session_state.get(
                         "session_code", "default_session"
                     )
-                    csv_data = export_responses_csv(session_code)
+
+                    # Try new export function first, fallback to old one if needed
+                    csv_data = export_session_csv(session_code)
 
                     if csv_data:
                         # Create download button

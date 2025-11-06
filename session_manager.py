@@ -2,14 +2,18 @@
 Session Management for Multi-Device RoboTaste Deployment
 ========================================================
 
-Handles session creation, device pairing, and real-time synchronization
-for moderator-subject multi-device functionality on Streamlit Cloud.
+Updated for new database schema (robotaste.db).
+Handles session creation, device pairing, and synchronization.
 
-Features:
-- Unique session code generation
-- QR code generation for easy device pairing
-- Real-time session state synchronization
-- Cloud-deployment ready with persistent storage
+Key Changes from v1:
+- Uses new sql_handler_new with simplified schema
+- session_id (UUID) serves as both ID and join code
+- Simplified state management
+- No fine-grained phase tracking in DB
+
+Author: Masters Research Project
+Version: 2.0 - Simplified Architecture
+Last Updated: November 2025
 """
 
 import random
@@ -17,21 +21,30 @@ import string
 import qrcode
 import io
 import base64
+import json
 from PIL import Image
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
-from sql_handler import get_database_connection
-import sqlite3
+import logging
 
+# Import sql_handler
+import sql_handler as sql
 
-def generate_session_code(length: int = 6) -> str:
-    """Generate a unique session code for device pairing."""
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+# Setup logging
+logger = logging.getLogger(__name__)
 
 
 def create_qr_code(url: str) -> str:
-    """Create a QR code for the given URL and return as base64 string."""
+    """
+    Create a QR code for the given URL and return as base64 string.
+
+    Args:
+        url: URL to encode in QR code
+
+    Returns:
+        Base64-encoded PNG image as data URI
+    """
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -52,206 +65,233 @@ def create_qr_code(url: str) -> str:
     return f"data:image/png;base64,{img_base64}"
 
 
-def create_session(moderator_name: str = "Moderator") -> str:
-    """Create a new session and return the session code."""
-    session_code = generate_session_code()
+def create_session(moderator_name: str, experiment_config: Dict) -> str:
+    """
+    Create a new session with complete experiment configuration.
 
-    # Ensure uniqueness by checking database
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
+    Args:
+        moderator_name: Name of moderator creating session
+        experiment_config: Complete experiment configuration dict containing:
+            - user_id: User (taster) ID
+            - num_ingredients: Number of ingredients
+            - interface_type: 'grid_2d' or 'slider_based'
+            - method: 'linear', 'logarithmic', 'exponential'
+            - ingredients: List of ingredient dicts
+            - question_type_id: FK to questionnaire_types
+            - bayesian_optimization: BO config dict
 
-        # Create sessions table if it doesn't exist
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_code TEXT PRIMARY KEY,
-                moderator_name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1,
-                subject_connected BOOLEAN DEFAULT 0,
-                experiment_config TEXT DEFAULT '{}',
-                current_phase TEXT DEFAULT 'waiting'
-            )
-        """
+    Returns:
+        session_id (UUID string) - also serves as join code
+
+    Example:
+        >>> config = {
+        ...     "user_id": "taster_001",
+        ...     "num_ingredients": 2,
+        ...     "interface_type": "grid_2d",
+        ...     "method": "logarithmic",
+        ...     "ingredients": [
+        ...         {"position": 1, "name": "Sugar", "min": 0.73, "max": 73.0, "unit": "mM"},
+        ...         {"position": 2, "name": "Salt", "min": 0.10, "max": 10.0, "unit": "mM"}
+        ...     ],
+        ...     "question_type_id": 1,
+        ...     "bayesian_optimization": {
+        ...         "enabled": True,
+        ...         "acquisition_function": "ei"
+        ...     }
+        ... }
+        >>> session_id = create_session("Dr. Smith", config)
+        >>> print(session_id)
+        'abc-123-def-456'
+    """
+    try:
+        # Extract required fields
+        user_id = experiment_config.get("user_id", "default_user")
+        num_ingredients = experiment_config["num_ingredients"]
+        interface_type = experiment_config["interface_type"]
+        method = experiment_config["method"]
+        ingredients = experiment_config["ingredients"]
+        question_type_id = experiment_config.get("question_type_id", 1)
+        bo_config = experiment_config.get("bayesian_optimization", {})
+
+        # Add moderator name to config
+        full_config = {**experiment_config, "moderator_name": moderator_name}
+
+        # Ensure user exists in database
+        sql.create_user(user_id)
+
+        # Create session using new sql_handler
+        session_id = sql.create_session(
+            user_id=user_id,
+            num_ingredients=num_ingredients,
+            interface_type=interface_type,
+            method=method,
+            ingredients=ingredients,
+            question_type_id=question_type_id,
+            bo_config=bo_config,
+            experiment_config=full_config,
         )
 
-        # Check if code already exists, regenerate if necessary
-        while True:
-            cursor.execute(
-                "SELECT session_code FROM sessions WHERE session_code = ?",
-                (session_code,),
-            )
-            if cursor.fetchone() is None:
-                break
-            session_code = generate_session_code()
+        logger.info(f"Created session {session_id} for moderator {moderator_name}")
+        return session_id
 
-        # Insert new session
-        cursor.execute(
-            """
-            INSERT INTO sessions (session_code, moderator_name, current_phase)
-            VALUES (?, ?, 'waiting')
-        """,
-            (session_code, moderator_name),
-        )
-
-        conn.commit()
-
-    return session_code
+    except KeyError as e:
+        logger.error(f"Missing required field in experiment_config: {e}")
+        raise ValueError(f"Invalid experiment_config: missing {e}")
+    except Exception as e:
+        logger.error(f"Failed to create session: {e}")
+        raise
 
 
-def join_session(session_code: str) -> bool:
-    """Join an existing session as subject. Returns True if successful."""
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
+def join_session(session_id: str) -> bool:
+    """
+    Check if session exists and is active (subject can join).
 
-        # Check if session exists and is active
-        cursor.execute(
-            """
-            SELECT session_code, is_active FROM sessions 
-            WHERE session_code = ? AND is_active = 1
-        """,
-            (session_code,),
-        )
+    Args:
+        session_id: Session UUID
 
-        result = cursor.fetchone()
-        if result:
-            # Mark subject as connected
-            cursor.execute(
-                """
-                UPDATE sessions 
-                SET subject_connected = 1, last_activity = CURRENT_TIMESTAMP
-                WHERE session_code = ?
-            """,
-                (session_code,),
-            )
-            conn.commit()
+    Returns:
+        True if session exists and is active, False otherwise
+    """
+    try:
+        session = sql.get_session(session_id)
+        if session and session["state"] == "active":
+            logger.info(f"Subject joined session {session_id}")
             return True
 
-    return False
+        logger.warning(f"Cannot join session {session_id} - not found or not active")
+        return False
+
+    except Exception as e:
+        logger.error(f"Error checking session {session_id}: {e}")
+        return False
 
 
-def get_session_info(session_code: str) -> Optional[Dict[str, Any]]:
-    """Get session information."""
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
+def get_session_info(session_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get session information directly from database.
 
-        cursor.execute(
-            """
-            SELECT session_code, moderator_name, created_at, last_activity, 
-                   is_active, subject_connected, experiment_config, current_phase
-            FROM sessions WHERE session_code = ?
-        """,
-            (session_code,),
-        )
+    Args:
+        session_id: Session UUID
 
-        result = cursor.fetchone()
-
-    if result:
-        return {
-            "session_code": result[0],
-            "moderator_name": result[1],
-            "created_at": result[2],
-            "last_activity": result[3],
-            "is_active": bool(result[4]),
-            "subject_connected": bool(result[5]),
-            "experiment_config": result[6],
-            "current_phase": result[7],
-        }
-    return None
+    Returns:
+        Session dict from database, or None if not found
+    """
+    try:
+        return sql.get_session(session_id)
+    except Exception as e:
+        logger.error(f"Error getting session info: {e}")
+        return None
 
 
-def update_session_activity(session_code: str, phase: str = None, config: str = None):
-    """Update session last activity and optionally phase/config."""
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
+def sync_session_state(session_id: str, role: str) -> bool:
+    """
+    Sync session state between devices using new database.
 
-        updates = ["last_activity = CURRENT_TIMESTAMP"]
-        params = []
+    Loads session config from database into Streamlit session_state.
 
-        if phase:
-            updates.append("current_phase = ?")
-            params.append(phase)
+    Args:
+        session_id: Session UUID
+        role: 'moderator' or 'subject'
 
-        if config:
-            updates.append("experiment_config = ?")
-            params.append(config)
+    Returns:
+        True if sync successful, False otherwise
+    """
+    try:
+        session_info = get_session_info(session_id)
 
-        params.append(session_code)
+        if not session_info:
+            logger.warning(f"Cannot sync session {session_id} - not found")
+            return False
 
-        cursor.execute(
-            f"""
-            UPDATE sessions SET {', '.join(updates)}
-            WHERE session_code = ?
-        """,
-            params,
-        )
+        # Store session info in Streamlit session state
+        st.session_state.session_id = session_id
+        st.session_state.session_code = session_id  # Also set session_code for compatibility
+        st.session_state.session_info = session_info
+        st.session_state.device_role = role
+        st.session_state.last_sync = datetime.now()
 
-        conn.commit()
-
-
-def cleanup_old_sessions(hours: int = 24):
-    """Clean up sessions older than specified hours."""
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            UPDATE sessions SET is_active = 0 
-            WHERE last_activity < datetime('now', '-{} hours')
-        """.format(
-                hours
+        # Get experiment configuration (already parsed by sql handler)
+        experiment_config = session_info.get("experiment_config")
+        if experiment_config:
+            # Set key config values in session_state for UI access
+            st.session_state.interface_type = experiment_config.get(
+                "interface_type", "grid_2d"
             )
-        )
+            st.session_state.num_ingredients = experiment_config.get(
+                "num_ingredients", 2
+            )
+            st.session_state.method = experiment_config.get("method", "logarithmic")
+            st.session_state.ingredients = experiment_config.get("ingredients", [])
+            st.session_state.questionnaire_type = session_info.get(
+                "questionnaire_name", "hedonic_preference"
+            )
+            st.session_state.moderator_name = experiment_config.get(
+                "moderator_name", "Moderator"
+            )
+            # Update both the UI control variable AND display variable
+            phase_from_db = session_info.get("current_phase", "waiting")
+            st.session_state.phase = phase_from_db  # UI control variable
+            st.session_state.current_phase = phase_from_db  # Display variable
 
-        conn.commit()
+            logger.info(f"Synced session {session_id} for {role}")
+        else:
+            # Session not fully configured yet - set minimal defaults
+            logger.info(
+                f"Session {session_id} not fully configured yet, using defaults"
+            )
+            st.session_state.interface_type = "grid_2d"
+            st.session_state.num_ingredients = 2
+            st.session_state.method = "logarithmic"
+            st.session_state.ingredients = []
+            st.session_state.questionnaire_type = "hedonic_preference"
+            st.session_state.moderator_name = st.session_state.get(
+                "moderator_name", "Moderator"
+            )
+            # Update both the UI control variable AND display variable
+            phase_from_db = session_info.get("current_phase", "waiting")
+            st.session_state.phase = phase_from_db  # UI control variable
+            st.session_state.current_phase = phase_from_db  # Display variable
 
+        return True
 
-def get_active_sessions() -> list:
-    """Get list of active sessions for admin purposes."""
-    with get_database_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT session_code, moderator_name, created_at, subject_connected, current_phase
-            FROM sessions 
-            WHERE is_active = 1 
-            ORDER BY created_at DESC
-        """
-        )
-
-        results = cursor.fetchall()
-
-    return [
-        {
-            "session_code": row[0],
-            "moderator_name": row[1],
-            "created_at": row[2],
-            "subject_connected": bool(row[3]),
-            "current_phase": row[4],
-        }
-        for row in results
-    ]
+    except Exception as e:
+        logger.error(f"Error syncing session state: {e}")
+        return False
 
 
 def generate_session_urls(
-    session_code: str, base_url: str = "https://robotaste.streamlit.app"
+    session_id: str, base_url: str = "https://robotaste.streamlit.app"
 ) -> Dict[str, str]:
-    """Generate URLs for moderator and subject interfaces."""
+    """
+    Generate URLs for moderator and subject interfaces.
+
+    Args:
+        session_id: Session UUID (serves as join code)
+        base_url: Base URL of deployment
+
+    Returns:
+        Dict with 'moderator' and 'subject' URLs
+    """
     return {
-        "moderator": f"{base_url}/?role=moderator&session={session_code}",
-        "subject": f"{base_url}/?role=subject&session={session_code}",
+        "moderator": f"{base_url}/?role=moderator&session={session_id}",
+        "subject": f"{base_url}/?role=subject&session={session_id}",
     }
 
 
 def display_session_qr_code(
-    session_code: str,
+    session_id: str,
     base_url: str = "https://robotaste.streamlit.app",
     context: str = "default",
 ):
-    """Display QR code for subject to join session."""
-    urls = generate_session_urls(session_code, base_url)
+    """
+    Display QR code for subject to join session.
+
+    Args:
+        session_id: Session UUID
+        base_url: Base URL of deployment
+        context: Unique context string for widget keys
+    """
+    urls = generate_session_urls(session_id, base_url)
     subject_url = urls["subject"]
     qr_code_data = create_qr_code(subject_url)
 
@@ -270,72 +310,31 @@ def display_session_qr_code(
         )
 
     with col2:
-        st.markdown("**Session Code:**")
-        st.code(session_code, language="text")
+        st.markdown("**Session ID:**")
+        st.code(session_id, language="text")
         st.markdown("**Subject URL:**")
         st.code(subject_url, language="text")
 
         if st.button(
             "Copy Subject URL",
             help="Copy URL to clipboard",
-            key=f"session_qr_copy_url_{context}_{session_code}",
+            key=f"session_qr_copy_url_{context}_{session_id[:8]}",
         ):
             st.success("URL copied to clipboard!")
 
 
-def sync_session_state(session_code: str, role: str):
-    """Sync session state between devices."""
-    session_info = get_session_info(session_code)
+def cleanup_old_sessions(hours: int = 24):
+    """Clean up sessions older than specified hours."""
+    with sql.get_database_connection() as conn:
+        cursor = conn.cursor()
 
-    if session_info:
-        # Update activity timestamp
-        update_session_activity(session_code)
+        cursor.execute(
+            """
+            UPDATE sessions SET is_active = 0 
+            WHERE last_activity < datetime('now', '-{} hours')
+        """.format(
+                hours
+            )
+        )
 
-        # Store session info in Streamlit session state
-        st.session_state.session_code = session_code
-        st.session_state.session_info = session_info
-        st.session_state.device_role = role
-        st.session_state.last_sync = datetime.now()
-
-        # Sync experiment configuration from database to session state
-        experiment_config_str = session_info.get("experiment_config")
-        if experiment_config_str:
-            try:
-                import json
-                experiment_config = json.loads(experiment_config_str)
-
-                # Set interface and ingredient configuration for subjects
-                if "interface_type" in experiment_config:
-                    st.session_state.interface_type = experiment_config["interface_type"]
-                if "num_ingredients" in experiment_config:
-                    st.session_state.num_ingredients = experiment_config["num_ingredients"]
-                if "method" in experiment_config:
-                    st.session_state.method = experiment_config["method"]
-                if "ingredients" in experiment_config:
-                    st.session_state.ingredients = experiment_config["ingredients"]
-
-            except (json.JSONDecodeError, Exception) as e:
-                st.warning(f"Could not parse experiment config: {e}")
-
-        return True
-    return False
-
-
-def get_connection_status(session_code: str) -> Dict[str, Any]:
-    """Get real-time connection status for both devices."""
-    session_info = get_session_info(session_code)
-
-    if not session_info:
-        return {"error": "Session not found"}
-
-    # Check if session is recently active (within last 30 seconds)
-    last_activity = datetime.fromisoformat(session_info["last_activity"])
-    is_recent = (datetime.now() - last_activity).total_seconds() < 30
-
-    return {
-        "session_active": session_info["is_active"],
-        "subject_connected": session_info["subject_connected"],
-        "recently_active": is_recent,
-        "current_phase": session_info["current_phase"],
-        "last_activity": session_info["last_activity"],
-    }
+        conn.commit()

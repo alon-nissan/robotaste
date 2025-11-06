@@ -1,101 +1,49 @@
 """
-🗄️ RoboTaste Database Handler - Data Persistence & Management
+RoboTaste Database Handler - Simplified Architecture
+====================================================
 
-OVERVIEW:
-=========
-Comprehensive SQLite database management for taste preference experiments.
-Handles session state tracking, response storage, participant management,
-and multi-component concentration data with JSON support.
-
-DATABASE SCHEMA:
-===============
-1. SESSION_STATE TABLE:
-   - Tracks active experiment sessions
-   - Moderator and subject session management
-   - Method and coordinate storage
-   - Supports: linear, logarithmic, exponential, slider_based methods
-
-2. RESPONSES TABLE:
-   - Complete response data storage
-   - Reaction time tracking
-   - Concentration data (sugar, salt)
-   - JSON storage for multi-component data
-   - Final response marking
-
-FEATURES:
-========
-• Context-managed connections with automatic cleanup
-• Comprehensive error handling and logging
-• Database migration system for schema updates
-• Performance-optimized with proper indexing
-• JSON support for complex concentration data
-• Safe concurrent access handling
-
-MIGRATION SYSTEM:
-================
-• Automatic schema updates on application start
-• Backward compatibility with existing data
-• Safe table recreation for constraint updates
-• Column addition without data loss
-
-SECURITY FEATURES:
-=================
-• Parameterized queries prevent SQL injection
-• Connection timeout handling
-• Transaction rollback on errors
-• Input validation and sanitization
-
-TODO PRIORITIES:
-===============
-HIGH:
-- [ ] Add data backup and recovery system
-- [ ] Implement database connection pooling
-- [ ] Add data export functionality (CSV/JSON)
-- [ ] Create database maintenance utilities
-
-MEDIUM:
-- [ ] Add data encryption for sensitive information
-- [ ] Implement audit logging for data changes
-- [ ] Add database performance monitoring
-- [ ] Create automated cleanup for old data
-
-LOW:
-- [ ] Add database replication support
-- [ ] Implement data archiving system
-- [ ] Add advanced analytics queries
-- [ ] Create database optimization tools
+Clean rewrite using normalized schema with JSON storage.
+- 5 tables: users, questionnaire_types, sessions, samples, bo_configuration
+- One moderator (not stored in DB)
+- One taster per session
+- All cycle data in ONE row
+- Extra data stored in JSON columns
 
 Author: Masters Research Project
-Version: 2.0 - Multi-Component Support
-Last Updated: 2025
+Version: 3.0 - Simplified Clean Architecture
+Last Updated: November 2025
 """
 
 import sqlite3
 import pandas as pd
+import json
+import uuid
 from datetime import datetime
 from contextlib import contextmanager
 from typing import Optional, Tuple, Dict, Any, List
 import logging
 
-# Import interface constants
-try:
-    from callback import INTERFACE_2D_GRID, INTERFACE_SLIDERS
-except ImportError:
-    # Fallback constants if import fails
-    INTERFACE_2D_GRID = "2d_grid"
-    INTERFACE_SLIDERS = "sliders"
-
 # Configuration
-DB_PATH = "experiment_sync.db"
+DB_PATH = "robotaste.db"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Section 1: Database Connection & Initialization
+# ============================================================================
+
+
 @contextmanager
 def get_database_connection():
-    """Context manager for database connections with automatic cleanup."""
+    """
+    Context manager for database connections with automatic cleanup.
+
+    Yields:
+        sqlite3.Connection with row_factory set for dict-like access
+    """
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
@@ -112,2195 +60,308 @@ def get_database_connection():
 
 
 def init_database() -> bool:
-    """Initialize SQLite database with proper schema.
-    
-    TODO: Add database backup before schema changes
-    TODO: Implement connection pooling for better performance
-    TODO: Add database health checks and monitoring
+    """
+    Initialize database from robotaste_schema.sql file.
+
+    Returns:
+        True if successful, False otherwise
     """
     try:
+        # Try to find schema file in current dir or script directory
+        import os
+
+        schema_paths = [
+            "robotaste_schema.sql",  # Current directory
+            os.path.join(
+                os.path.dirname(__file__), "robotaste_schema.sql"
+            ),  # Script directory
+        ]
+
+        schema_sql = None
+        for path in schema_paths:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    schema_sql = f.read()
+                break
+
+        if not schema_sql:
+            raise FileNotFoundError(
+                "robotaste_schema.sql not found in expected locations"
+            )
+
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
-            # Session state table with better schema
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS session_state (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_type TEXT NOT NULL CHECK(user_type IN ('mod', 'sub')),
-                    participant_id TEXT NOT NULL,
-                    method TEXT,
-                    x_position REAL,
-                    y_position REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_type, participant_id)
-                )
-            """
-            )
-
-            # Responses table - Enhanced for multi-ingredient support
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS responses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT,
-                    selection_number INTEGER,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT DEFAULT 'grid_2d',
-                    x_position REAL,
-                    y_position REAL,
-                    method TEXT NOT NULL,
-                    ingredient_data TEXT,  -- JSON storage for ALL ingredient concentrations
-                    reaction_time_ms INTEGER,
-                    questionnaire_response TEXT,
-                    is_final_response BOOLEAN DEFAULT 0,
-                    is_initial BOOLEAN DEFAULT 0,  -- Track initial random starting positions
-                    extra_data TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """
-            )
-
-            # Multi-device sessions table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_code TEXT PRIMARY KEY,
-                    moderator_name TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_active BOOLEAN DEFAULT 1,
-                    subject_connected BOOLEAN DEFAULT 0,
-                    experiment_config TEXT DEFAULT '{}',
-                    current_phase TEXT DEFAULT 'waiting'
-                )
-            """
-            )
-
-            # Initial slider positions table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS initial_slider_positions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT DEFAULT 'slider_based',
-                    num_ingredients INTEGER NOT NULL,
-                    initial_values TEXT,  -- JSON storage for initial slider values
-                    percent_values TEXT,  -- JSON storage for percentage values
-                    extra_data TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(session_id, participant_id)
-                )
-            """
-            )
-
-            # Create indices for better performance
-            cursor.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_session_participant
-                ON session_state(participant_id, user_type)
-            """
-            )
-
-            cursor.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_responses_participant
-                ON responses(participant_id, created_at DESC)
-            """
-            )
-
-            cursor.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_sessions_activity
-                ON sessions(is_active, last_activity DESC)
-            """
-            )
-
-            # Create views for slider monitoring
-            cursor.execute("""
-                CREATE VIEW IF NOT EXISTS current_slider_positions AS
-                SELECT
-                    r.session_id,
-                    r.participant_id,
-                    r.interface_type,
-                    r.method,
-                    r.ingredient_data,  -- JSON storage containing all concentrations
-                    r.is_final_response,
-                    r.questionnaire_response,
-                    r.created_at as last_update,
-                    ROW_NUMBER() OVER (PARTITION BY r.session_id, r.participant_id
-                                     ORDER BY r.created_at DESC) as row_num
-                FROM responses r
-                WHERE r.interface_type = 'slider_based'
-            """)
-
-            cursor.execute("""
-                CREATE VIEW IF NOT EXISTS live_slider_monitoring AS
-                SELECT
-                    session_id,
-                    participant_id,
-                    interface_type,
-                    method,
-                    ingredient_data,  -- JSON storage containing all concentrations
-                    is_final_response,
-                    questionnaire_response,
-                    last_update,
-                    CASE
-                        WHEN is_final_response = 1 THEN 'Final Submission'
-                        ELSE 'Live Position'
-                    END as status
-                FROM current_slider_positions
-                WHERE row_num = 1
-            """)
-
-            # Run database migrations
-            _migrate_database(cursor)
-            _migrate_questionnaire_support(cursor)
-            _migrate_sample_id_support(cursor)
+            # Execute schema (CREATE TABLE IF NOT EXISTS)
+            cursor.executescript(schema_sql)
 
             conn.commit()
-            logger.info("Database initialized successfully")
+            logger.info("Database initialized successfully from robotaste_schema.sql")
             return True
 
+    except FileNotFoundError:
+        logger.error("robotaste_schema.sql file not found")
+        return False
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         return False
 
 
-def _migrate_database(cursor) -> None:
-    """Handle database migrations for schema updates - Moving to JSON-only storage."""
-    import json
-    try:
-        # Check current responses table structure
-        cursor.execute("PRAGMA table_info(responses)")
-        columns = [column[1] for column in cursor.fetchall()]
-
-        # Check if we still have hardcoded ingredient columns (need to eliminate)
-        hardcoded_ingredient_columns = [
-            'sugar_concentration', 'salt_concentration',
-            'ingredient_1_conc', 'ingredient_2_conc', 'ingredient_3_conc',
-            'ingredient_4_conc', 'ingredient_5_conc', 'ingredient_6_conc'
-        ]
-
-        has_hardcoded_columns = any(col in columns for col in hardcoded_ingredient_columns)
-
-        if has_hardcoded_columns:
-            logger.info("Migrating responses table to JSON-only storage (eliminating hardcoded ingredient columns)")
-
-            # Create new generic responses table with JSON storage only
-            cursor.execute("""
-                CREATE TABLE responses_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT,
-                    selection_number INTEGER,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT DEFAULT 'grid_2d',
-                    method TEXT NOT NULL,
-                    x_position REAL,
-                    y_position REAL,
-                    ingredient_data TEXT,  -- JSON storage for ALL ingredient concentrations
-                    reaction_time_ms INTEGER,
-                    questionnaire_response TEXT,
-                    is_final_response BOOLEAN DEFAULT 0,
-                    extra_data TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # Migrate existing data to JSON format
-
-            # Get all existing data
-            cursor.execute("SELECT * FROM responses")
-            existing_data = cursor.fetchall()
-
-            for row in existing_data:
-                # Convert row to dict for easier access
-                row_dict = dict(row)
-
-                # Build ingredient data JSON
-                ingredient_data = {}
-
-                # Handle legacy sugar/salt columns
-                if 'sugar_concentration' in columns and row_dict.get('sugar_concentration'):
-                    ingredient_data['Sugar'] = row_dict['sugar_concentration']
-                if 'salt_concentration' in columns and row_dict.get('salt_concentration'):
-                    ingredient_data['Salt'] = row_dict['salt_concentration']
-
-                # Handle ingredient_X_conc columns
-                for i in range(1, 7):
-                    col_name = f'ingredient_{i}_conc'
-                    if col_name in columns and row_dict.get(col_name):
-                        ingredient_data[f'Ingredient_{i}'] = row_dict[col_name]
-
-                # Convert to JSON
-                ingredient_data_json = json.dumps(ingredient_data) if ingredient_data else None
-
-                # Insert into new table
-                cursor.execute("""
-                    INSERT INTO responses_new
-                    (id, session_id, selection_number, participant_id, interface_type,
-                     method, x_position, y_position, ingredient_data,
-                     reaction_time_ms, questionnaire_response, is_final_response,
-                     extra_data, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row_dict.get('id'),
-                    row_dict.get('session_id'),
-                    row_dict.get('selection_number'),
-                    row_dict.get('participant_id'),
-                    row_dict.get('interface_type', 'grid_2d'),
-                    row_dict.get('method'),
-                    row_dict.get('x_position'),
-                    row_dict.get('y_position'),
-                    ingredient_data_json,
-                    row_dict.get('reaction_time_ms'),
-                    row_dict.get('questionnaire_response'),
-                    row_dict.get('is_final_response', 0),
-                    row_dict.get('extra_data'),
-                    row_dict.get('created_at')
-                ))
-
-            # Replace old table
-            cursor.execute("DROP TABLE responses")
-            cursor.execute("ALTER TABLE responses_new RENAME TO responses")
-            logger.info("Successfully migrated responses table to JSON-only storage")
-
-        # Also migrate initial_slider_positions table
-        cursor.execute("PRAGMA table_info(initial_slider_positions)")
-        slider_columns = [column[1] for column in cursor.fetchall()]
-
-        slider_hardcoded_columns = [
-            'ingredient_1_initial', 'ingredient_2_initial', 'ingredient_3_initial',
-            'ingredient_4_initial', 'ingredient_5_initial', 'ingredient_6_initial',
-            'ingredient_1_percent', 'ingredient_2_percent', 'ingredient_3_percent',
-            'ingredient_4_percent', 'ingredient_5_percent', 'ingredient_6_percent'
-        ]
-
-        has_slider_hardcoded = any(col in slider_columns for col in slider_hardcoded_columns)
-
-        if has_slider_hardcoded:
-            logger.info("Migrating initial_slider_positions table to JSON-only storage")
-
-            # Create new slider positions table
-            cursor.execute("""
-                CREATE TABLE initial_slider_positions_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT DEFAULT 'slider_based',
-                    num_ingredients INTEGER NOT NULL,
-                    initial_values TEXT,  -- JSON storage for initial slider values
-                    percent_values TEXT,  -- JSON storage for percentage values
-                    extra_data TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(session_id, participant_id)
-                )
-            """)
-
-            # Migrate existing slider data
-            cursor.execute("SELECT * FROM initial_slider_positions")
-            slider_rows = cursor.fetchall()
-
-            cursor.execute("PRAGMA table_info(initial_slider_positions)")
-            slider_col_info = cursor.fetchall()
-            slider_column_names = [col[1] for col in slider_col_info]
-
-            for row in slider_rows:
-                row_dict = dict(zip(slider_column_names, row))
-
-                # Build initial values JSON
-                initial_values = {}
-                percent_values = {}
-
-                for i in range(1, 7):
-                    initial_col = f'ingredient_{i}_initial'
-                    percent_col = f'ingredient_{i}_percent'
-
-                    if initial_col in row_dict and row_dict[initial_col] is not None:
-                        initial_values[f'ingredient_{i}'] = row_dict[initial_col]
-
-                    if percent_col in row_dict and row_dict[percent_col] is not None:
-                        percent_values[f'ingredient_{i}'] = row_dict[percent_col]
-
-                # Insert into new table
-                cursor.execute("""
-                    INSERT INTO initial_slider_positions_new (
-                        session_id, participant_id, interface_type, num_ingredients,
-                        initial_values, percent_values, extra_data, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row_dict.get('session_id'),
-                    row_dict.get('participant_id'),
-                    row_dict.get('interface_type', 'slider_based'),
-                    row_dict.get('num_ingredients'),
-                    json.dumps(initial_values),
-                    json.dumps(percent_values),
-                    row_dict.get('extra_data'),
-                    row_dict.get('created_at')
-                ))
-
-            # Drop old table and rename new one
-            cursor.execute("DROP TABLE initial_slider_positions")
-            cursor.execute("ALTER TABLE initial_slider_positions_new RENAME TO initial_slider_positions")
-
-            logger.info("Successfully migrated initial_slider_positions table to JSON-only storage")
-
-        if 'extra_data' not in columns:
-            logger.info("Adding extra_data column to responses table")
-            cursor.execute("ALTER TABLE responses ADD COLUMN extra_data TEXT")
-
-        # Check if is_initial column exists in responses table
-        cursor.execute("PRAGMA table_info(responses)")
-        responses_columns = [column[1] for column in cursor.fetchall()]
-
-        if 'is_initial' not in responses_columns:
-            logger.info("Adding is_initial column to responses table for tracking initial random positions")
-            cursor.execute("ALTER TABLE responses ADD COLUMN is_initial BOOLEAN DEFAULT 0")
-
-        # Check if we need to update the method constraint
-        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='session_state'")
-        table_sql = cursor.fetchone()
-
-        if table_sql and "slider_based" not in table_sql[0]:
-            logger.info("Migrating session_state table to support slider_based method")
-
-            # Create temporary table with new schema
-            cursor.execute("""
-                CREATE TABLE session_state_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_type TEXT NOT NULL CHECK(user_type IN ('mod', 'sub')),
-                    participant_id TEXT NOT NULL,
-                    method TEXT,
-                    x_position REAL,
-                    y_position REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_type, participant_id)
-                )
-            """)
-
-            # Copy data from old table
-            cursor.execute("""
-                INSERT INTO session_state_new (id, user_type, participant_id, method, x_position, y_position, created_at)
-                SELECT id, user_type, participant_id, method, x_position, y_position, created_at
-                FROM session_state
-            """)
-
-            # Drop old table and rename new one
-            cursor.execute("DROP TABLE session_state")
-            cursor.execute("ALTER TABLE session_state_new RENAME TO session_state")
-
-            # Recreate the index
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_session_participant
-                ON session_state(participant_id, user_type)
-            """)
-
-        # Check if num_ingredients column exists in session_state table
-        cursor.execute("PRAGMA table_info(session_state)")
-        session_columns = [column[1] for column in cursor.fetchall()]
-
-        if 'num_ingredients' not in session_columns:
-            logger.info("Adding num_ingredients column to session_state table")
-            cursor.execute("ALTER TABLE session_state ADD COLUMN num_ingredients INTEGER DEFAULT 2")
-
-        # Update views if they need questionnaire_response column
-        cursor.execute("DROP VIEW IF EXISTS live_slider_monitoring")
-        cursor.execute("DROP VIEW IF EXISTS current_slider_positions")
-        cursor.execute("DROP VIEW IF EXISTS ingredients_parsed")
-        cursor.execute("DROP VIEW IF EXISTS current_ingredient_state")
-        cursor.execute("DROP VIEW IF EXISTS latest_recipes")
-
-        # Recreate views with updated schema
-        cursor.execute("""
-            CREATE VIEW IF NOT EXISTS current_slider_positions AS
-            SELECT
-                r.session_id,
-                r.participant_id,
-                r.interface_type,
-                r.method,
-                r.ingredient_data,  -- JSON storage containing all concentrations
-                r.is_final_response,
-                r.questionnaire_response,
-                r.created_at as last_update,
-                ROW_NUMBER() OVER (PARTITION BY r.session_id, r.participant_id
-                                 ORDER BY r.created_at DESC) as row_num
-            FROM responses r
-            WHERE r.interface_type = 'slider_based'
-        """)
-
-        cursor.execute("""
-            CREATE VIEW IF NOT EXISTS live_slider_monitoring AS
-            SELECT
-                session_id,
-                participant_id,
-                interface_type,
-                method,
-                ingredient_data,  -- JSON storage containing all concentrations
-                is_final_response,
-                questionnaire_response,
-                last_update,
-                CASE
-                    WHEN is_final_response = 1 THEN 'Final Submission'
-                    ELSE 'Live Position'
-                END as status
-            FROM current_slider_positions
-            WHERE row_num = 1
-        """)
-
-        logger.info("Database migration completed successfully")
-
-    except Exception as e:
-        logger.error(f"Error during database migration: {e}")
-        # Don't raise exception - let initialization continue
+# ============================================================================
+# Section 2: Session Management
+# ============================================================================
 
 
-def _migrate_questionnaire_support(cursor) -> None:
+def create_session(moderator_name: str) -> str:
     """
-    Add questionnaire type and Bayesian optimization support to database.
-
-    This migration adds columns to support:
-    - Dynamic questionnaire types (hedonic_preference, unified_feedback, etc.)
-    - Bayesian optimization predictions and acquisition values
-    - Target variable tracking for optimization
-
-    All columns are nullable with defaults for backward compatibility.
-    """
-    try:
-        logger.info("Checking for questionnaire support migration...")
-
-        # Check if questionnaire_type column exists
-        cursor.execute("PRAGMA table_info(responses)")
-        columns = {col[1]: col for col in cursor.fetchall()}
-
-        needs_migration = False
-
-        # Add questionnaire_type column if missing
-        if 'questionnaire_type' not in columns:
-            logger.info("Adding questionnaire_type column to responses table")
-            cursor.execute("""
-                ALTER TABLE responses
-                ADD COLUMN questionnaire_type TEXT DEFAULT 'hedonic_preference'
-            """)
-            needs_migration = True
-
-        # Add Bayesian optimization prediction column if missing
-        if 'bo_predicted_value' not in columns:
-            logger.info("Adding bo_predicted_value column to responses table")
-            cursor.execute("""
-                ALTER TABLE responses
-                ADD COLUMN bo_predicted_value REAL DEFAULT NULL
-            """)
-            needs_migration = True
-
-        # Add Bayesian optimization acquisition value column if missing
-        if 'bo_acquisition_value' not in columns:
-            logger.info("Adding bo_acquisition_value column to responses table")
-            cursor.execute("""
-                ALTER TABLE responses
-                ADD COLUMN bo_acquisition_value REAL DEFAULT NULL
-            """)
-            needs_migration = True
-
-        # Add target variable value column (extracted from questionnaire response)
-        if 'target_variable_value' not in columns:
-            logger.info("Adding target_variable_value column to responses table")
-            cursor.execute("""
-                ALTER TABLE responses
-                ADD COLUMN target_variable_value REAL DEFAULT NULL
-            """)
-            needs_migration = True
-
-        if needs_migration:
-            logger.info("Questionnaire support migration completed successfully")
-        else:
-            logger.info("Questionnaire support already present - no migration needed")
-
-    except Exception as e:
-        logger.error(f"Error during questionnaire support migration: {e}")
-        # Don't raise - allow application to continue
-
-
-def _migrate_sample_id_support(cursor) -> None:
-    """
-    Add sample_id column to support UUID-based sample-questionnaire coupling.
-
-    This migration adds:
-    - sample_id: Unique identifier (UUID) for each sample/selection
-    - Enables clear linking between samples and questionnaire responses
-    - Supports tracking multiple samples within a single trial
-
-    The column is nullable for backward compatibility with existing data.
-    """
-    try:
-        logger.info("Checking for sample_id support migration...")
-
-        # Check if sample_id column exists
-        cursor.execute("PRAGMA table_info(responses)")
-        columns = {col[1]: col for col in cursor.fetchall()}
-
-        if 'sample_id' not in columns:
-            logger.info("Adding sample_id column to responses table")
-            cursor.execute("""
-                ALTER TABLE responses
-                ADD COLUMN sample_id TEXT DEFAULT NULL
-            """)
-
-            # Create index for efficient queries
-            logger.info("Creating index on sample_id column")
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_responses_sample_id
-                ON responses(sample_id)
-            """)
-
-            logger.info("Sample ID support migration completed successfully")
-        else:
-            logger.info("Sample ID support already present - no migration needed")
-
-    except Exception as e:
-        logger.error(f"Error during sample_id support migration: {e}")
-        # Don't raise - allow application to continue
-
-
-def is_participant_activated(participant_id: str) -> bool:
-    """Check if participant has an active session from moderator."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT COUNT(*) FROM session_state 
-                WHERE participant_id = ? AND user_type = 'mod'
-            """,
-                (participant_id,),
-            )
-
-            count = cursor.fetchone()[0]
-            return count > 0
-
-    except Exception as e:
-        logger.error(f"Error checking participant activation: {e}")
-        return False
-
-
-def get_moderator_settings(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest moderator settings for a participant (JSON-based)."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # First try to get settings from responses table (more recent)
-            cursor.execute(
-                """
-                SELECT method, interface_type, created_at
-                FROM responses
-                WHERE participant_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-            """,
-                (participant_id,),
-            )
-
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "method": row["method"],
-                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
-                    "num_ingredients": 2,  # Default for backward compatibility
-                    "created_at": row["created_at"],
-                }
-
-            # Fallback to session_state table if no responses found
-            cursor.execute(
-                """
-                SELECT method, created_at
-                FROM session_state
-                WHERE participant_id = ? AND user_type = 'mod'
-                ORDER BY created_at DESC
-                LIMIT 1
-            """,
-                (participant_id,),
-            )
-
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "method": row["method"],
-                    "interface_type": INTERFACE_2D_GRID,  # Default for legacy data
-                    "num_ingredients": 2,  # Default for backward compatibility
-                    "created_at": row["created_at"],
-                }
-
-            return None
-
-    except Exception as e:
-        logger.error(f"Error getting moderator settings: {e}")
-        return None
-
-
-def get_latest_submitted_response(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest submitted response from the responses table (JSON-based)."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT method, created_at, ingredient_data, reaction_time_ms, interface_type
-                FROM responses
-                WHERE participant_id = ? AND is_final_response = 1
-                ORDER BY created_at DESC
-                LIMIT 1
-            """,
-                (participant_id,),
-            )
-
-            row = cursor.fetchone()
-            if row:
-                import json
-
-                # Parse ingredient data from JSON
-                ingredient_concentrations = {}
-                if row["ingredient_data"]:
-                    try:
-                        ingredient_concentrations = json.loads(row["ingredient_data"])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
-
-                result = {
-                    "method": row["method"],
-                    "created_at": row["created_at"],
-                    "reaction_time_ms": row["reaction_time_ms"],
-                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
-                    "ingredient_concentrations": ingredient_concentrations,
-                    "concentration_data": ingredient_concentrations,  # For compatibility
-                }
-
-                return result
-            return None
-
-    except Exception as e:
-        logger.error(f"Error getting latest submitted response: {e}")
-        return None
-
-
-def get_latest_subject_response(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest subject response for a participant from responses table (JSON-based)."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT method, ingredient_data, created_at, interface_type, reaction_time_ms
-                FROM responses
-                WHERE participant_id = ? AND is_final_response = 0
-                ORDER BY created_at DESC
-                LIMIT 1
-            """,
-                (participant_id,),
-            )
-
-            row = cursor.fetchone()
-            if row:
-                import json
-
-                # Parse ingredient data from JSON
-                ingredient_concentrations = {}
-                if row["ingredient_data"]:
-                    try:
-                        ingredient_concentrations = json.loads(row["ingredient_data"])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
-
-                return {
-                    "method": row["method"],
-                    "created_at": row["created_at"],
-                    "interface_type": row["interface_type"] or INTERFACE_2D_GRID,
-                    "reaction_time_ms": row["reaction_time_ms"],
-                    "ingredient_concentrations": ingredient_concentrations,
-                    "concentration_data": ingredient_concentrations,  # For compatibility
-                }
-            return None
-
-    except Exception as e:
-        logger.error(f"Error getting latest response: {e}")
-        return None
-
-
-def get_live_subject_position(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the current live position/concentrations of the subject (JSON-based)."""
-    # First try to get live response (non-final responses)
-    live_response = get_latest_subject_response(participant_id)
-
-    if live_response:
-        live_response["is_submitted"] = False
-        return live_response
-
-    # If no live response, get the latest submitted response
-    submitted_response = get_latest_submitted_response(participant_id)
-    if submitted_response:
-        submitted_response["is_submitted"] = True
-        return submitted_response
-
-    # Fallback: try slider interaction function for compatibility
-    slider_response = get_latest_slider_interaction(participant_id)
-    if slider_response:
-        return slider_response
-
-    return None
-
-
-def get_latest_slider_interaction(participant_id: str) -> Optional[Dict[str, Any]]:
-    """Get the latest interaction from the responses table (works for both slider and grid interfaces)."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM responses
-                WHERE participant_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-            """, (participant_id,))
-
-            row = cursor.fetchone()
-            if row:
-                import json
-
-                # Parse ingredient data from JSON
-                ingredient_concentrations = {}
-                if row["ingredient_data"]:
-                    try:
-                        ingredient_concentrations = json.loads(row["ingredient_data"])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse ingredient data for {participant_id}")
-
-                return {
-                    "interface_type": row["interface_type"],  # Use actual interface type from database
-                    "method": row["method"],
-                    "created_at": row["created_at"],
-                    "is_submitted": bool(row["is_final_response"]),
-                    "concentration_data": ingredient_concentrations,
-                    "ingredient_concentrations": ingredient_concentrations,  # For compatibility
-                    "reaction_time_ms": row["reaction_time_ms"]
-                }
-
-    except Exception as e:
-        logger.error(f"Error getting latest slider interaction: {e}")
-        return None
-
-    return None
-
-
-def update_session_state(
-    user_type: str,
-    participant_id: str,
-    method: Optional[str] = None,
-    x: Optional[float] = None,
-    y: Optional[float] = None,
-    num_ingredients: Optional[int] = None,
-) -> bool:
-    """Update or insert session state with proper validation."""
-
-    if user_type not in ["mod", "sub"]:
-        logger.error(f"Invalid user_type: {user_type}")
-        return False
-
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # Use UPSERT (INSERT OR REPLACE) for atomic operation
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO session_state 
-                (user_type, participant_id, method, x_position, y_position, num_ingredients, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-                (user_type, participant_id, method, x, y, num_ingredients),
-            )
-
-            conn.commit()
-            logger.info(f"Updated session state for {user_type}:{participant_id}")
-            return True
-
-    except Exception as e:
-        logger.error(f"Error updating session state: {e}")
-        return False
-
-
-def save_response(
-    participant_id: str,
-    session_id: str,
-    method: str,
-    ingredient_concentrations: Optional[Dict[str, float]] = None,
-    sugar_conc: Optional[float] = None,
-    salt_conc: Optional[float] = None,
-    reaction_time_ms: Optional[int] = None,
-    questionnaire_response: Optional[Dict[str, Any]] = None,
-    sample_id: Optional[str] = None,
-    is_final: bool = False,
-    is_initial: bool = False,
-    extra_data: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """Save a complete response to the responses table (JSON-based).
-
+    Create new session with minimal info.
     Args:
-        participant_id: Participant identifier
-        session_id: Session identifier
-        method: Method used (linear, logarithmic, exponential)
-        ingredient_concentrations: Dict of ingredient concentrations (mM values)
-        sugar_conc: Legacy sugar concentration parameter (deprecated)
-        salt_conc: Legacy salt concentration parameter (deprecated)
-        reaction_time_ms: Response time in milliseconds
-        questionnaire_response: Questionnaire responses as dict
-        sample_id: Unique identifier (UUID) for this sample/selection
-        is_final: Whether this is the final response
-        is_initial: Whether this is an initial random position
-        extra_data: Additional data as dict
-
+        moderator_name: Name of the moderator (not stored in DB)
     Returns:
-        Success status
-
-    TODO: Add data validation before saving
-    TODO: Implement batch saving for better performance
-    TODO: Add data encryption for sensitive information
+        session_id (UUID string)
     """
-    try:
-        logger.info(
-            f"Attempting to save response for {participant_id}: method={method}"
-        )
-
-        # Convert extra_data to JSON string if provided
-        import json
-        extra_data_json = None
-        if extra_data:
-            extra_data_json = json.dumps(extra_data)
-
-        # Convert questionnaire_response to JSON string if provided
-        questionnaire_json = None
-        if questionnaire_response:
-            questionnaire_json = json.dumps(questionnaire_response)
-
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # Get next selection number
-            cursor.execute(
-                "SELECT COALESCE(MAX(selection_number), 0) + 1 FROM responses WHERE participant_id = ?",
-                (participant_id,)
-            )
-            selection_number = cursor.fetchone()[0]
-
-            # Create ingredient data from either new format or legacy parameters
-            ingredient_data = {}
-            if ingredient_concentrations:
-                ingredient_data.update(ingredient_concentrations)
-            else:
-                # Fallback to legacy sugar/salt parameters
-                if sugar_conc is not None:
-                    ingredient_data['sugar'] = sugar_conc
-                if salt_conc is not None:
-                    ingredient_data['salt'] = salt_conc
-            ingredient_data_json = json.dumps(ingredient_data) if ingredient_data else None
-
-            cursor.execute(
-                """
-                INSERT INTO responses
-                (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, questionnaire_response, sample_id,
-                 is_final_response, is_initial, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (participant_id, session_id, selection_number, INTERFACE_2D_GRID, method,
-                 ingredient_data_json, reaction_time_ms, questionnaire_json, sample_id,
-                 is_final, is_initial, extra_data_json),
-            )
-
-            conn.commit()
-
-            # Verify the insert worked
-            cursor.execute(
-                "SELECT COUNT(*) FROM responses WHERE participant_id = ?",
-                (participant_id,),
-            )
-            count = cursor.fetchone()[0]
-
-            logger.info(
-                f"Successfully saved response for {participant_id}. Total responses: {count}"
-            )
-            return True
-
-    except Exception as e:
-        logger.error(f"Error saving response: {e}")
-        return False
-
-
-def update_response_with_questionnaire(
-    participant_id: str,
-    session_id: str,
-    questionnaire_response: Dict[str, Any],
-    sample_id: Optional[str] = None,
-) -> tuple[bool, Optional[int]]:
-    """
-    Update the most recent non-final response with questionnaire data and mark as final.
-    This prevents duplicate responses.
-
-    Args:
-        participant_id: Participant identifier
-        session_id: Session identifier
-        questionnaire_response: Questionnaire responses as dict
-        sample_id: Optional sample UUID to match specific response
-
-    Returns:
-        Tuple of (success status, response_id if successful else None)
-    """
-    try:
-        import json
-
-        questionnaire_json = json.dumps(questionnaire_response)
-
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # If sample_id is provided, use it to find the exact response
-            # Otherwise, fall back to finding most recent non-final response
-            if sample_id:
-                cursor.execute(
-                    """
-                    UPDATE responses
-                    SET questionnaire_response = ?,
-                        is_final_response = 1
-                    WHERE id = (
-                        SELECT id FROM responses
-                        WHERE participant_id = ?
-                        AND session_id = ?
-                        AND sample_id = ?
-                        AND is_final_response = 0
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )
-                    """,
-                    (questionnaire_json, participant_id, session_id, sample_id),
-                )
-            else:
-                # Legacy behavior: Find most recent non-final response
-                # Note: This now includes is_initial=1 records to support saving initial questionnaires
-                cursor.execute(
-                    """
-                    UPDATE responses
-                    SET questionnaire_response = ?,
-                        is_final_response = 1
-                    WHERE id = (
-                        SELECT id FROM responses
-                        WHERE participant_id = ?
-                        AND session_id = ?
-                        AND is_final_response = 0
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )
-                    """,
-                    (questionnaire_json, participant_id, session_id),
-                )
-
-            rows_affected = cursor.rowcount
-
-            if rows_affected > 0:
-                # Fetch the response_id that was just updated
-                if sample_id:
-                    cursor.execute(
-                        """
-                        SELECT id FROM responses
-                        WHERE participant_id = ? AND session_id = ? AND sample_id = ?
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                        """,
-                        (participant_id, session_id, sample_id),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT id FROM responses
-                        WHERE participant_id = ? AND session_id = ? AND is_final_response = 1
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                        """,
-                        (participant_id, session_id),
-                    )
-
-                result = cursor.fetchone()
-                response_id = result[0] if result else None
-
-                conn.commit()
-
-                logger.info(
-                    f"Successfully updated response with questionnaire for {participant_id} (sample_id={sample_id}, response_id={response_id})"
-                )
-                return True, response_id
-            else:
-                conn.commit()
-                logger.warning(
-                    f"No non-final response found to update for {participant_id} "
-                    f"(session_id={session_id}, sample_id={sample_id}). "
-                    f"This may indicate the response was already marked final or the sample_id doesn't match."
-                )
-                return False, None
-
-    except Exception as e:
-        logger.error(f"Error updating response with questionnaire: {e}")
-        return False, None
-
-
-def save_multi_ingredient_response(
-    participant_id: str,
-    session_id: str,
-    method: str,
-    interface_type: str = "slider_based",
-    ingredient_concentrations: Optional[Dict[str, float]] = None,
-    reaction_time_ms: Optional[int] = None,
-    questionnaire_response: Optional[Dict[str, Any]] = None,
-    sample_id: Optional[str] = None,
-    is_final_response: bool = False,
-    is_initial: bool = False,
-    extra_data: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """
-    Save a multi-ingredient response to the responses table (JSON-based).
-
-    Args:
-        participant_id: Participant identifier
-        session_id: Session identifier
-        method: Method used (slider_based, linear, etc.)
-        interface_type: Type of interface (slider_based, grid_2d)
-        ingredient_concentrations: Dict of ingredient concentrations (mM values)
-        reaction_time_ms: Response time in milliseconds
-        questionnaire_response: Questionnaire responses as dict
-        sample_id: Unique identifier (UUID) for this sample/selection
-        is_final_response: Whether this is the final response
-        extra_data: Additional data as dict
-
-    Returns:
-        Success status
-    """
-    try:
-        logger.info(
-            f"Attempting to save multi-ingredient response for {participant_id}: method={method}, interface={interface_type}"
-        )
-
-        # Convert JSON data to strings
-        import json
-        questionnaire_json = json.dumps(questionnaire_response) if questionnaire_response is not None else None
-        extra_data_json = json.dumps(extra_data) if extra_data is not None else None
-
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # Get next selection number
-            cursor.execute(
-                "SELECT COALESCE(MAX(selection_number), 0) + 1 FROM responses WHERE participant_id = ?",
-                (participant_id,)
-            )
-            selection_number = cursor.fetchone()[0]
-
-            # Convert ingredient concentrations to JSON
-            ingredient_data_json = json.dumps(ingredient_concentrations) if ingredient_concentrations else None
-
-            cursor.execute(
-                """
-                INSERT INTO responses
-                (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data, reaction_time_ms, questionnaire_response, sample_id,
-                 is_final_response, is_initial, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (participant_id, session_id, selection_number, interface_type, method,
-                 ingredient_data_json, reaction_time_ms, questionnaire_json, sample_id,
-                 is_final_response, is_initial, extra_data_json),
-            )
-
-            conn.commit()
-
-            # Verify the insert worked
-            cursor.execute(
-                "SELECT COUNT(*) FROM responses WHERE participant_id = ?",
-                (participant_id,),
-            )
-            count = cursor.fetchone()[0]
-
-            logger.info(
-                f"Successfully saved multi-ingredient response for {participant_id}. Total responses: {count}"
-            )
-            return True
-
-    except Exception as e:
-        logger.error(f"Error saving multi-ingredient response: {e}")
-        return False
-
-
-def get_participant_responses(
-    participant_id: str, limit: Optional[int] = None
-) -> pd.DataFrame:
-    """Get all responses for a participant as a DataFrame."""
-    try:
-        with get_database_connection() as conn:
-            query = """
-                SELECT * FROM responses
-                WHERE participant_id = ?
-                ORDER BY created_at DESC
+    session_id = str(uuid.uuid4())
+    with get_database_connection() as conn:
+        cursor = conn.cursor()
+        # Insert session
+        cursor.execute(
             """
+            INSERT INTO sessions (
+                session_id, state
+            ) VALUES (?,'active')
+        """,
+            (session_id,),
+        )
+        conn.commit()
+        logger.info(f"Created session {session_id}")
+        return session_id
 
-            if limit:
-                query += f" LIMIT {limit}"
 
-            df = pd.read_sql_query(query, conn, params=(participant_id,))
-            return df
-
-    except Exception as e:
-        logger.error(f"Error getting participant responses: {e}")
-        return pd.DataFrame()
-
-
-def store_initial_slider_positions(
-    session_id: str,
-    participant_id: str,
+def _create_session(
+    user_id: str,
     num_ingredients: int,
-    initial_percentages: Dict[str, float],
-    initial_concentrations: Dict[str, float],
-    ingredient_names: Optional[List[str]] = None
-) -> bool:
+    interface_type: str,
+    method: str,
+    ingredients: List[Dict],
+    question_type_id: int,
+    bo_config: Dict,
+    experiment_config: Dict,
+) -> str:
     """
-    Store initial slider positions for a participant in a session.
+    Create new session with all configuration.
 
     Args:
-        session_id: Session identifier
-        participant_id: Participant identifier
-        num_ingredients: Number of ingredients (3-6)
-        initial_percentages: Dict of ingredient_name -> percentage (0-100)
-        initial_concentrations: Dict of ingredient_name -> concentration (mM)
+        user_id: User (taste tester) ID
+        num_ingredients: Number of ingredients (2-6)
+        interface_type: 'grid_2d' or 'slider_based'
+        method: 'linear', 'logarithmic', 'exponential'
+        ingredients: List of ingredient dicts with name, min, max
+            Example: [{"position": 1, "name": "Sugar", "min": 0.73, "max": 73.0, "unit": "mM"}, ...]
+        question_type_id: FK to questionnaire_types
+        bo_config: BO configuration dict
+        experiment_config: Full config backup (JSON)
 
     Returns:
-        Success status
+        session_id (UUID string)
+
+    Example:
+        >>> session_id = create_session(
+        ...     user_id="user_001",
+        ...     num_ingredients=2,
+        ...     interface_type="grid_2d",
+        ...     method="logarithmic",
+        ...     ingredients=[
+        ...         {"position": 1, "name": "Sugar", "min": 0.73, "max": 73.0, "unit": "mM"},
+        ...         {"position": 2, "name": "Salt", "min": 0.10, "max": 10.0, "unit": "mM"}
+        ...     ],
+        ...     question_type_id=1,
+        ...     bo_config={...},
+        ...     experiment_config={...}
+        ... )
     """
     try:
+        session_id = str(uuid.uuid4())
+
+        # Add metadata to experiment_config
+        full_config = {
+            **experiment_config,
+            "num_ingredients": num_ingredients,
+            "interface_type": interface_type,
+            "method": method,
+            "current_cycle": 0,
+            "created_at": datetime.now().isoformat(),
+        }
+
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
-            # Store ingredient names for retrieval
-            actual_ingredient_names = ingredient_names or list(initial_concentrations.keys())
-
-            # Convert to JSON format for storage
-            import json
-            initial_values_json = json.dumps(initial_concentrations)
-            percent_values_json = json.dumps(initial_percentages)
-
-            # Prepare extra data with ingredient names
-            extra_data = json.dumps({
-                "ingredient_names": actual_ingredient_names
-            })
-
+            # Insert session
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO initial_slider_positions
-                (session_id, participant_id, interface_type, num_ingredients,
-                 initial_values, percent_values, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (
+                    session_id, user_id, ingredients, question_type_id,
+                    state, experiment_config
+                ) VALUES (?, ?, ?, ?, 'active', ?)
             """,
-                (session_id, participant_id, "slider_based", num_ingredients,
-                 initial_values_json, percent_values_json, extra_data)
+                (
+                    session_id,
+                    user_id,
+                    json.dumps(ingredients),
+                    question_type_id,
+                    json.dumps(full_config),
+                ),
+            )
+
+            # Insert BO configuration
+            cursor.execute(
+                """
+                INSERT INTO bo_configuration (
+                    session_id, enabled, min_samples_for_bo,
+                    acquisition_function, ei_xi, ucb_kappa,
+                    kernel_nu, length_scale_initial, length_scale_bounds,
+                    constant_kernel_bounds, alpha, n_restarts_optimizer,
+                    normalize_y, random_state, only_final_responses
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    session_id,
+                    1 if bo_config.get("enabled", True) else 0,
+                    bo_config.get("min_samples_for_bo", 3),
+                    bo_config.get("acquisition_function", "ei"),
+                    bo_config.get("ei_xi", 0.01),
+                    bo_config.get("ucb_kappa", 2.0),
+                    bo_config.get("kernel_nu", 2.5),
+                    bo_config.get("length_scale_initial", 1.0),
+                    json.dumps(bo_config.get("length_scale_bounds", [0.1, 10.0])),
+                    json.dumps(
+                        bo_config.get("constant_kernel_bounds", [0.001, 1000.0])
+                    ),
+                    bo_config.get("alpha", 0.001),
+                    bo_config.get("n_restarts_optimizer", 10),
+                    1 if bo_config.get("normalize_y", True) else 0,
+                    bo_config.get("random_state", 42),
+                    1 if bo_config.get("only_final_responses", True) else 0,
+                ),
             )
 
             conn.commit()
-            logger.info(f"Stored initial slider positions for {participant_id} in session {session_id}")
-            return True
+            logger.info(f"Created session {session_id} for user {user_id}")
+            return session_id
 
     except Exception as e:
-        logger.error(f"Error storing initial slider positions: {e}")
-        return False
+        logger.error(f"Failed to create session: {e}")
+        raise
 
 
-def get_initial_slider_positions(session_id: str, participant_id: str) -> Optional[Dict[str, Any]]:
+def get_session(session_id: str) -> Optional[Dict]:
     """
-    Retrieve initial slider positions for a participant.
+    Get complete session configuration with parsed JSON fields.
 
     Args:
-        session_id: Session identifier
-        participant_id: Participant identifier
+        session_id: Session UUID
 
     Returns:
-        Dictionary with initial positions or None if not found
+        Dict with session data including parsed JSON fields, or None if not found
+
+    Example:
+        >>> session = get_session("abc-123-def")
+        >>> print(session["ingredients"])
+        [{"position": 1, "name": "Sugar", ...}, ...]
     """
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
+
             cursor.execute(
                 """
-                SELECT * FROM initial_slider_positions
-                WHERE session_id = ? AND participant_id = ?
+                SELECT
+                    s.session_id, s.user_id, s.ingredients, s.question_type_id,
+                    s.state, s.current_phase, s.experiment_config, s.created_at, s.updated_at,
+                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                FROM sessions s
+                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
+                WHERE s.session_id = ?
             """,
-                (session_id, participant_id)
+                (session_id,),
             )
 
             row = cursor.fetchone()
-            if row:
-                import json
+            if not row:
+                return None
 
-                result = {
-                    "session_id": row["session_id"],
-                    "participant_id": row["participant_id"],
-                    "num_ingredients": row["num_ingredients"],
-                    "percentages": {},
-                    "concentrations": {},
-                    "created_at": row["created_at"]
-                }
-
-                # Parse JSON data for concentrations and percentages
-                try:
-                    if row["initial_values"]:
-                        result["concentrations"] = json.loads(row["initial_values"])
-                    if row["percent_values"]:
-                        result["percentages"] = json.loads(row["percent_values"])
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse JSON data for {participant_id}")
-
-                return result
-
-            return None
-
-    except Exception as e:
-        logger.error(f"Error getting initial slider positions: {e}")
-        return None
-
-
-def get_live_slider_positions(session_id: Optional[str] = None) -> pd.DataFrame:
-    """
-    Get live slider positions for monitoring using the database view.
-
-    Args:
-        session_id: Optional session to filter by
-
-    Returns:
-        DataFrame with current slider positions
-    """
-    try:
-        with get_database_connection() as conn:
-            if session_id:
-                query = """
-                    SELECT * FROM live_slider_monitoring
-                    WHERE session_id = ?
-                    ORDER BY participant_id
-                """
-                params = (session_id,)
-            else:
-                query = """
-                    SELECT * FROM live_slider_monitoring
-                    ORDER BY session_id, participant_id
-                """
-                params = ()
-
-            df = pd.read_sql_query(query, conn, params=params)
-            return df
-
-    except Exception as e:
-        logger.error(f"Error getting live slider positions: {e}")
-        return pd.DataFrame()
-
-
-def export_responses_csv(session_id: Optional[str] = None) -> str:
-    """
-    Export responses data to CSV format with new multi-ingredient schema.
-
-    Args:
-        session_id: Optional session to filter by
-
-    Returns:
-        CSV data as string
-    """
-    try:
-        import csv
-        import io
-
-        with get_database_connection() as conn:
-            if session_id:
-                query = """
-                    SELECT
-                        participant_id,
-                        session_id,
-                        selection_number,
-                        interface_type,
-                        method,
-                        x_position,
-                        y_position,
-                        ingredient_data,
-                        reaction_time_ms,
-                        questionnaire_response,
-                        is_final_response,
-                        created_at,
-                        extra_data
-                    FROM responses
-                    WHERE session_id = ?
-                    ORDER BY participant_id, selection_number
-                """
-                params = (session_id,)
-            else:
-                query = """
-                    SELECT
-                        participant_id,
-                        session_id,
-                        selection_number,
-                        interface_type,
-                        method,
-                        x_position,
-                        y_position,
-                        ingredient_data,
-                        reaction_time_ms,
-                        questionnaire_response,
-                        is_final_response,
-                        created_at,
-                        extra_data
-                    FROM responses
-                    ORDER BY participant_id, selection_number
-                """
-                params = ()
-
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
-            if not rows:
-                return ""
-
-            output = io.StringIO()
-            writer = csv.writer(output)
-
-            # Write header
-            writer.writerow([
-                'participant_id', 'session_id', 'selection_number', 'interface_type',
-                'method', 'x_position', 'y_position', 'ingredient_data',
-                'reaction_time_ms', 'questionnaire_response', 'is_final_response',
-                'created_at', 'extra_data'
-            ])
-
-            # Write data rows
-            for row in rows:
-                writer.writerow(row)
-
-            return output.getvalue()
-
-    except Exception as e:
-        logger.error(f"Error exporting CSV data: {e}")
-        return ""
-
-
-def clear_participant_session(participant_id: str) -> bool:
-    """Clear all session state for a participant (reset)."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                DELETE FROM session_state WHERE participant_id = ?
-            """,
-                (participant_id,),
-            )
-
-            conn.commit()
-            logger.info(f"Cleared session for participant {participant_id}")
-            return True
-
-    except Exception as e:
-        logger.error(f"Error clearing participant session: {e}")
-        return False
-
-
-def get_all_participants() -> list:
-    """Get list of all participants who have session data."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT DISTINCT participant_id 
-                FROM session_state 
-                ORDER BY participant_id
-            """
-            )
-
-            return [row[0] for row in cursor.fetchall()]
-
-    except Exception as e:
-        logger.error(f"Error getting participants list: {e}")
-        return []
-
-
-def get_database_stats() -> Dict[str, int]:
-    """Get database statistics for monitoring."""
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-
-            # Count active sessions
-            cursor.execute("SELECT COUNT(DISTINCT participant_id) FROM session_state")
-            active_sessions = cursor.fetchone()[0]
-
-            # Count total responses
-            cursor.execute("SELECT COUNT(*) FROM responses")
-            total_responses = cursor.fetchone()[0]
-
-            # Count participants with responses
-            cursor.execute("SELECT COUNT(DISTINCT participant_id) FROM responses")
-            participants_with_data = cursor.fetchone()[0]
-
+            # Parse JSON fields
             return {
-                "active_sessions": active_sessions,
-                "total_responses": total_responses,
-                "participants_with_data": participants_with_data,
+                "session_id": row["session_id"],
+                "user_id": row["user_id"],
+                "ingredients": json.loads(row["ingredients"]),
+                "question_type_id": row["question_type_id"],
+                "questionnaire_name": row["questionnaire_name"],
+                "questionnaire_data": (
+                    json.loads(row["questionnaire_data"])
+                    if row["questionnaire_data"]
+                    else None
+                ),
+                "state": row["state"],
+                "current_phase": row["current_phase"],
+                "experiment_config": (
+                    json.loads(row["experiment_config"])
+                    if row["experiment_config"]
+                    else {}
+                ),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
             }
 
     except Exception as e:
-        logger.error(f"Error getting database stats: {e}")
-        return {"active_sessions": 0, "total_responses": 0, "participants_with_data": 0}
+        logger.error(f"Failed to get session {session_id}: {e}")
+        return None
 
 
-def get_response_with_concentrations(response_id: int) -> Optional[Dict[str, Any]]:
-    """Get a specific response including parsed concentration data."""
+def update_session_state(session_id: str, state: str) -> bool:
+    """
+    Update session state.
+
+    Args:
+        session_id: Session UUID
+        state: New state ('active', 'completed', 'cancelled')
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if state not in ("active", "completed", "cancelled"):
+        logger.error(f"Invalid state: {state}")
+        return False
+
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT * FROM responses WHERE id = ?
-                """,
-                (response_id,)
+                UPDATE sessions
+                SET state = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (state, session_id),
             )
-
-            row = cursor.fetchone()
-            if row:
-                import json
-                response = dict(row)
-
-                # Parse ingredient_data JSON for concentrations
-                if response['ingredient_data']:
-                    try:
-                        response['concentrations'] = json.loads(response['ingredient_data'])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse ingredient_data for response {response_id}")
-                        response['concentrations'] = {}
-                else:
-                    response['concentrations'] = {}
-
-                return response
-            return None
-
-    except Exception as e:
-        logger.error(f"Error getting response with concentrations: {e}")
-        return None
-
-
-def calculate_recipe_from_json(response_json: str) -> str:
-    """
-    Calculate and format a recipe string from JSON ingredient data.
-
-    Args:
-        response_json: JSON string containing ingredients data
-
-    Returns:
-        Formatted recipe string, e.g., "Recipe: Salt: 15.2 mM, Sugar: 8.7 mM, Citric Acid: 3.1 mM"
-    """
-    import json
-
-    # Handle edge cases
-    if not response_json:
-        return "No recipe yet"
-
-    try:
-        # Parse JSON data
-        ingredient_data = json.loads(response_json)
-
-        if not ingredient_data or not isinstance(ingredient_data, dict):
-            return "No recipe yet"
-
-        # Build recipe components
-        recipe_parts = []
-        for ingredient_name, concentration in ingredient_data.items():
-            if concentration is not None and concentration > 0:
-                # Format concentration to 1 decimal place
-                recipe_parts.append(f"{ingredient_name}: {concentration:.1f} mM")
-
-        # Return formatted recipe
-        if recipe_parts:
-            return f"Recipe: {', '.join(recipe_parts)}"
-        else:
-            return "No recipe yet"
-
-    except json.JSONDecodeError:
-        logger.warning(f"Failed to parse JSON for recipe calculation: {response_json}")
-        return "Error parsing recipe data"
-    except Exception as e:
-        logger.error(f"Error calculating recipe: {e}")
-        return "Error calculating recipe"
-
-
-def get_latest_recipe_for_participant(participant_id: str) -> str:
-    """
-    Get the latest recipe for a participant as a formatted string.
-
-    Args:
-        participant_id: Participant identifier
-
-    Returns:
-        Formatted recipe string or status message
-    """
-    try:
-        response = get_latest_submitted_response(participant_id)
-        if response and response.get('ingredient_concentrations'):
-            # Convert dict back to JSON string for recipe calculation
-            import json
-            ingredient_json = json.dumps(response['ingredient_concentrations'])
-            return calculate_recipe_from_json(ingredient_json)
-        else:
-            return "No recipe yet"
-    except Exception as e:
-        logger.error(f"Error getting latest recipe for {participant_id}: {e}")
-        return "Error getting recipe"
-
-
-# =============================================================================
-# NEW DATABASE SCHEMA V2.0 - Multi-Ingredient Support
-# =============================================================================
-
-def initialize_database_v2():
-    """
-    Initialize the new v2.0 database schema with multi-ingredient support.
-    This replaces the old schema with a more flexible structure.
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create experiments table - Track experiment configurations
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS experiments (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_code TEXT NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT NOT NULL CHECK(interface_type IN ('grid_2d', 'slider_based')),
-                    method TEXT,
-                    num_ingredients INTEGER NOT NULL CHECK(num_ingredients BETWEEN 2 AND 6),
-                    use_random_start BOOLEAN DEFAULT 0,
-                    experiment_start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    experiment_end_time TIMESTAMP,
-                    is_completed BOOLEAN DEFAULT 0,
-                    FOREIGN KEY (session_code) REFERENCES sessions(session_code),
-                    UNIQUE(session_code, participant_id)
-                )
-            """)
-            
-            # Create initial positions table - Store random starting positions
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS initial_positions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    experiment_id INTEGER NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    interface_type TEXT NOT NULL,
-                    initial_x REAL,
-                    initial_y REAL,
-                    ingredient_1_initial REAL,
-                    ingredient_2_initial REAL,
-                    ingredient_3_initial REAL,
-                    ingredient_4_initial REAL,
-                    ingredient_5_initial REAL,
-                    ingredient_6_initial REAL,
-                    ingredient_config TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (experiment_id) REFERENCES experiments(id),
-                    UNIQUE(experiment_id, participant_id)
-                )
-            """)
-            
-            # Create user interactions table - Universal selection tracking
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_interactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    experiment_id INTEGER NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    interaction_number INTEGER NOT NULL,
-                    interaction_type TEXT NOT NULL CHECK(interaction_type IN 
-                        ('initial_position', 'grid_click', 'slider_adjustment', 'final_selection', 'questionnaire')),
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    grid_x REAL,
-                    grid_y REAL,
-                    ingredient_1_concentration REAL,
-                    ingredient_2_concentration REAL,
-                    ingredient_3_concentration REAL,
-                    ingredient_4_concentration REAL,
-                    ingredient_5_concentration REAL,
-                    ingredient_6_concentration REAL,
-                    ingredient_1_mM REAL,
-                    ingredient_2_mM REAL,
-                    ingredient_3_mM REAL,
-                    ingredient_4_mM REAL,
-                    ingredient_5_mM REAL,
-                    ingredient_6_mM REAL,
-                    reaction_time_ms INTEGER,
-                    is_final_response BOOLEAN DEFAULT 0,
-                    extra_data TEXT,
-                    FOREIGN KEY (experiment_id) REFERENCES experiments(id)
-                )
-            """)
-            
-            # Create questionnaire responses table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS questionnaire_responses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    interaction_id INTEGER NOT NULL,
-                    participant_id TEXT NOT NULL,
-                    questionnaire_type TEXT NOT NULL,
-                    question_key TEXT NOT NULL,
-                    question_text TEXT,
-                    response_value TEXT,
-                    response_numeric REAL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (interaction_id) REFERENCES user_interactions(id)
-                )
-            """)
-            
-            # Create ingredient mappings table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS ingredient_mappings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    experiment_id INTEGER NOT NULL,
-                    position INTEGER NOT NULL CHECK(position BETWEEN 1 AND 6),
-                    ingredient_name TEXT NOT NULL,
-                    min_concentration REAL NOT NULL,
-                    max_concentration REAL NOT NULL,
-                    molecular_weight REAL NOT NULL,
-                    unit TEXT DEFAULT 'mM',
-                    FOREIGN KEY (experiment_id) REFERENCES experiments(id),
-                    UNIQUE(experiment_id, position)
-                )
-            """)
-            
-            # Create indexes for performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_experiments_session_participant ON experiments(session_code, participant_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_interactions_experiment_participant ON user_interactions(experiment_id, participant_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_interactions_timestamp ON user_interactions(timestamp)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_questionnaire_interaction ON questionnaire_responses(interaction_id)")
-            
-            # Create useful views
-            cursor.execute("""
-                CREATE VIEW IF NOT EXISTS experiment_summary AS
-                SELECT 
-                    e.id as experiment_id,
-                    e.session_code,
-                    e.participant_id,
-                    e.interface_type,
-                    e.method,
-                    e.num_ingredients,
-                    e.use_random_start,
-                    e.experiment_start_time,
-                    e.experiment_end_time,
-                    e.is_completed,
-                    s.moderator_name,
-                    COUNT(ui.id) as total_interactions,
-                    COUNT(CASE WHEN ui.is_final_response = 1 THEN 1 END) as final_responses
-                FROM experiments e
-                LEFT JOIN sessions s ON e.session_code = s.session_code
-                LEFT JOIN user_interactions ui ON e.id = ui.experiment_id
-                GROUP BY e.id
-            """)
-            
             conn.commit()
-            return True
-            
+
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"Updated session {session_id} state to '{state}'")
+            return success
+
     except Exception as e:
-        print(f"Error initializing database v2: {e}")
+        logger.error(f"Failed to update session state: {e}")
         return False
 
 
-def start_experiment_v2(session_code: str, participant_id: str, interface_type: str, 
-                       method: str, num_ingredients: int, use_random_start: bool = False,
-                       ingredient_config: list = None) -> Optional[int]:
+def update_current_phase(session_id: str, phase: str) -> bool:
     """
-    Start a new experiment and return experiment ID.
-    
-    Args:
-        session_code: Session identifier
-        participant_id: Participant identifier 
-        interface_type: 'grid_2d' or 'slider_based'
-        method: Concentration mapping method
-        num_ingredients: Number of ingredients (2-6)
-        use_random_start: Whether to use random starting positions
-        ingredient_config: List of ingredient configurations
-        
-    Returns:
-        Experiment ID if successful, None otherwise
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Insert experiment record
-            cursor.execute("""
-                INSERT INTO experiments 
-                (session_code, participant_id, interface_type, method, num_ingredients, use_random_start)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (session_code, participant_id, interface_type, method, num_ingredients, use_random_start))
-            
-            experiment_id = cursor.lastrowid
-            
-            # Store ingredient mappings
-            if ingredient_config:
-                for i, ingredient in enumerate(ingredient_config[:num_ingredients], 1):
-                    cursor.execute("""
-                        INSERT INTO ingredient_mappings
-                        (experiment_id, position, ingredient_name, min_concentration, max_concentration, molecular_weight, unit)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (experiment_id, i, ingredient["name"], ingredient["min_concentration"], 
-                          ingredient["max_concentration"], ingredient["molecular_weight"], ingredient.get("unit", "mM")))
-            
-            conn.commit()
-            return experiment_id
-            
-    except Exception as e:
-        print(f"Error starting experiment: {e}")
-        return None
-
-
-def store_initial_positions_v2(experiment_id: int, participant_id: str, interface_type: str,
-                              initial_x: float = None, initial_y: float = None,
-                              slider_values: dict = None, ingredient_config: list = None) -> bool:
-    """
-    Store initial starting positions for an experiment.
-    
-    Args:
-        experiment_id: Experiment identifier
-        participant_id: Participant identifier
-        interface_type: 'grid_2d' or 'slider_based'
-        initial_x, initial_y: Initial grid position (for grid interface)
-        slider_values: Dict of initial slider values (for slider interface)
-        ingredient_config: List of ingredient configurations
-        
-    Returns:
-        Success status
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Prepare ingredient initial values
-            ingredient_initials = [None] * 6
-            if slider_values and ingredient_config:
-                for i, ingredient in enumerate(ingredient_config[:6]):
-                    if ingredient["name"] in slider_values:
-                        ingredient_initials[i] = slider_values[ingredient["name"]]
-            
-            import json
-            
-            cursor.execute("""
-                INSERT INTO initial_positions
-                (experiment_id, participant_id, interface_type, initial_x, initial_y,
-                 ingredient_1_initial, ingredient_2_initial, ingredient_3_initial,
-                 ingredient_4_initial, ingredient_5_initial, ingredient_6_initial,
-                 ingredient_config)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (experiment_id, participant_id, interface_type, initial_x, initial_y,
-                  *ingredient_initials, json.dumps(ingredient_config) if ingredient_config else None))
-            
-            conn.commit()
-            return True
-            
-    except Exception as e:
-        print(f"Error storing initial positions: {e}")
-        return False
-
-
-def store_user_interaction_v2(experiment_id: int, participant_id: str, interaction_type: str,
-                             grid_x: float = None, grid_y: float = None,
-                             slider_concentrations: dict = None, actual_concentrations: dict = None,
-                             reaction_time_ms: int = None, is_final_response: bool = False,
-                             extra_data: dict = None) -> Optional[int]:
-    """
-    Store a user interaction (click, slider adjustment, etc.).
-    
-    Args:
-        experiment_id: Experiment identifier
-        participant_id: Participant identifier
-        interaction_type: Type of interaction
-        grid_x, grid_y: Grid coordinates (if applicable)
-        slider_concentrations: Dict of slider concentrations (if applicable)
-        actual_concentrations: Dict of actual mM concentrations
-        reaction_time_ms: Reaction time in milliseconds
-        is_final_response: Whether this is the final response
-        extra_data: Additional data as dictionary
-        
-    Returns:
-        Interaction ID if successful, None otherwise
-    """
-    try:
-        import json
-        
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get next interaction number for this experiment
-            cursor.execute("""
-                SELECT COALESCE(MAX(interaction_number), 0) + 1 
-                FROM user_interactions 
-                WHERE experiment_id = ?
-            """, (experiment_id,))
-            interaction_number = cursor.fetchone()[0]
-            
-            # Prepare concentration arrays
-            slider_concs = [None] * 6
-            actual_concs = [None] * 6
-            
-            if slider_concentrations:
-                for i, value in enumerate(list(slider_concentrations.values())[:6]):
-                    slider_concs[i] = value
-                    
-            if actual_concentrations:
-                for i, value in enumerate(list(actual_concentrations.values())[:6]):
-                    actual_concs[i] = value
-            
-            cursor.execute("""
-                INSERT INTO user_interactions
-                (experiment_id, participant_id, interaction_number, interaction_type,
-                 grid_x, grid_y,
-                 ingredient_1_concentration, ingredient_2_concentration, ingredient_3_concentration,
-                 ingredient_4_concentration, ingredient_5_concentration, ingredient_6_concentration,
-                 ingredient_1_mM, ingredient_2_mM, ingredient_3_mM,
-                 ingredient_4_mM, ingredient_5_mM, ingredient_6_mM,
-                 reaction_time_ms, is_final_response, extra_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (experiment_id, participant_id, interaction_number, interaction_type,
-                  grid_x, grid_y, *slider_concs, *actual_concs,
-                  reaction_time_ms, is_final_response, json.dumps(extra_data) if extra_data else None))
-            
-            interaction_id = cursor.lastrowid
-            conn.commit()
-            return interaction_id
-            
-    except Exception as e:
-        print(f"Error storing user interaction: {e}")
-        return None
-
-
-def get_initial_positions_v2(experiment_id: int, participant_id: str) -> Optional[Dict]:
-    """
-    Retrieve initial positions for an experiment.
-    
-    Returns:
-        Dictionary with initial positions or None
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM initial_positions
-                WHERE experiment_id = ? AND participant_id = ?
-            """, (experiment_id, participant_id))
-            
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
-            
-    except Exception as e:
-        print(f"Error retrieving initial positions: {e}")
-        return None
-
-
-def get_experiment_data_v2(session_code: str, participant_id: str) -> Optional[Dict]:
-    """
-    Get complete experiment data for export.
-    
-    Returns:
-        Dictionary with experiment data or None
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get experiment info
-            cursor.execute("""
-                SELECT e.*, s.moderator_name
-                FROM experiments e
-                LEFT JOIN sessions s ON e.session_code = s.session_code
-                WHERE e.session_code = ? AND e.participant_id = ?
-            """, (session_code, participant_id))
-            
-            experiment = cursor.fetchone()
-            if not experiment:
-                return None
-            
-            experiment_dict = dict(experiment)
-            experiment_id = experiment_dict['id']
-            
-            # Get initial positions
-            cursor.execute("""
-                SELECT * FROM initial_positions
-                WHERE experiment_id = ?
-            """, (experiment_id,))
-            initial_positions = cursor.fetchone()
-            if initial_positions:
-                experiment_dict['initial_positions'] = dict(initial_positions)
-            
-            # Get all interactions
-            cursor.execute("""
-                SELECT * FROM user_interactions
-                WHERE experiment_id = ?
-                ORDER BY interaction_number
-            """, (experiment_id,))
-            interactions = [dict(row) for row in cursor.fetchall()]
-            experiment_dict['interactions'] = interactions
-            
-            # Get ingredient mappings
-            cursor.execute("""
-                SELECT * FROM ingredient_mappings
-                WHERE experiment_id = ?
-                ORDER BY position
-            """, (experiment_id,))
-            ingredients = [dict(row) for row in cursor.fetchall()]
-            experiment_dict['ingredients'] = ingredients
-            
-            return experiment_dict
-            
-    except Exception as e:
-        print(f"Error retrieving experiment data: {e}")
-        return None
-
-
-def export_experiment_data_csv(session_code: str) -> str:
-    """
-    Export experiment data to CSV format.
-    
-    Args:
-        session_code: Session to export
-        
-    Returns:
-        CSV data as string
-    """
-    try:
-        import csv
-        import io
-        
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get all experiment data for session
-            cursor.execute("""
-                SELECT 
-                    e.participant_id,
-                    e.interface_type,
-                    e.method,
-                    e.num_ingredients,
-                    e.use_random_start,
-                    e.experiment_start_time,
-                    ui.interaction_number,
-                    ui.interaction_type,
-                    ui.timestamp,
-                    ui.grid_x,
-                    ui.grid_y,
-                    ui.ingredient_1_concentration,
-                    ui.ingredient_2_concentration,
-                    ui.ingredient_3_concentration,
-                    ui.ingredient_4_concentration,
-                    ui.ingredient_5_concentration,
-                    ui.ingredient_6_concentration,
-                    ui.ingredient_1_mM,
-                    ui.ingredient_2_mM,
-                    ui.ingredient_3_mM,
-                    ui.ingredient_4_mM,
-                    ui.ingredient_5_mM,
-                    ui.ingredient_6_mM,
-                    ui.reaction_time_ms,
-                    ui.is_final_response
-                FROM experiments e
-                LEFT JOIN user_interactions ui ON e.id = ui.experiment_id
-                WHERE e.session_code = ?
-                ORDER BY e.participant_id, ui.interaction_number
-            """, (session_code,))
-            
-            rows = cursor.fetchall()
-            if not rows:
-                return ""
-            
-            output = io.StringIO()
-            writer = csv.writer(output)
-            
-            # Write header
-            writer.writerow([
-                'participant_id', 'interface_type', 'method', 'num_ingredients', 'use_random_start',
-                'experiment_start_time', 'interaction_number', 'interaction_type', 'timestamp',
-                'grid_x', 'grid_y', 'ingredient_1_concentration', 'ingredient_2_concentration',
-                'ingredient_3_concentration', 'ingredient_4_concentration', 'ingredient_5_concentration',
-                'ingredient_6_concentration', 'ingredient_1_mM', 'ingredient_2_mM', 'ingredient_3_mM',
-                'ingredient_4_mM', 'ingredient_5_mM', 'ingredient_6_mM', 'reaction_time_ms', 'is_final_response'
-            ])
-            
-            # Write data rows
-            for row in rows:
-                writer.writerow(row)
-            
-            return output.getvalue()
-            
-    except Exception as e:
-        print(f"Error exporting CSV data: {e}")
-        return ""
-
-
-# =============================================================================
-# QUESTIONNAIRE SUPPORT FUNCTIONS
-# =============================================================================
-
-
-def get_questionnaire_config_from_session(session_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieve questionnaire configuration from session's experiment_config.
+    Update current phase for multi-device synchronization.
 
     Args:
-        session_id: Session identifier
-
-    Returns:
-        Questionnaire configuration dict or None if not found
-    """
-    try:
-        from questionnaire_config import get_questionnaire_config, get_default_questionnaire_type
-        import json
-
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT experiment_config FROM sessions WHERE session_code = ?",
-                (session_id,)
-            )
-            row = cursor.fetchone()
-
-            if row and row["experiment_config"]:
-                config = json.loads(row["experiment_config"])
-                questionnaire_type = config.get("questionnaire_type", get_default_questionnaire_type())
-                return get_questionnaire_config(questionnaire_type)
-
-            # Fallback to default
-            return get_questionnaire_config(get_default_questionnaire_type())
-
-    except Exception as e:
-        logger.error(f"Error retrieving questionnaire config for session {session_id}: {e}")
-        # Fallback to default
-        try:
-            from questionnaire_config import get_questionnaire_config, get_default_questionnaire_type
-            return get_questionnaire_config(get_default_questionnaire_type())
-        except:
-            return None
-
-
-def extract_and_save_target_variable(
-    response_id: int,
-    questionnaire_response: Dict[str, Any],
-    questionnaire_type: str
-) -> Optional[float]:
-    """
-    Extract target variable from questionnaire response and save to database.
-
-    Args:
-        response_id: ID of the response record
-        questionnaire_response: Dictionary of questionnaire answers
-        questionnaire_type: Type of questionnaire
-
-    Returns:
-        Extracted target value or None if extraction fails
-    """
-    try:
-        from questionnaire_config import get_questionnaire_config, extract_target_variable
-
-        # Get questionnaire configuration
-        config = get_questionnaire_config(questionnaire_type)
-        if not config:
-            logger.warning(f"Unknown questionnaire type: {questionnaire_type}")
-            return None
-
-        # Extract target variable
-        target_value = extract_target_variable(questionnaire_response, config)
-
-        if target_value is not None:
-            # Save to database
-            with get_database_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE responses
-                    SET target_variable_value = ?
-                    WHERE id = ?
-                    """,
-                    (target_value, response_id)
-                )
-                conn.commit()
-                logger.info(f"Saved target variable value {target_value} for response {response_id}")
-
-        return target_value
-
-    except Exception as e:
-        logger.error(f"Error extracting target variable for response {response_id}: {e}")
-        return None
-
-
-def get_participant_target_values(
-    participant_id: str,
-    session_id: str,
-    only_final: bool = True
-) -> pd.DataFrame:
-    """
-    Get all target variable values for a participant.
-
-    Useful for Bayesian optimization to retrieve historical target values.
-
-    Args:
-        participant_id: Participant identifier
-        session_id: Session identifier
-        only_final: If True, only return final responses
-
-    Returns:
-        DataFrame with columns: response_id, ingredient_data, target_variable_value, created_at
-    """
-    try:
-        with get_database_connection() as conn:
-            query = """
-                SELECT
-                    id as response_id,
-                    ingredient_data,
-                    target_variable_value,
-                    questionnaire_type,
-                    created_at
-                FROM responses
-                WHERE participant_id = ?
-                  AND session_id = ?
-                  AND target_variable_value IS NOT NULL
-            """
-
-            params = [participant_id, session_id]
-
-            if only_final:
-                query += " AND is_final_response = 1"
-
-            query += " ORDER BY created_at ASC"
-
-            return pd.read_sql_query(query, conn, params=params)
-
-    except Exception as e:
-        logger.error(f"Error retrieving target values for participant {participant_id}: {e}")
-        return pd.DataFrame()
-
-
-def save_bayesian_prediction(
-    response_id: int,
-    predicted_value: float,
-    acquisition_value: float
-) -> bool:
-    """
-    Save Bayesian optimization predictions to database.
-
-    Args:
-        response_id: ID of the response record
-        predicted_value: Predicted target variable value from Gaussian Process
-        acquisition_value: Acquisition function value (e.g., Expected Improvement)
+        session_id: Session UUID
+        phase: New phase (waiting, robot_preparing, tasting, questionnaire, selection, complete)
 
     Returns:
         True if successful, False otherwise
@@ -2310,46 +371,975 @@ def save_bayesian_prediction(
             cursor = conn.cursor()
             cursor.execute(
                 """
-                UPDATE responses
-                SET bo_predicted_value = ?,
-                    bo_acquisition_value = ?
-                WHERE id = ?
-                """,
-                (predicted_value, acquisition_value, response_id)
+                UPDATE sessions
+                SET current_phase = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (phase, session_id),
             )
             conn.commit()
-            logger.info(f"Saved Bayesian predictions for response {response_id}")
-            return True
+
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"Updated session {session_id} current_phase to '{phase}'")
+            return success
 
     except Exception as e:
-        logger.error(f"Error saving Bayesian predictions: {e}")
+        logger.error(f"Failed to update current phase: {e}")
         return False
 
 
-# =============================================================================
-# END OF FILE - DEVELOPMENT NOTES
-# =============================================================================
-# DATABASE ARCHITECTURE:
-# - SQLite with row factory for named column access
-# - Context managers ensure proper connection cleanup
-# - Comprehensive error handling with logging
-# - Migration system supports schema evolution
-# 
-# SECURITY FEATURES:
-# - Parameterized queries prevent SQL injection
-# - Transaction rollback on errors
-# - Connection timeouts prevent resource exhaustion
-# - Input validation and sanitization
-# 
-# PERFORMANCE CONSIDERATIONS:
-# - Proper indexing on participant_id and created_at columns
-# - JSON storage for complex multi-component data
-# - Connection pooling recommended for production
-# - Batch operations for large datasets
-# 
-# PRODUCTION READINESS:
-# - Add automated backup system
-# - Implement data encryption for sensitive information
-# - Add connection pooling and monitoring
-# - Create data archiving and cleanup procedures
-# =============================================================================
+def get_current_cycle(session_id: str) -> int:
+    """
+    Get current cycle number from experiment_config.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Current cycle number (0 if not found)
+    """
+    session = get_session(session_id)
+    if session:
+        return session["experiment_config"].get("current_cycle", 0)
+    return 0
+
+
+def increment_cycle(session_id: str) -> int:
+    """
+    Increment cycle in experiment_config and return new value.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        New cycle number (0 if failed)
+    """
+    try:
+        session = get_session(session_id)
+        if not session:
+            return 0
+
+        config = session["experiment_config"]
+        config["current_cycle"] = config.get("current_cycle", 0) + 1
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (json.dumps(config), session_id),
+            )
+            conn.commit()
+
+        new_cycle = config["current_cycle"]
+        logger.info(f"Incremented session {session_id} to cycle {new_cycle}")
+        return new_cycle
+
+    except Exception as e:
+        logger.error(f"Failed to increment cycle: {e}")
+        return 0
+
+
+# ============================================================================
+# Section 3: User Management
+# ============================================================================
+
+
+def create_user(user_id: str) -> bool:
+    """
+    Create user (taste tester) if doesn't exist.
+
+    Args:
+        user_id: Unique user identifier
+
+    Returns:
+        True if created or already exists, False on error
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO users (id)
+                VALUES (?)
+            """,
+                (user_id,),
+            )
+            conn.commit()
+
+            if cursor.rowcount > 0:
+                logger.info(f"Created user {user_id}")
+            return True
+
+    except Exception as e:
+        logger.error(f"Failed to create user: {e}")
+        return False
+
+
+def get_user(user_id: str) -> Optional[Dict]:
+    """
+    Get user info.
+
+    Args:
+        user_id: User identifier
+
+    Returns:
+        Dict with user data or None if not found
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    except Exception as e:
+        logger.error(f"Failed to get user {user_id}: {e}")
+        return None
+
+
+# ============================================================================
+# Section 4: Sample/Cycle Operations
+# ============================================================================
+
+
+def save_sample_cycle(
+    session_id: str,
+    cycle_number: int,
+    ingredient_concentration: Dict[str, float],
+    selection_data: Dict,
+    questionnaire_answer: Dict,
+    is_final: bool = False,
+) -> str:
+    """
+    Save complete cycle data in ONE row.
+    Combines: solution tasted + questionnaire + selection for next.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Current cycle (1, 2, 3, ...)
+        ingredient_concentration: What they tasted
+            Example: {"Sugar": 36.5, "Salt": 5.2}
+        selection_data: Their selection for next cycle
+            Example: {"interface_type": "grid_2d", "x_position": 0.5, "y_position": 0.7, "method": "logarithmic"}
+        questionnaire_answer: Their questionnaire responses
+            Example: {"overall_liking": 7, "sweetness": 6, "comments": "Nice"}
+        is_final: True if last cycle in session
+
+    Returns:
+        sample_id (UUID)
+
+    Example:
+        >>> sample_id = save_sample_cycle(
+        ...     session_id="abc-123",
+        ...     cycle_number=1,
+        ...     ingredient_concentration={"Sugar": 36.5, "Salt": 5.2},
+        ...     selection_data={"interface_type": "grid_2d", "x_position": 0.5, "y_position": 0.7},
+        ...     questionnaire_answer={"overall_liking": 7},
+        ...     is_final=False
+        ... )
+    """
+    try:
+        sample_id = str(uuid.uuid4())
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO samples (
+                    sample_id, session_id, cycle_number,
+                    ingredient_concentration, selection_data,
+                    questionnaire_answer, is_final
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    sample_id,
+                    session_id,
+                    cycle_number,
+                    json.dumps(ingredient_concentration),
+                    json.dumps(selection_data) if selection_data else None,
+                    json.dumps(questionnaire_answer),
+                    1 if is_final else 0,
+                ),
+            )
+
+            conn.commit()
+            logger.info(
+                f"Saved sample {sample_id} for session {session_id}, cycle {cycle_number}"
+            )
+            return sample_id
+
+    except Exception as e:
+        logger.error(f"Failed to save sample: {e}")
+        raise
+
+
+def get_sample(sample_id: str) -> Optional[Dict]:
+    """
+    Get sample by ID with parsed JSON fields.
+
+    Args:
+        sample_id: Sample UUID
+
+    Returns:
+        Dict with sample data including parsed JSON, or None if not found
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM samples WHERE sample_id = ?", (sample_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "sample_id": row["sample_id"],
+                "session_id": row["session_id"],
+                "cycle_number": row["cycle_number"],
+                "ingredient_concentration": json.loads(row["ingredient_concentration"]),
+                "selection_data": (
+                    json.loads(row["selection_data"]) if row["selection_data"] else None
+                ),
+                "questionnaire_answer": json.loads(row["questionnaire_answer"]),
+                "is_final": bool(row["is_final"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get sample {sample_id}: {e}")
+        return None
+
+
+def get_session_samples(session_id: str, only_final: bool = False) -> List[Dict]:
+    """
+    Get all samples for a session, ordered by cycle.
+
+    Args:
+        session_id: Session UUID
+        only_final: If True, return only samples where is_final=1
+
+    Returns:
+        List of sample dicts with parsed JSON fields
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            if only_final:
+                cursor.execute(
+                    """
+                    SELECT * FROM samples
+                    WHERE session_id = ? AND is_final = 1
+                    ORDER BY cycle_number ASC
+                """,
+                    (session_id,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT * FROM samples
+                    WHERE session_id = ?
+                    ORDER BY cycle_number ASC
+                """,
+                    (session_id,),
+                )
+
+            samples = []
+            for row in cursor.fetchall():
+                samples.append(
+                    {
+                        "sample_id": row["sample_id"],
+                        "session_id": row["session_id"],
+                        "cycle_number": row["cycle_number"],
+                        "ingredient_concentration": json.loads(
+                            row["ingredient_concentration"]
+                        ),
+                        "selection_data": (
+                            json.loads(row["selection_data"])
+                            if row["selection_data"]
+                            else None
+                        ),
+                        "questionnaire_answer": json.loads(row["questionnaire_answer"]),
+                        "is_final": bool(row["is_final"]),
+                        "created_at": row["created_at"],
+                    }
+                )
+
+            return samples
+
+    except Exception as e:
+        logger.error(f"Failed to get session samples: {e}")
+        return []
+
+
+# ============================================================================
+# Section 5: Questionnaire Operations
+# ============================================================================
+
+
+def extract_target_variable(
+    questionnaire_answer: Dict, questionnaire_type: str
+) -> Optional[float]:
+    """
+    Extract target variable from questionnaire response.
+
+    Uses questionnaire type definition to determine which field is the target.
+
+    Args:
+        questionnaire_answer: Questionnaire response dict
+        questionnaire_type: Type name (e.g., "hedonic_preference")
+
+    Returns:
+        Target variable value as float, or None if not extractable
+
+    Example:
+        >>> target = extract_target_variable(
+        ...     {"overall_liking": 7, "sweetness": 6},
+        ...     "hedonic_preference"
+        ... )
+        >>> print(target)
+        7.0
+    """
+    try:
+        # Import questionnaire config
+        try:
+            from questionnaire_config import QUESTIONNAIRE_CONFIGS
+        except ImportError:
+            logger.warning("questionnaire_config not available, using fallback")
+            # Fallback: assume "overall_liking" or first numeric field
+            for key, value in questionnaire_answer.items():
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    continue
+            return None
+
+        # Get questionnaire definition
+        q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+        if not q_def:
+            logger.warning(f"Unknown questionnaire type: {questionnaire_type}")
+            return None
+
+        target_key = q_def.get("target_variable")
+        if not target_key:
+            logger.warning(f"No target variable defined for {questionnaire_type}")
+            return None
+
+        # Extract value
+        value = questionnaire_answer.get(target_key)
+        if value is None:
+            logger.warning(f"Target variable '{target_key}' not found in response")
+            return None
+
+        return float(value)
+
+    except Exception as e:
+        logger.error(f"Failed to extract target variable: {e}")
+        return None
+
+
+# ============================================================================
+# Section 6: BO Integration
+# ============================================================================
+
+
+def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame:
+    """
+    Get training data for BO model.
+
+    Returns DataFrame with ingredient concentrations + target values.
+
+    Args:
+        session_id: Session UUID
+        only_final: If True, use only samples where is_final=1
+
+    Returns:
+        DataFrame with columns: [ingredient1, ingredient2, ..., target_value]
+
+    Example:
+        >>> df = get_training_data("abc-123")
+        >>> print(df.columns)
+        Index(['Sugar', 'Salt', 'target_value'], dtype='object')
+        >>> print(df.head())
+           Sugar  Salt  target_value
+        0   36.5   5.2           7.0
+        1   20.0   3.0           5.0
+    """
+    try:
+        # Get session to know questionnaire type
+        session = get_session(session_id)
+        if not session:
+            logger.warning(f"Session {session_id} not found")
+            return pd.DataFrame()
+
+        # Get questionnaire type name
+        questionnaire_type = session.get("questionnaire_name")
+        if not questionnaire_type:
+            logger.warning(f"No questionnaire type for session {session_id}")
+            return pd.DataFrame()
+
+        # Get samples
+        samples = get_session_samples(session_id, only_final=only_final)
+        if not samples:
+            logger.info(f"No samples found for session {session_id}")
+            return pd.DataFrame()
+
+        # Build training data
+        data = []
+        for sample in samples:
+            # Get concentrations
+            concentrations = sample["ingredient_concentration"]
+
+            # Extract target value
+            target = extract_target_variable(
+                sample["questionnaire_answer"], questionnaire_type
+            )
+
+            if target is not None:
+                row = {**concentrations, "target_value": target}
+                data.append(row)
+
+        df = pd.DataFrame(data)
+        logger.info(f"Retrieved {len(df)} training samples for session {session_id}")
+        return df
+
+    except Exception as e:
+        logger.error(f"Failed to get training data: {e}")
+        return pd.DataFrame()
+
+
+def get_bo_config(session_id: str) -> Dict:
+    """
+    Get BO configuration for session.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Dict with BO config, or empty dict if not found
+
+    Example:
+        >>> config = get_bo_config("abc-123")
+        >>> print(config["acquisition_function"])
+        'ei'
+        >>> print(config["kernel_nu"])
+        2.5
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM bo_configuration WHERE session_id = ?", (session_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                logger.warning(f"No BO config found for session {session_id}")
+                return {}
+
+            return {
+                "enabled": bool(row["enabled"]),
+                "min_samples_for_bo": row["min_samples_for_bo"],
+                "acquisition_function": row["acquisition_function"],
+                "ei_xi": row["ei_xi"],
+                "ucb_kappa": row["ucb_kappa"],
+                "kernel_nu": row["kernel_nu"],
+                "length_scale_initial": row["length_scale_initial"],
+                "length_scale_bounds": json.loads(row["length_scale_bounds"]),
+                "constant_kernel_bounds": json.loads(row["constant_kernel_bounds"]),
+                "alpha": row["alpha"],
+                "n_restarts_optimizer": row["n_restarts_optimizer"],
+                "normalize_y": bool(row["normalize_y"]),
+                "random_state": row["random_state"],
+                "only_final_responses": bool(row["only_final_responses"]),
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get BO config: {e}")
+        return {}
+
+
+# ============================================================================
+# Section 7: Export & Utilities
+# ============================================================================
+
+
+def export_session_csv(session_id: str) -> str:
+    """
+    Export session data to CSV string.
+
+    Flattens all JSON fields into columns for easy analysis.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        CSV string with all session data
+
+    Example:
+        >>> csv_data = export_session_csv("abc-123")
+        >>> with open("session_data.csv", "w") as f:
+        ...     f.write(csv_data)
+    """
+    try:
+        samples = get_session_samples(session_id)
+        if not samples:
+            logger.warning(f"No samples to export for session {session_id}")
+            return ""
+
+        session = get_session(session_id)
+
+        # Flatten data for CSV
+        rows = []
+        for sample in samples:
+            row = {
+                "session_id": session_id,
+                "cycle_number": sample["cycle_number"],
+                "is_final": sample["is_final"],
+                "created_at": sample["created_at"],
+                # Unpack concentrations
+                **{
+                    f"concentration_{k}": v
+                    for k, v in sample["ingredient_concentration"].items()
+                },
+                # Unpack selection data
+                **{
+                    f"selection_{k}": v
+                    for k, v in (sample["selection_data"] or {}).items()
+                },
+                # Unpack questionnaire
+                **{f"q_{k}": v for k, v in sample["questionnaire_answer"].items()},
+            }
+            rows.append(row)
+
+        df = pd.DataFrame(rows)
+        csv_string = df.to_csv(index=False)
+        logger.info(f"Exported {len(df)} rows for session {session_id}")
+        return csv_string
+
+    except Exception as e:
+        logger.error(f"Failed to export CSV: {e}")
+        return ""
+
+
+def get_session_stats(session_id: str) -> Dict:
+    """
+    Get session statistics.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Dict with statistics
+
+    Example:
+        >>> stats = get_session_stats("abc-123")
+        >>> print(f"Total cycles: {stats['total_cycles']}")
+        Total cycles: 5
+    """
+    try:
+        samples = get_session_samples(session_id)
+        if not samples:
+            return {
+                "total_cycles": 0,
+                "is_completed": False,
+                "created_at": None,
+                "last_cycle_at": None,
+            }
+
+        return {
+            "total_cycles": len(samples),
+            "is_completed": any(s["is_final"] for s in samples),
+            "created_at": samples[0]["created_at"] if samples else None,
+            "last_cycle_at": samples[-1]["created_at"] if samples else None,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get session stats: {e}")
+        return {}
+
+
+def create_minimal_session(session_id: str) -> bool:
+    """
+    Create a minimal session record in database with just session_id and state.
+    Called when session ID is first generated in landing page.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            # Insert minimal session
+            cursor.execute(
+                """
+                INSERT INTO sessions (session_id, state)
+                VALUES (?, 'active')
+            """,
+                (session_id,),
+            )
+
+            conn.commit()
+
+        logger.info(f"Created minimal session {session_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to create minimal session: {e}")
+        return False
+
+
+def update_session_with_config(
+    session_id: str,
+    user_id: str,
+    num_ingredients: int,
+    interface_type: str,
+    method: str,
+    ingredients: List[Dict],
+    question_type_id: int,
+    bo_config: Dict,
+    experiment_config: Dict,
+) -> bool:
+    """
+    Update existing session with full configuration.
+    Called when moderator finishes configuration and clicks "Start Trial".
+
+    Args:
+        session_id: Session UUID (already generated)
+        user_id: Participant/user ID
+        num_ingredients: Number of ingredients
+        interface_type: 'grid_2d' or 'slider_based'
+        method: Mapping method ('linear', 'logarithmic', 'exponential')
+        ingredients: List of ingredient dicts with position, name, min, max, unit
+        question_type_id: ID of questionnaire type
+        bo_config: Bayesian optimization configuration dict
+        experiment_config: Full experiment configuration dict
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Build complete config
+        full_config = {
+            **experiment_config,
+            "num_ingredients": num_ingredients,
+            "interface_type": interface_type,
+            "method": method,
+            "current_cycle": 0,
+            "created_at": datetime.now().isoformat(),
+        }
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            # Check if session exists, if not create it
+            cursor.execute("SELECT session_id FROM sessions WHERE session_id = ?", (session_id,))
+            if not cursor.fetchone():
+                logger.info(f"Session {session_id} doesn't exist, creating it first")
+                cursor.execute(
+                    """
+                    INSERT INTO sessions (session_id, state)
+                    VALUES (?, 'active')
+                """,
+                    (session_id,),
+                )
+
+            # Update session with full config
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET user_id = ?,
+                    ingredients = ?,
+                    question_type_id = ?,
+                    experiment_config = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (
+                    user_id,
+                    json.dumps(ingredients),
+                    question_type_id,
+                    json.dumps(full_config),
+                    session_id,
+                ),
+            )
+
+            # Insert or replace BO configuration
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO bo_configuration (
+                    session_id, enabled, min_samples_for_bo,
+                    acquisition_function, ei_xi, ucb_kappa,
+                    kernel_nu, length_scale_initial, length_scale_bounds,
+                    constant_kernel_bounds, alpha, n_restarts_optimizer,
+                    normalize_y, random_state, only_final_responses
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    session_id,
+                    1 if bo_config.get("enabled", True) else 0,
+                    bo_config.get("min_samples_for_bo", 3),
+                    bo_config.get("acquisition_function", "ei"),
+                    bo_config.get("ei_xi", 0.01),
+                    bo_config.get("ucb_kappa", 2.0),
+                    bo_config.get("kernel_nu", 2.5),
+                    bo_config.get("length_scale_initial", 1.0),
+                    json.dumps(bo_config.get("length_scale_bounds", [0.1, 10.0])),
+                    json.dumps(bo_config.get("constant_kernel_bounds", [0.001, 1000.0])),
+                    bo_config.get("alpha", 0.001),
+                    bo_config.get("n_restarts_optimizer", 10),
+                    1 if bo_config.get("normalize_y", True) else 0,
+                    bo_config.get("random_state", 42),
+                    1 if bo_config.get("only_final_responses", True) else 0,
+                ),
+            )
+
+            conn.commit()
+
+        logger.info(f"Updated session {session_id} with full configuration")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to update session: {e}")
+        return False
+
+
+def get_latest_sample_concentrations(session_id: str) -> Optional[Dict[str, float]]:
+    """
+    Get ingredient concentrations from the most recent sample for live monitoring.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Dict of ingredient concentrations (e.g., {"Sugar": 36.5, "Salt": 5.2})
+        or None if no samples exist
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT ingredient_concentration
+                FROM samples
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """,
+                (session_id,),
+            )
+
+            row = cursor.fetchone()
+            if not row or not row["ingredient_concentration"]:
+                return None
+
+            # Parse and return concentrations
+            concentrations = json.loads(row["ingredient_concentration"])
+            return concentrations
+
+    except Exception as e:
+        logger.error(f"Failed to get latest sample concentrations: {e}")
+        return None
+
+
+# ============================================================================
+# Backward Compatibility Aliases (for gradual migration)
+# ============================================================================
+
+
+# Alias for bayesian_optimizer.py compatibility
+def get_participant_target_values(
+    participant_id: str, session_id: str, only_final: bool = True
+) -> pd.DataFrame:
+    """
+    DEPRECATED: Use get_training_data() instead.
+    Kept for backward compatibility with bayesian_optimizer.py
+    """
+    logger.warning(
+        "get_participant_target_values() is deprecated, use get_training_data()"
+    )
+    return get_training_data(session_id, only_final=only_final)
+
+
+def is_participant_activated(participant_id: str) -> bool:
+    """
+    BACKWARD COMPATIBILITY: Check if participant has an active session.
+    In new schema, we check if user exists and has an active session.
+    """
+    logger.warning("is_participant_activated() is a backward compat function")
+    try:
+        user = get_user(participant_id)
+        return user is not None
+    except Exception as e:
+        logger.error(f"Error checking participant activation: {e}")
+        return False
+
+
+def get_moderator_settings(participant_id: str) -> Optional[Dict]:
+    """
+    BACKWARD COMPATIBILITY: Get moderator settings for a participant.
+    In new schema, we get from the session's experiment_config.
+    """
+    logger.warning("get_moderator_settings() is a backward compat function")
+    try:
+        conn = get_database_connection()
+        cursor = conn.cursor()
+
+        # Find sessions for this user
+        cursor.execute(
+            """
+            SELECT s.session_id, s.experiment_config
+            FROM sessions s
+            WHERE s.user_id = ? AND s.state = 'active'
+            ORDER BY s.created_at DESC
+            LIMIT 1
+        """,
+            (participant_id,),
+        )
+
+        row = cursor.fetchone()
+        if row:
+            import json
+
+            config = json.loads(row[1]) if row[1] else {}
+            return {
+                "method": config.get("method", "linear"),
+                "interface_type": config.get("interface_type", "grid_2d"),
+                "num_ingredients": config.get("num_ingredients", 2),
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error getting moderator settings: {e}")
+        return None
+
+
+def save_multi_ingredient_response(
+    participant_id: str,
+    session_id: str,
+    method: str,
+    interface_type: str,
+    ingredient_data: Dict,
+    sample_id: str = None,
+    is_initial: bool = False,
+    is_final_response: bool = False,
+    reaction_time_ms: int = None,
+    questionnaire_response: Dict = None,
+) -> tuple:
+    """
+    BACKWARD COMPATIBILITY: Save response using old API.
+    In new schema, we accumulate data and save complete cycle with save_sample_cycle().
+
+    This function temporarily stores data in memory (session state) and returns
+    a sample_id for tracking. The actual database save happens when the complete
+    cycle is ready.
+
+    Returns:
+        tuple: (success: bool, sample_id: str)
+    """
+    logger.warning("save_multi_ingredient_response() is a backward compat function")
+
+    import streamlit as st
+    import uuid
+
+    # Generate sample_id if not provided
+    if not sample_id:
+        sample_id = str(uuid.uuid4())
+
+    # Store in session state for later complete save
+    if "pending_cycle_data" not in st.session_state:
+        st.session_state.pending_cycle_data = {}
+
+    st.session_state.pending_cycle_data[sample_id] = {
+        "participant_id": participant_id,
+        "session_id": session_id,
+        "method": method,
+        "interface_type": interface_type,
+        "ingredient_data": ingredient_data,
+        "is_initial": is_initial,
+        "is_final_response": is_final_response,
+        "reaction_time_ms": reaction_time_ms,
+        "questionnaire_response": questionnaire_response,
+    }
+
+    return (True, sample_id)
+
+
+def update_response_with_questionnaire(
+    participant_id: str,
+    session_id: str,
+    questionnaire_response: Dict,
+    sample_id: str = None,
+) -> tuple:
+    """
+    BACKWARD COMPATIBILITY: Update response with questionnaire data.
+    In new schema, we accumulate data and save complete cycle later.
+
+    Returns:
+        tuple: (success: bool, sample_id: str)
+    """
+    logger.warning("update_response_with_questionnaire() is a backward compat function")
+
+    import streamlit as st
+    import uuid
+
+    if not sample_id:
+        sample_id = str(uuid.uuid4())
+
+    # Update pending cycle data
+    if "pending_cycle_data" not in st.session_state:
+        st.session_state.pending_cycle_data = {}
+
+    if sample_id in st.session_state.pending_cycle_data:
+        st.session_state.pending_cycle_data[sample_id][
+            "questionnaire_response"
+        ] = questionnaire_response
+    else:
+        # Create new entry if doesn't exist
+        st.session_state.pending_cycle_data[sample_id] = {
+            "participant_id": participant_id,
+            "session_id": session_id,
+            "questionnaire_response": questionnaire_response,
+        }
+
+    return (True, sample_id)
+
+
+def get_initial_slider_positions(
+    session_id: str, participant_id: str
+) -> Optional[Dict]:
+    """
+    BACKWARD COMPATIBILITY: Get initial slider positions.
+    In new schema, this is part of experiment_config.
+    Returns None to use default random positions.
+    """
+    logger.warning(
+        "get_initial_slider_positions() is a backward compat function - returning None for defaults"
+    )
+    return None
+
+
+# Note: The real update_session_state() is defined earlier (line 269)
+# No backward compat wrapper needed - same signature works for both old and new
+
+
+def extract_and_save_target_variable(
+    response_id: str, questionnaire_response: Dict, questionnaire_type: str
+) -> Optional[float]:
+    """
+    BACKWARD COMPATIBILITY: Extract target variable from questionnaire.
+    Uses extract_target_variable() from new API.
+    """
+    logger.warning("extract_and_save_target_variable() is a backward compat function")
+    return extract_target_variable(questionnaire_response, questionnaire_type)

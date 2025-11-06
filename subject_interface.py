@@ -12,16 +12,16 @@ from callback import (
 from ui_components import create_header, display_phase_status
 from session_manager import (
     get_session_info,
+    join_session,
     sync_session_state,
-    update_session_activity,
 )
 from sql_handler import (
     get_initial_slider_positions,
     get_moderator_settings,
     is_participant_activated,
-    save_multi_ingredient_response,
-    update_response_with_questionnaire,
-    update_session_state,
+    get_current_cycle,
+    increment_cycle,
+    save_sample_cycle,
 )
 from state_machine import ExperimentStateMachine, ExperimentPhase, initialize_phase
 from questionnaire_config import get_default_questionnaire_type
@@ -62,8 +62,45 @@ def get_questionnaire_type_from_config() -> str:
 
 
 def subject_interface():
-    """Multi-device subject interface with session management."""
+    """
+    Multi-device subject interface with session management.
+
+    NEW 6-PHASE WORKFLOW:
+    =====================
+    1. welcome (UI only) - Participant enters ID and waits for activation
+    2. waiting - Activated, waiting for moderator to start first cycle
+    3. robot_preparing - Robot is preparing the sample (auto-polling)
+    4. tasting - Subject tastes sample and clicks "Done Tasting"
+    5. questionnaire - Subject answers questionnaire about the sample
+    6. selection - Subject makes selection for next cycle (grid/sliders)
+    7. Repeat steps 3-6 for each cycle, or transition to:
+    8. complete - Session finished
+
+    Key Changes from Old Workflow:
+    - No PRE/POST questionnaire distinction (single questionnaire after tasting)
+    - Questionnaire comes BEFORE selection (not after)
+    - Selection is for the NEXT cycle (not current)
+    - Robot preparing phase added for better UX
+    - Moderator controls cycle progression and completion
+    """
+    # Initialize session_code from URL parameters if not in session state
+    if not st.session_state.get("session_code"):
+        url_session = st.query_params.get("session", "")
+        url_role = st.query_params.get("role", "")
+
+        if url_session and url_role == "subject":
+            if join_session(url_session):
+                st.session_state.session_code = url_session
+                sync_session_state(url_session, "subject")
+            else:
+                st.error(f"Invalid or expired session: {url_session}")
+                if st.button("🏠 Return to Home", key="invalid_session_return"):
+                    st.query_params.clear()
+                    st.rerun()
+                return
+
     # Check if we have a valid session
+    st.write(st.session_state.session_code)
     if not st.session_state.session_code:
         st.error(
             "No active session. Please join a session using the code provided by your moderator."
@@ -74,10 +111,31 @@ def subject_interface():
         return
 
     session_info = get_session_info(st.session_state.session_code)
-    if not session_info or not session_info["is_active"]:
-        st.error("Session expired or invalid.")
+    if not session_info:
+        # Check if this is a valid UUID but not yet in database (two-stage creation)
+        if not st.session_state.get("session_created_in_db", True):
+            st.info(
+                "📋 Session created. Waiting for moderator to configure experiment..."
+            )
+            st.write(
+                "Please wait while the moderator sets up the experiment parameters."
+            )
+            if st.button("🏠 Return to Home", key="subject_return_home_waiting_config"):
+                st.query_params.clear()
+                st.rerun()
+        else:
+            st.error("Session expired or invalid.")
+            st.session_state.session_code = None
+            if st.button(
+                "🏠 Return to Home", key="subject_return_home_invalid_session"
+            ):
+                st.query_params.clear()
+                st.rerun()
+        return
+    elif session_info.get("state") != "active":
+        st.error("Session has ended.")
         st.session_state.session_code = None
-        if st.button("🏠 Return to Home", key="subject_return_home_invalid_session"):
+        if st.button("🏠 Return to Home", key="subject_return_home_ended_session"):
             st.query_params.clear()
             st.rerun()
         return
@@ -89,13 +147,30 @@ def subject_interface():
     # Initialize phase if not set
     initialize_phase(default_phase="welcome")
 
-    # Update session activity
-    update_session_activity(st.session_state.session_code)
+    # Backward compatibility: map old phase names to new ones
+    phase_mapping = {
+        "pre_questionnaire": "waiting",  # Old pre-questionnaire -> waiting
+        "respond": "selection",  # Old respond -> selection
+        "post_response_message": "questionnaire",  # Old post_response_message -> questionnaire
+        "post_questionnaire": "questionnaire",  # Old post_questionnaire -> questionnaire
+        "done": "complete",  # Old done -> complete
+    }
+    if st.session_state.phase in phase_mapping:
+        old_phase = st.session_state.phase
+        st.session_state.phase = phase_mapping[old_phase]
+        logger.info(
+            f"Mapped old phase '{old_phase}' to new phase '{st.session_state.phase}'"
+        )
+
+    # Display current cycle number if in active phase
+    if st.session_state.phase not in ["welcome", "waiting", "complete"]:
+        cycle_num = get_current_cycle(st.session_state.session_code)
+        if cycle_num > 0:
+            st.markdown(f"**Current Cycle:** {cycle_num}")
 
     # Get or set participant ID
     if st.session_state.phase == "welcome":
-        # TODO: Remove unused col1, col3 variables
-        col1, col2, col3 = st.columns([1, 2, 1])
+        col2 = st.columns([1, 2, 1])[1]
         with col2:
             st.markdown("### Welcome!")
             st.write("Please enter your participant ID to begin the experiment.")
@@ -121,102 +196,96 @@ def subject_interface():
                     # Sync session state from database to get experiment configuration
                     sync_session_state(st.session_state.session_code, "subject")
 
-                    # Use state machine for validated transition
+                    # Transition to WAITING phase (new 6-phase workflow)
                     try:
                         ExperimentStateMachine.transition(
-                            new_phase=ExperimentPhase.PRE_QUESTIONNAIRE,
-                            session_code=st.session_state.session_code,
-                            participant_id=participant_id,
-                            sync_to_database=True,
+                            new_phase=ExperimentPhase.WAITING,
+                            session_id=st.session_state.session_code,
                         )
                     except Exception as e:
                         # Fallback: directly set phase if state machine fails
-                        # (can happen if database phase doesn't match session state)
-                        import logging
-
-                        logging.warning(
+                        logger.warning(
                             f"State machine transition failed: {e}. Using direct assignment."
                         )
-                        st.session_state.phase = "pre_questionnaire"
+                        st.session_state.phase = "waiting"
 
-                    st.success("Ready to begin!")
+                    st.success(
+                        "Ready to begin! Waiting for moderator to start the experiment."
+                    )
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.warning("Waiting for moderator to start your session.")
+                    st.warning("Waiting for moderator to activate your session.")
 
-            # Auto-check disabled to prevent infinite reload loops
-            # User can manually check status using the button above
-            # with st.empty():
-            #     if is_participant_activated(participant_id):
-            #         st.session_state.phase = "pre_questionnaire"
-            #         st.rerun()
-            #     else:
-            #         time.sleep(3)
-            #         st.rerun()
+    elif st.session_state.phase == "waiting":
+        display_phase_status("waiting", st.session_state.participant)
 
-    elif st.session_state.phase == "pre_questionnaire":
-        display_phase_status("pre_questionnaire", st.session_state.participant)
-
-        # Render initial impression questionnaire (using configured questionnaire type)
-        # TODO: Remove unused col1, col3 variables for cleaner code
-        col1, col2, col3 = st.columns([1, 2, 1])
+        col2 = st.columns([1, 2, 1])[1]
         with col2:
-            st.info(
-                "Please provide your initial impression of the random starting solution shown on the canvas."
-            )
-            # Get questionnaire type from experiment configuration
-            questionnaire_type = get_questionnaire_type_from_config()
-            responses = render_questionnaire(
-                questionnaire_type, st.session_state.participant
-            )
+            st.info("Waiting for moderator to start the first cycle...")
+            st.write("The experiment will begin shortly. Please be patient.")
 
-            if responses:
-                # Store questionnaire responses in session state for potential database storage
-                st.session_state.initial_questionnaire_responses = responses
-
-                # Save initial questionnaire to database (update is_initial=TRUE record)
-                success, response_id = update_response_with_questionnaire(
-                    participant_id=st.session_state.participant,
-                    session_id=st.session_state.get("session_code", "default_session"),
-                    questionnaire_response=responses,
-                    sample_id=None,  # For initial, match by is_initial=True
+        # Poll database for phase changes from moderator
+        session_info = get_session_info(st.session_state.session_code)
+        if session_info:
+            phase_from_db = session_info.get("current_phase", "waiting")
+            if phase_from_db != st.session_state.phase:
+                logger.info(
+                    f"Phase changed: {st.session_state.phase} -> {phase_from_db}"
                 )
+                st.session_state.phase = phase_from_db
 
-                if success and response_id:
-                    # Extract and save target variable for Bayesian optimization
-                    from sql_handler import extract_and_save_target_variable
+        time.sleep(2)
+        st.rerun()
 
-                    questionnaire_type = get_questionnaire_type_from_config()
-                    target_value = extract_and_save_target_variable(
-                        response_id=response_id,
-                        questionnaire_response=responses,
-                        questionnaire_type=questionnaire_type,
-                    )
+    elif st.session_state.phase == "robot_preparing":
+        display_phase_status("robot_preparing", st.session_state.participant)
 
-                    if target_value is not None:
-                        logger.info(
-                            f"Initial target variable extracted: {target_value} for response_id={response_id}"
-                        )
-                    else:
-                        logger.warning(
-                            f"Failed to extract initial target variable for response_id={response_id}"
-                        )
+        # Show cycle number
+        cycle_num = get_current_cycle(st.session_state.session_code)
+        st.info(f"Cycle {cycle_num}: Robot is preparing your sample, please wait...")
 
-                if success:
-                    # Move to respond phase using state machine
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.TRIAL_ACTIVE,
-                        session_code=st.session_state.session_code,
-                        participant_id=st.session_state.participant,
-                        sync_to_database=True,
-                    )
-                    st.rerun()
-                else:
-                    st.error("Failed to save initial questionnaire. Please try again.")
+        # Poll database for phase changes from moderator
+        session_info = get_session_info(st.session_state.session_code)
+        if session_info:
+            phase_from_db = session_info.get("current_phase", "robot_preparing")
+            if phase_from_db != st.session_state.phase:
+                logger.info(
+                    f"Phase changed: {st.session_state.phase} -> {phase_from_db}"
+                )
+                st.session_state.phase = phase_from_db
 
-    elif st.session_state.phase == "respond":
-        display_phase_status("respond", st.session_state.participant)
+        time.sleep(2)
+        st.rerun()
+
+    elif st.session_state.phase == "tasting":
+        display_phase_status("tasting", st.session_state.participant)
+
+        # Show cycle number
+        cycle_num = get_current_cycle(st.session_state.session_code)
+        st.info(f"Cycle {cycle_num}: Please taste the sample")
+
+        col2 = st.columns([1, 2, 1])[1]
+        with col2:
+            st.markdown("### Tasting Instructions")
+            st.write("1. Take a small sip of the sample")
+            st.write("2. Take your time to evaluate the taste")
+            st.write("3. Click 'Done Tasting' when ready to provide feedback")
+
+            if st.button(
+                "Done Tasting",
+                type="primary",
+                use_container_width=True,
+                key="done_tasting_button",
+            ):
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.QUESTIONNAIRE,
+                    session_id=st.session_state.session_code,
+                )
+                st.rerun()
+
+    elif st.session_state.phase == "selection":
+        display_phase_status("selection", st.session_state.participant)
 
         # Get moderator settings
         mod_settings = get_moderator_settings(st.session_state.participant)
@@ -361,26 +430,13 @@ def subject_interface():
                                 if success:
                                     st.session_state.last_saved_position = (x, y)
 
-                                # Also update session state for live monitoring
-                                update_session_state(
-                                    user_type="sub",
-                                    participant_id=st.session_state.participant,
-                                    method=mod_settings["method"],
-                                    x=x,
-                                    y=y,
-                                )
-
                                 # Store current canvas result for later submission
                                 st.session_state.pending_canvas_result = canvas_result
                                 st.session_state.pending_method = mod_settings["method"]
 
-                                # Immediately go to questionnaire (no submit button needed)
-                                ExperimentStateMachine.transition(
-                                    new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
-                                    session_code=st.session_state.session_code,
-                                    participant_id=st.session_state.participant,
-                                    sync_to_database=True,
-                                )
+                                # In new workflow, selection saves data for NEXT cycle
+                                # Show confirmation and allow user to continue or finish
+                                st.success("Selection saved!")
                                 st.rerun()
 
                             # Display current position and selection history
@@ -761,91 +817,45 @@ def subject_interface():
                         conc_data["actual_concentration_mM"], 3
                     )
 
-                # Save to database with sample_id and is_final_response=False
-                # This will be updated to is_final_response=True after questionnaire
-                success = save_multi_ingredient_response(
-                    participant_id=st.session_state.participant,
-                    session_id=st.session_state.get("session_code", "default_session"),
-                    method=INTERFACE_SLIDERS,
-                    interface_type=INTERFACE_SLIDERS,
-                    ingredient_concentrations=ingredient_concentrations,
-                    reaction_time_ms=reaction_time_ms,
-                    questionnaire_response={},  # Empty dict, will be updated in questionnaire phase
-                    sample_id=sample_id,  # Link to this specific sample
-                    is_final_response=False,  # Not final until questionnaire completed
-                    is_initial=False,
-                    extra_data={
-                        "interface_type": INTERFACE_SLIDERS,
-                        "method": INTERFACE_SLIDERS,
-                        "response_metadata": {
-                            "is_initial_random": False,
-                            "is_finish_button": True,
-                            "is_final_submission": False,
-                        },
-                        "ui_data": {
-                            "grid_position": None,
-                            "slider_percentages": {
-                                ing: concentrations[ing]["slider_position"]
-                                for ing in concentrations
-                            },
-                            "concentrations_summary": concentrations,
-                        },
-                        "ingredient_metadata": {
-                            "ingredient_names": list(ingredient_concentrations.keys()),
-                            "ingredient_order": list(
-                                range(len(ingredient_concentrations))
-                            ),
-                            "ingredient_ranges": {
-                                ing: {
-                                    "min": concentrations[ing]["min_mM"],
-                                    "max": concentrations[ing]["max_mM"],
-                                    "unit": "mM",
-                                    "molecular_weight": concentrations[ing][
-                                        "molecular_weight"
-                                    ],
-                                }
-                                for ing in concentrations
-                            },
-                        },
-                    },
+                # Store selection data for next cycle (will be saved after questionnaire)
+                st.session_state.next_selection_data = {
+                    "interface_type": INTERFACE_SLIDERS,
+                    "method": INTERFACE_SLIDERS,
+                    "ingredient_concentrations": ingredient_concentrations,
+                    "slider_values": final_slider_values.copy(),
+                    "sample_id": sample_id,
+                }
+
+                # Initialize selection history if it doesn't exist
+                if not hasattr(st.session_state, "selection_history"):
+                    st.session_state.selection_history = []
+
+                # Add final selection to history for display
+                selection_number = len(st.session_state.selection_history) + 1
+                st.session_state.selection_history.append(
+                    {
+                        "slider_values": final_slider_values.copy(),
+                        "concentrations": concentrations,
+                        "order": selection_number,
+                        "timestamp": time.time(),
+                        "interface_type": "sliders",
+                    }
                 )
 
-                if success:
-                    # Initialize selection history if it doesn't exist
-                    if not hasattr(st.session_state, "selection_history"):
-                        st.session_state.selection_history = []
+                # Store final values in session state for questionnaire phase
+                st.session_state.current_slider_values = final_slider_values
+                st.session_state.pending_slider_result = {
+                    "slider_values": final_slider_values,
+                    "concentrations": concentrations,
+                }
+                st.session_state.pending_method = INTERFACE_SLIDERS
 
-                    # Add final selection to history for display
-                    selection_number = len(st.session_state.selection_history) + 1
-                    st.session_state.selection_history.append(
-                        {
-                            "slider_values": final_slider_values.copy(),
-                            "concentrations": concentrations,
-                            "order": selection_number,
-                            "timestamp": time.time(),
-                            "interface_type": "sliders",
-                        }
-                    )
-
-                    # Store final values in session state for questionnaire phase
-                    st.session_state.current_slider_values = final_slider_values
-                    st.session_state.pending_slider_result = {
-                        "slider_values": final_slider_values,
-                        "concentrations": concentrations,
-                    }
-                    st.session_state.pending_method = INTERFACE_SLIDERS
-
-                    st.success("Slider selection recorded!")
-                    # Go to questionnaire (will update the same record with questionnaire data)
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
-                        session_code=st.session_state.session_code,
-                        participant_id=st.session_state.participant,
-                        sync_to_database=True,
-                    )
-                    st.rerun()
-                else:
-                    st.error("Failed to save slider selection. Please try again.")
+                st.success(
+                    "Slider selection recorded! Ready for next cycle or completion."
+                )
+                # In new workflow, selection saves data for NEXT cycle
+                # Moderator decides whether to continue or complete
+                st.rerun()
 
             # Display selection history
             if (
@@ -865,173 +875,85 @@ def subject_interface():
                     ):
                         st.write(f"  Ingredient {chr(65 + i)}: {value:.1f}%")
 
-    elif st.session_state.phase == "post_response_message":
-        display_phase_status("post_response_message", st.session_state.participant)
+    elif st.session_state.phase == "questionnaire":
+        display_phase_status("questionnaire", st.session_state.participant)
 
-        col1, col2, col3 = st.columns([1, 2, 1])
+        # Show cycle number
+        cycle_num = get_current_cycle(st.session_state.session_code)
+        st.info(
+            f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted"
+        )
+
+        col2 = st.columns([1, 2, 1])[1]
         with col2:
-            show_preparation_message()
-
-            # Auto-advance to questionnaire after brief delay
-            if st.button(
-                "Continue to Questionnaire",
-                type="primary",
-                use_container_width=True,
-                key="subject_continue_questionnaire_button",
-            ):
-                ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.POST_QUESTIONNAIRE,
-                    session_code=st.session_state.session_code,
-                    participant_id=st.session_state.participant,
-                    sync_to_database=True,
-                )
-                st.rerun()
-
-    elif st.session_state.phase == "post_questionnaire":
-        display_phase_status("post_questionnaire", st.session_state.participant)
-
-        # Show selection history summary
-        if (
-            hasattr(st.session_state, "selection_history")
-            and st.session_state.selection_history
-        ):
-            st.info(
-                f"You have made {len(st.session_state.selection_history)} selection(s) so far."
-            )
-
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            # Determine if this should show Final Response button
-            # Show Final Response if user has made multiple selections or wants to finish
-            show_final = st.checkbox(
-                "Ready to submit final response?",
-                help="Check this box if you're done making selections and want to submit your final response.",
-                key=f"subject_ready_final_response_{st.session_state.participant}_{st.session_state.session_code}",
-            )
-
             # Get questionnaire type from experiment configuration
             questionnaire_type = get_questionnaire_type_from_config()
             responses = render_questionnaire(
                 questionnaire_type,
                 st.session_state.participant,
-                show_final_response=show_final,
             )
 
             if responses:
                 # Store questionnaire responses
-                st.session_state.post_questionnaire_responses = responses
+                st.session_state.questionnaire_responses = responses
 
-                # ALWAYS save questionnaire response for every sample (not just final)
-                # Get sample_id if available (for UUID-based linking)
-                sample_id = st.session_state.get("current_sample_id", None)
+                # Get selection data from session state (saved in selection phase)
+                selection_data = st.session_state.get("next_selection_data", {})
 
-                # Update the existing response with questionnaire data
-                success, response_id = update_response_with_questionnaire(
-                    participant_id=st.session_state.participant,
-                    session_id=st.session_state.get("session_code", "default_session"),
-                    questionnaire_response=responses,  # Add questionnaire to existing response
-                    sample_id=sample_id,  # Link to specific sample via UUID
+                # Get current cycle number
+                current_cycle = get_current_cycle(st.session_state.session_code)
+
+                # Get ingredient concentrations from the selection data
+                ingredient_concentrations = selection_data.get(
+                    "ingredient_concentrations", {}
                 )
 
-                if success and response_id:
-                    # Extract and save target variable for Bayesian optimization
-                    from sql_handler import extract_and_save_target_variable
-
-                    questionnaire_type = get_questionnaire_type_from_config()
-                    target_value = extract_and_save_target_variable(
-                        response_id=response_id,
-                        questionnaire_response=responses,
-                        questionnaire_type=questionnaire_type,
+                # Save complete cycle data to database
+                try:
+                    sample_id = save_sample_cycle(
+                        session_id=st.session_state.session_code,
+                        cycle_number=current_cycle,
+                        ingredient_concentration=ingredient_concentrations,
+                        selection_data=selection_data,
+                        questionnaire_answer=responses,
+                        is_final=False,
                     )
-
-                    if target_value is not None:
-                        logger.info(
-                            f"Target variable extracted: {target_value} for response_id={response_id}"
-                        )
-                    else:
-                        logger.warning(
-                            f"Failed to extract target variable for response_id={response_id}"
-                        )
+                    success = True
+                    logger.info(
+                        f"Saved complete cycle {current_cycle} with sample_id: {sample_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save cycle data: {e}")
+                    success = False
 
                 if success:
-                    if responses.get("is_final", False):
-                        # Complete the trial with final submission
-                        ExperimentStateMachine.transition(
-                            new_phase=ExperimentPhase.TRIAL_COMPLETE,
-                            session_code=st.session_state.session_code,
-                            participant_id=st.session_state.participant,
-                            sync_to_database=True,
-                        )
-                        # Clean up temporary storage
-                        cleanup_pending_results()
-                        # Clear sample_id for next trial
-                        if hasattr(st.session_state, "current_sample_id"):
-                            del st.session_state.current_sample_id
-                        st.rerun()
-                    else:
-                        # Intermediate save successful - allow another sample
-                        # Clean up temporary storage
-                        cleanup_pending_results()
-                        # Clear sample_id so new click generates new UUID
-                        if hasattr(st.session_state, "current_sample_id"):
-                            del st.session_state.current_sample_id
-
-                        ExperimentStateMachine.transition(
-                            new_phase=ExperimentPhase.TRIAL_ACTIVE,
-                            session_code=st.session_state.session_code,
-                            participant_id=st.session_state.participant,
-                            sync_to_database=True,
-                        )
-                        st.success(
-                            "Questionnaire saved! You can test another sample or check the box above to submit your final response."
-                        )
-                        st.rerun()
+                    # Transition to SELECTION phase (new 6-phase workflow)
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.SELECTION,
+                        session_id=st.session_state.session_code,
+                    )
+                    st.success(
+                        "Questionnaire saved! Now make your selection for the next cycle."
+                    )
+                    st.rerun()
                 else:
                     st.error(
                         "Failed to save questionnaire response. Please contact the moderator."
                     )
-                    st.rerun()
 
-    elif st.session_state.phase == "done":
-        display_phase_status("done", st.session_state.participant)
+    elif st.session_state.phase == "complete":
+        display_phase_status("complete", st.session_state.participant)
 
-        col1, col2, col3 = st.columns([1, 2, 1])
+        col2 = st.columns([1, 2, 1])[1]
         with col2:
-            st.markdown("### 🎉 Thank You!")
-            st.success("Your response has been recorded successfully.")
+            st.markdown("### Thank You!")
+            st.success("The experiment session has been completed successfully.")
 
-            if hasattr(st.session_state, "last_response"):
-                resp = st.session_state.last_response
+            # Show session summary
+            cycle_num = get_current_cycle(st.session_state.session_code)
+            st.info(f"Total cycles completed: {cycle_num}")
 
-                st.markdown("#### Your Selection:")
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.metric("Position", f"({resp['x']:.0f}, {resp['y']:.0f})")
-                with col_b:
-                    st.metric("Response Time", f"{resp.get('reaction_time_ms', 0)} ms")
-
-            # Auto-refresh disabled to prevent blank screen issues
-            st.info(
-                "Waiting for next trial... (refresh browser to check for new trials)"
+            st.write("Thank you for your participation!")
+            st.write(
+                "You may now close this window or wait for further instructions from the moderator."
             )
-
-            # Check if moderator started a new trial (only on user action, not automatic)
-            if st.button("Check for New Trial", key="subject_check_new_trial"):
-                if is_participant_activated(st.session_state.participant):
-                    mod_settings = get_moderator_settings(st.session_state.participant)
-                    if mod_settings and mod_settings["created_at"] != getattr(
-                        st.session_state, "last_trial_time", None
-                    ):
-                        # Skip pre-questionnaire for subsequent trials
-                        ExperimentStateMachine.transition(
-                            new_phase=ExperimentPhase.TRIAL_ACTIVE,
-                            session_code=st.session_state.session_code,
-                            participant_id=st.session_state.participant,
-                            sync_to_database=True,
-                        )
-                        st.session_state.last_trial_time = mod_settings["created_at"]
-                        st.rerun()
-                    else:
-                        st.info("No new trials available yet.")
-                else:
-                    st.info("No new trials available yet.")

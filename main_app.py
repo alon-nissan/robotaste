@@ -539,10 +539,6 @@ def main():
     Handles session-based routing for moderator and subject devices.
     Supports direct URL access with session codes for seamless multi-device experience.
     """
-    # Clean up old sessions periodically
-    from session_manager import cleanup_old_sessions
-
-    cleanup_old_sessions(24)  # Clean sessions older than 24 hours
 
     # Route to appropriate interface based on URL parameter and session state
     role = st.query_params.get("role", "")

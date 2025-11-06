@@ -72,23 +72,19 @@ DEFAULT_BO_CONFIG = {
     "enabled": True,
     "min_samples_for_bo": 3,
     "acquisition_function": "ei",  # "ei" or "ucb"
-
     # Acquisition function parameters
     "ei_xi": 0.01,  # Exploration parameter for EI
     "ucb_kappa": 2.0,  # Exploration parameter for UCB
-
     # Gaussian Process kernel parameters
     "kernel_nu": 2.5,  # Matern smoothness: 0.5, 1.5, 2.5, or inf
     "length_scale_initial": 1.0,
     "length_scale_bounds": [0.1, 10.0],
     "constant_kernel_bounds": [1e-3, 1e3],
-
     # GP training parameters
     "alpha": 1e-3,  # Noise/regularization (changed from 1e-6 to 1e-3 for human data)
     "n_restarts_optimizer": 10,
     "normalize_y": True,
     "random_state": 42,
-
     # Advanced parameters
     "only_final_responses": True,  # Use only final responses for training
     "candidate_sampling_method": "auto",  # "grid", "lhs", or "auto"
@@ -154,7 +150,7 @@ def validate_bo_config(config: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("min_samples_for_bo must be >= 2, setting to 2")
         validated["min_samples_for_bo"] = 2
 
-    if validated.get("kernel_nu") not in [0.5, 1.5, 2.5, float('inf')]:
+    if validated.get("kernel_nu") not in [0.5, 1.5, 2.5, float("inf")]:
         logger.warning(f"kernel_nu must be 0.5, 1.5, 2.5, or inf, using 2.5")
         validated["kernel_nu"] = 2.5
 
@@ -222,6 +218,7 @@ def get_bo_config_from_experiment(experiment_config: Dict[str, Any]) -> Dict[str
 # Main BO Class
 # ============================================================================
 
+
 class RoboTasteBO:
     """
     Bayesian Optimization for taste preference learning.
@@ -249,7 +246,7 @@ class RoboTasteBO:
         self,
         ingredient_names: List[str],
         concentration_ranges: Dict[str, Tuple[float, float]],
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize Bayesian Optimization model.
@@ -291,13 +288,15 @@ class RoboTasteBO:
                 raise ValueError(f"Missing concentration range for ingredient: {name}")
             min_c, max_c = self.ranges[name]
             if min_c >= max_c:
-                raise ValueError(f"Invalid range for {name}: min ({min_c}) >= max ({max_c})")
+                raise ValueError(
+                    f"Invalid range for {name}: min ({min_c}) >= max ({max_c})"
+                )
 
         # GP with Matern kernel (configurable smoothness)
         kernel = C(1.0, constant_bounds) * Matern(
             length_scale=length_scale_initial,
             length_scale_bounds=length_scale_bounds,
-            nu=kernel_nu
+            nu=kernel_nu,
         )
 
         self.gp = GaussianProcessRegressor(
@@ -305,7 +304,7 @@ class RoboTasteBO:
             alpha=alpha,  # Noise regularization
             n_restarts_optimizer=n_restarts,
             normalize_y=normalize_y,  # Normalize target values for numerical stability
-            random_state=random_state  # For reproducibility
+            random_state=random_state,  # For reproducibility
         )
 
         self.is_fitted = False
@@ -392,10 +391,7 @@ class RoboTasteBO:
         logger.debug(f"Kernel hyperparameters: {self.gp.kernel_}")
 
     def predict(
-        self,
-        X: np.ndarray,
-        return_std: bool = True,
-        return_cov: bool = False
+        self, X: np.ndarray, return_std: bool = True, return_cov: bool = False
     ) -> Tuple[np.ndarray, ...]:
         """
         Predict mean and uncertainty for new samples.
@@ -417,13 +413,10 @@ class RoboTasteBO:
             raise ValueError("GP not fitted. Call fit() first.")
 
         X_norm = self._normalize_features(X)
-        return self.gp.predict(X_norm, return_std=return_std, return_cov=return_cov)
+        return self.gp.predict(X_norm, return_std=return_std, return_cov=return_cov)  # type: ignore
 
     def expected_improvement(
-        self,
-        X: np.ndarray,
-        xi: float = 0.01,
-        use_ei_per_cost: bool = False
+        self, X: np.ndarray, xi: float = 0.01, use_ei_per_cost: bool = False
     ) -> np.ndarray:
         """
         Calculate Expected Improvement acquisition function.
@@ -474,11 +467,7 @@ class RoboTasteBO:
 
         return ei
 
-    def upper_confidence_bound(
-        self,
-        X: np.ndarray,
-        kappa: float = 2.0
-    ) -> np.ndarray:
+    def upper_confidence_bound(self, X: np.ndarray, kappa: float = 2.0) -> np.ndarray:
         """
         Calculate Upper Confidence Bound (UCB) acquisition function.
 
@@ -505,7 +494,7 @@ class RoboTasteBO:
         candidates: np.ndarray,
         acquisition: Optional[str] = None,
         return_all_scores: bool = False,
-        **acq_kwargs
+        **acq_kwargs,
     ) -> Dict[str, Any]:
         """
         Recommend next sample to test based on acquisition function.
@@ -532,16 +521,16 @@ class RoboTasteBO:
             best_candidate = candidates[idx]
 
             result = {
-                'best_candidate': best_candidate,
-                'best_candidate_dict': {
+                "best_candidate": best_candidate,
+                "best_candidate_dict": {
                     name: float(best_candidate[i])
                     for i, name in enumerate(self.ingredient_names)
                 },
-                'predicted_value': None,
-                'acquisition_value': None,
-                'uncertainty': None,
-                'mode': 'random_exploration',
-                'message': f'Insufficient data ({len(self.X_train) if self.X_train is not None else 0} samples). Exploring randomly.'
+                "predicted_value": None,
+                "acquisition_value": None,
+                "uncertainty": None,
+                "mode": "random_exploration",
+                "message": f"Insufficient data ({len(self.X_train) if self.X_train is not None else 0} samples). Exploring randomly.",
             }
 
             logger.info("Suggesting random sample (GP not fitted)")
@@ -573,25 +562,25 @@ class RoboTasteBO:
         best_candidate = candidates[best_idx]
 
         result = {
-            'best_candidate': best_candidate,
-            'best_candidate_dict': {
+            "best_candidate": best_candidate,
+            "best_candidate_dict": {
                 name: float(best_candidate[i])
                 for i, name in enumerate(self.ingredient_names)
             },
-            'predicted_value': float(mu_values[best_idx]),
-            'acquisition_value': float(acq_values[best_idx]),
-            'uncertainty': float(sigma_values[best_idx]),
-            'mode': 'bayesian_optimization',
-            'acquisition_function': acquisition,
-            'n_training_samples': len(self.X_train),
-            'best_observed_value': float(self.best_observed_value)
+            "predicted_value": float(mu_values[best_idx]),
+            "acquisition_value": float(acq_values[best_idx]),
+            "uncertainty": float(sigma_values[best_idx]),
+            "mode": "bayesian_optimization",
+            "acquisition_function": acquisition,
+            "n_training_samples": len(self.X_train),  # type: ignore
+            "best_observed_value": float(self.best_observed_value),
         }
 
         if return_all_scores:
-            result['all_candidates'] = candidates
-            result['all_acquisition_values'] = acq_values
-            result['all_predictions'] = mu_values
-            result['all_uncertainties'] = sigma_values
+            result["all_candidates"] = candidates
+            result["all_acquisition_values"] = acq_values
+            result["all_predictions"] = mu_values
+            result["all_uncertainties"] = sigma_values
 
         logger.info(
             f"BO Suggestion ({acquisition.upper()}): "
@@ -607,10 +596,9 @@ class RoboTasteBO:
 # Integration Functions for RoboTaste
 # ============================================================================
 
+
 def train_bo_model_for_participant(
-    participant_id: str,
-    session_id: str,
-    bo_config: Optional[Dict[str, Any]] = None
+    participant_id: str, session_id: str, bo_config: Optional[Dict[str, Any]] = None
 ) -> Optional[RoboTasteBO]:
     """
     Train Bayesian Optimization model using configuration.
@@ -648,7 +636,9 @@ def train_bo_model_for_participant(
         min_samples = config.get("min_samples_for_bo", 3)
 
         # Get training data from database
-        df = get_participant_target_values(participant_id, session_id, only_final=only_final)
+        df = get_participant_target_values(
+            participant_id, session_id, only_final=only_final
+        )
 
         if len(df) < min_samples:
             logger.info(
@@ -663,7 +653,7 @@ def train_bo_model_for_participant(
 
         for _, row in df.iterrows():
             try:
-                ingredient_dict = json.loads(row['ingredient_data'])
+                ingredient_dict = json.loads(row["ingredient_data"])
 
                 # Get ingredient names from first sample (assumes consistent ingredients)
                 if ingredient_names is None:
@@ -673,7 +663,7 @@ def train_bo_model_for_participant(
                 # Convert to feature vector (fixed order)
                 feature_vector = [ingredient_dict[name] for name in ingredient_names]
                 X_list.append(feature_vector)
-                y_list.append(row['target_variable_value'])
+                y_list.append(row["target_variable_value"])
 
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Skipping invalid response record: {e}")
@@ -690,14 +680,14 @@ def train_bo_model_for_participant(
 
         # Infer concentration ranges from data (with 20% padding)
         ranges = {}
-        for i, name in enumerate(ingredient_names):
+        for i, name in enumerate(ingredient_names):  # type: ignore
             min_c = max(0.001, np.min(X[:, i]) * 0.8)  # Pad 20%, min 0.001
             max_c = np.max(X[:, i]) * 1.2
             ranges[name] = (min_c, max_c)
             logger.debug(f"{name} range: [{min_c:.3f}, {max_c:.3f}] mM")
 
         # Train model with config
-        bo = RoboTasteBO(ingredient_names, ranges, config=config)
+        bo = RoboTasteBO(ingredient_names, ranges, config=config)  # type: ignore
         bo.fit(X, y)
 
         logger.info(
@@ -714,7 +704,7 @@ def train_bo_model_for_participant(
 def generate_candidate_grid_2d(
     sugar_range: Tuple[float, float],
     salt_range: Tuple[float, float],
-    n_points: int = 20
+    n_points: int = 20,
 ) -> np.ndarray:
     """
     Generate 2D grid of candidate samples for Sugar-Salt space.
@@ -748,7 +738,7 @@ def generate_candidate_grid_2d(
 def generate_candidates_latin_hypercube(
     ranges: Dict[str, Tuple[float, float]],
     n_candidates: int = 1000,
-    random_state: int = 42
+    random_state: int = 42,
 ) -> np.ndarray:
     """
     Generate candidate samples using Latin Hypercube Sampling.
@@ -783,58 +773,18 @@ def generate_candidates_latin_hypercube(
         min_c, max_c = ranges[name]
         candidates[:, i] = samples_normalized[:, i] * (max_c - min_c) + min_c
 
-    logger.debug(
-        f"Generated {n_candidates} candidates via LHS for {n_dim} ingredients"
-    )
+    logger.debug(f"Generated {n_candidates} candidates via LHS for {n_dim} ingredients")
 
     return candidates
-
-
-def save_bo_prediction_to_db(
-    response_id: int,
-    predicted_value: float,
-    acquisition_value: float
-) -> bool:
-    """
-    Save Bayesian optimization predictions to database.
-
-    Wrapper around sql_handler.save_bayesian_prediction() with error handling.
-
-    Args:
-        response_id: Response record to annotate
-        predicted_value: GP predicted mean (µ)
-        acquisition_value: Acquisition score (e.g., EI value)
-
-    Returns:
-        Success status
-    """
-    from sql_handler import save_bayesian_prediction
-
-    try:
-        success = save_bayesian_prediction(
-            response_id=response_id,
-            predicted_value=predicted_value,
-            acquisition_value=acquisition_value
-        )
-
-        if success:
-            logger.info(f"Saved BO prediction for response_id={response_id}")
-        else:
-            logger.warning(f"Failed to save BO prediction for response_id={response_id}")
-
-        return success
-
-    except Exception as e:
-        logger.error(f"Error saving BO prediction: {e}")
-        return False
 
 
 # ============================================================================
 # Utility Functions
 # ============================================================================
 
+
 def get_ingredient_ranges_from_experiment_config(
-    experiment_config: Dict[str, Any]
+    experiment_config: Dict[str, Any],
 ) -> Dict[str, Tuple[float, float]]:
     """
     Extract ingredient concentration ranges from experiment configuration.
@@ -858,13 +808,13 @@ def get_ingredient_ranges_from_experiment_config(
     """
     ranges = {}
 
-    if 'ingredients' not in experiment_config:
+    if "ingredients" not in experiment_config:
         raise ValueError("experiment_config missing 'ingredients' key")
 
-    for ingredient in experiment_config['ingredients']:
-        name = ingredient['name']
-        min_c = ingredient.get('min_concentration_mM', 0.0)
-        max_c = ingredient.get('max_concentration_mM', 100.0)
+    for ingredient in experiment_config["ingredients"]:
+        name = ingredient["name"]
+        min_c = ingredient.get("min_concentration_mM", 0.0)
+        max_c = ingredient.get("max_concentration_mM", 100.0)
         ranges[name] = (min_c, max_c)
 
     return ranges
@@ -876,8 +826,8 @@ if __name__ == "__main__":
 
     # Create test model
     bo = RoboTasteBO(
-        ingredient_names=['Sugar', 'Salt'],
-        concentration_ranges={'Sugar': (0.73, 73.0), 'Salt': (0.10, 10.0)}
+        ingredient_names=["Sugar", "Salt"],
+        concentration_ranges={"Sugar": (0.73, 73.0), "Salt": (0.10, 10.0)},
     )
 
     # Test data

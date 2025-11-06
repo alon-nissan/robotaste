@@ -1,15 +1,11 @@
 from ui_components import create_header
 from session_manager import (
-    create_session,
     get_session_info,
     join_session,
     sync_session_state,
 )
 
-
 import streamlit as st
-
-
 import time
 
 
@@ -70,18 +66,25 @@ def landing_page():
                 use_container_width=True,
                 key="landing_create_session_button",
             ):
-                new_session_code = create_session(moderator_name)
+                # Generate UUID only - no database insertion yet
+                # Full session will be created when moderator configures and clicks "Start Trial"
+                import uuid
 
-                # Properly sync session state
-                if sync_session_state(new_session_code, "moderator"):
-                    st.query_params.update(
-                        {"role": "moderator", "session": new_session_code}
-                    )
-                    st.success(f"Session created: {new_session_code}")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("Failed to create session. Please try again.")
+                new_session_code = str(uuid.uuid4())
+
+                # Store in session state for moderator interface
+                st.session_state.session_code = new_session_code
+                st.session_state.device_role = "moderator"
+                st.session_state.moderator_name = moderator_name
+                st.session_state.session_created_in_db = False  # Flag: not in DB yet
+
+                st.query_params.update(
+                    {"role": "moderator", "session": new_session_code}
+                )
+                st.success(f"Session ID generated: {new_session_code[:8]}...")
+                st.info("Please configure your experiment settings on the next screen.")
+                time.sleep(1)
+                st.rerun()
 
         with tab2:
             st.markdown("### Join Existing Session (Subject)")
