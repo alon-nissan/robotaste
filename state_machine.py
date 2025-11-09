@@ -29,6 +29,7 @@ class ExperimentPhase(Enum):
     """All possible phases in the simplified experiment workflow."""
 
     # Session-level phases
+    # WELCOME = "welcome"  # Initial welcome phase (not used in state machine)
     WAITING = "waiting"  # Session created, waiting for moderator to start
 
     # Cycle phases (repeated for each cycle)
@@ -76,7 +77,8 @@ class ExperimentStateMachine:
             ExperimentPhase.SELECTION  # Subject finished questionnaire
         ],
         ExperimentPhase.SELECTION: [
-            ExperimentPhase.ROBOT_PREPARING,  # Auto-transition to next cycle after selection
+            ExperimentPhase.ROBOT_PREPARING,  # Cycle 0 only: moderator prepares first sample
+            ExperimentPhase.QUESTIONNAIRE,  # Cycle 1+: skip robot preparing, go directly to questionnaire
             ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
         ExperimentPhase.COMPLETE: [

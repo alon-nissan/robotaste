@@ -16,8 +16,6 @@ from session_manager import (
     sync_session_state,
 )
 from sql_handler import (
-    get_initial_slider_positions,
-    is_participant_activated,
     get_current_cycle,
     increment_cycle,
     save_sample_cycle,
@@ -191,7 +189,11 @@ def subject_interface():
                 use_container_width=True,
                 key="subject_check_status_button",
             ):
-                if is_participant_activated(participant_id):
+                # Check if user exists and has an active session
+                from sql_handler import get_user
+
+                user = get_user(participant_id)  # type: ignore
+                if user is not None:
                     # Sync session state from database to get experiment configuration
                     sync_session_state(st.session_state.session_code, "subject")
 
@@ -269,8 +271,12 @@ def subject_interface():
             return
 
         # Verify session is fully configured (moderator has started trial)
-        if not st.session_state.get("num_ingredients") or not st.session_state.get("interface_type"):
-            st.warning("Session not fully configured. Waiting for moderator to start the trial...")
+        if not st.session_state.get("num_ingredients") or not st.session_state.get(
+            "interface_type"
+        ):
+            st.warning(
+                "Session not fully configured. Waiting for moderator to start the trial..."
+            )
             time.sleep(2)
             st.rerun()
             return
@@ -332,7 +338,7 @@ def subject_interface():
                 initial_drawing = create_canvas_drawing(
                     300,  # Default center position
                     300,  # Default center position
-                    selection_history,
+                    selection_history,  # type: ignore
                 )
 
             canvas_result = st_canvas(
@@ -419,8 +425,11 @@ def subject_interface():
 
                                 # Prepare selection data for next cycle
                                 from callback import ConcentrationMapper
-                                sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
-                                    x, y, method=method
+
+                                sugar_mm, salt_mm = (
+                                    ConcentrationMapper.map_coordinates_to_concentrations(
+                                        x, y, method=method
+                                    )
                                 )
                                 ingredient_concentrations = {
                                     "Sugar": round(sugar_mm, 3),
@@ -433,27 +442,52 @@ def subject_interface():
                                     "x_position": x,
                                     "y_position": y,
                                     "ingredient_concentrations": ingredient_concentrations,
-                                    "trajectory": st.session_state.trajectory_clicks.copy() if hasattr(st.session_state, "trajectory_clicks") else [],
+                                    "trajectory": (
+                                        st.session_state.trajectory_clicks.copy()
+                                        if hasattr(
+                                            st.session_state, "trajectory_clicks"
+                                        )
+                                        else []
+                                    ),
                                     "sample_id": sample_id,
                                 }
 
-                                # Auto-transition to ROBOT_PREPARING for next cycle
-                                ExperimentStateMachine.transition(
-                                    new_phase=ExperimentPhase.ROBOT_PREPARING,
-                                    session_id=st.session_state.session_code,
+                                # Get current cycle before incrementing
+                                current_cycle = get_current_cycle(
+                                    st.session_state.session_code
                                 )
 
                                 # Increment cycle counter
-                                new_cycle = increment_cycle(st.session_state.session_code)
+                                new_cycle = increment_cycle(
+                                    st.session_state.session_code
+                                )
                                 st.session_state.cycle_number = new_cycle
 
+                                # Cycle-aware transition:
+                                # - Cycle 0: transition to ROBOT_PREPARING (moderator needs to start)
+                                # - Cycle 1+: skip ROBOT_PREPARING, go directly to QUESTIONNAIRE
+                                if current_cycle == 0:
+                                    ExperimentStateMachine.transition(
+                                        new_phase=ExperimentPhase.ROBOT_PREPARING,
+                                        session_id=st.session_state.session_code,
+                                    )
+                                else:
+                                    ExperimentStateMachine.transition(
+                                        new_phase=ExperimentPhase.QUESTIONNAIRE,
+                                        session_id=st.session_state.session_code,
+                                    )
+
                                 # Update current_tasted_sample for next cycle
-                                st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+                                st.session_state.current_tasted_sample = (
+                                    ingredient_concentrations.copy()
+                                )
 
                                 # Clear trajectory for new cycle
                                 st.session_state.trajectory_clicks = []
 
-                                st.success(f"Selection saved! Starting cycle {new_cycle}")
+                                st.success(
+                                    f"Selection saved! Starting cycle {new_cycle}"
+                                )
                                 st.rerun()
 
                             # Display current position and selection history
@@ -466,6 +500,68 @@ def subject_interface():
 
                 except Exception as e:
                     st.error(f"Error processing selection: {e}")
+
+            # Add "Complete Experiment" button for grid interface
+            st.markdown("---")
+            st.markdown("### 🏁 Finish Experiment")
+            if st.button(
+                "Complete Experiment",
+                type="secondary",
+                help="Mark this as your final selection and end the experiment",
+                key="grid_complete_experiment_button",
+            ):
+                try:
+                    # Save final selection data
+                    from callback import ConcentrationMapper
+                    import uuid
+
+                    sample_id = str(uuid.uuid4())
+                    st.session_state.current_sample_id = sample_id
+
+                    # Get current grid position and method
+                    x = st.session_state.get("x", 50)
+                    y = st.session_state.get("y", 50)
+                    method = st.session_state.get("method", "linear")
+
+                    # Calculate concentrations for final selection
+                    sugar_mm, salt_mm = (
+                        ConcentrationMapper.map_coordinates_to_concentrations(
+                            x, y, method=method
+                        )
+                    )
+                    ingredient_concentrations = {
+                        "Sugar": round(sugar_mm, 3),
+                        "Salt": round(salt_mm, 3),
+                    }
+
+                    # Prepare final selection data
+                    st.session_state.next_selection_data = {
+                        "interface_type": INTERFACE_2D_GRID,
+                        "method": method,
+                        "x_position": x,
+                        "y_position": y,
+                        "ingredient_concentrations": ingredient_concentrations,
+                        "trajectory": (
+                            st.session_state.trajectory_clicks.copy()
+                            if hasattr(st.session_state, "trajectory_clicks")
+                            else []
+                        ),
+                        "sample_id": sample_id,
+                    }
+
+                    # Transition to COMPLETE phase
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.COMPLETE,
+                        session_id=st.session_state.session_code,
+                    )
+
+                    st.success("🎉 Experiment completed! Thank you for participating.")
+                    time.sleep(2)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error completing experiment: {e}")
+                    logger.error(f"Grid interface - Complete experiment error: {e}")
 
         else:
             # Multi-ingredient slider interface
@@ -666,21 +762,14 @@ def subject_interface():
 
             # Load initial slider positions from database if available
             initial_positions = None
-            if hasattr(st.session_state, "participant") and hasattr(
-                st.session_state, "session_code"
-            ):
-                initial_positions = get_initial_slider_positions(
-                    session_id=st.session_state.session_code,
-                    participant_id=st.session_state.participant,
-                )
-
             # Get current slider values from session state
-            # Priority: current_slider_values > database initial positions > random_slider_values > defaults
+            # Priority: current_slider_values > random_slider_values > defaults
             if hasattr(st.session_state, "current_slider_values"):
                 current_slider_values = st.session_state.current_slider_values
             else:
-                # Load initial positions from database first
-                if initial_positions and initial_positions.get("percentages"):
+                # Use random slider values or defaults
+                # Note: initial_positions from database removed (was always None)
+                if False:  # Placeholder to keep indentation - will never execute
                     # Use database initial positions
                     current_slider_values = {}
                     for ingredient in experiment_config["ingredients"]:
@@ -867,24 +956,95 @@ def subject_interface():
                 }
                 st.session_state.pending_method = INTERFACE_SLIDERS
 
-                # Auto-transition to ROBOT_PREPARING for next cycle
-                ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.ROBOT_PREPARING,
-                    session_id=st.session_state.session_code,
-                )
+                # Get current cycle before incrementing
+                current_cycle = get_current_cycle(st.session_state.session_code)
 
                 # Increment cycle counter
                 new_cycle = increment_cycle(st.session_state.session_code)
                 st.session_state.cycle_number = new_cycle
 
+                # Cycle-aware transition:
+                # - Cycle 0: transition to ROBOT_PREPARING (moderator needs to start)
+                # - Cycle 1+: skip ROBOT_PREPARING, go directly to QUESTIONNAIRE
+                if current_cycle == 0:
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.ROBOT_PREPARING,
+                        session_id=st.session_state.session_code,
+                    )
+                else:
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.QUESTIONNAIRE,
+                        session_id=st.session_state.session_code,
+                    )
+
                 # Update current_tasted_sample for next cycle
                 if "ingredient_concentrations" in st.session_state.next_selection_data:
-                    st.session_state.current_tasted_sample = st.session_state.next_selection_data["ingredient_concentrations"].copy()
+                    st.session_state.current_tasted_sample = (
+                        st.session_state.next_selection_data[
+                            "ingredient_concentrations"
+                        ].copy()
+                    )
 
-                st.success(
-                    f"Slider selection recorded! Starting cycle {new_cycle}"
-                )
+                st.success(f"Slider selection recorded! Starting cycle {new_cycle}")
                 st.rerun()
+
+            # Add "Complete Experiment" button for slider interface
+            st.markdown("---")
+            st.markdown("### 🏁 Finish Experiment")
+            if st.button(
+                "Complete Experiment",
+                type="secondary",
+                help="Mark this as your final selection and end the experiment",
+                key="slider_complete_experiment_button",
+            ):
+                try:
+                    # Generate unique sample ID for final selection
+                    import uuid
+
+                    sample_id = str(uuid.uuid4())
+                    st.session_state.current_sample_id = sample_id
+
+                    # Use current slider values
+                    final_slider_values = (
+                        st.session_state.current_slider_values
+                        if hasattr(st.session_state, "current_slider_values")
+                        else slider_values
+                    )
+
+                    # Calculate actual concentrations
+                    concentrations = mixture.calculate_concentrations_from_sliders(
+                        final_slider_values
+                    )
+
+                    # Extract actual mM concentrations
+                    ingredient_concentrations = {}
+                    for ingredient_name, conc_data in concentrations.items():
+                        ingredient_concentrations[ingredient_name] = round(
+                            conc_data["actual_concentration_mM"], 3
+                        )
+
+                    # Store final selection data
+                    st.session_state.next_selection_data = {
+                        "interface_type": INTERFACE_SLIDERS,
+                        "method": INTERFACE_SLIDERS,
+                        "slider_values": final_slider_values,
+                        "ingredient_concentrations": ingredient_concentrations,
+                        "sample_id": sample_id,
+                    }
+
+                    # Transition to COMPLETE phase
+                    ExperimentStateMachine.transition(
+                        new_phase=ExperimentPhase.COMPLETE,
+                        session_id=st.session_state.session_code,
+                    )
+
+                    st.success("🎉 Experiment completed! Thank you for participating.")
+                    time.sleep(2)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error completing experiment: {e}")
+                    logger.error(f"Slider interface - Complete experiment error: {e}")
 
             # Display selection history
             if (

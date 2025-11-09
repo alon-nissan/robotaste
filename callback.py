@@ -754,6 +754,24 @@ def start_trial(
         else:
             st.session_state.current_tasted_sample = {}
 
+        # Save cycle 0 data to database immediately (initial random concentration)
+        # This ensures the first sample is persisted even if subject doesn't complete questionnaire
+        if st.session_state.current_tasted_sample:
+            try:
+                from sql_handler import save_sample_cycle
+                save_sample_cycle(
+                    session_id=session_code,
+                    cycle_number=0,
+                    ingredient_concentration=st.session_state.current_tasted_sample,
+                    selection_data={},  # No selection yet for cycle 0
+                    questionnaire_answer={},  # No questionnaire for cycle 0
+                    is_final=False,
+                )
+                logger.info(f"Saved cycle 0 initial concentration: {st.session_state.current_tasted_sample}")
+            except Exception as e:
+                logger.warning(f"Could not save cycle 0 data to database: {e}")
+                # Don't fail the workflow if cycle 0 save fails
+
         # Store experiment configuration in session database for subject synchronization
         try:
             import json
@@ -1168,85 +1186,6 @@ def show_preparation_message():
         time.sleep(1)  # Brief pause for realism
 
 
-def save_slider_trial(participant_id: str, concentrations: dict, method: str) -> bool:
-    """
-    DEPRECATED: This function is obsolete in the new 6-phase workflow.
-
-    In the new architecture, slider selections are saved via save_sample_cycle()
-    in subject_interface.py during the questionnaire phase, not immediately.
-
-    This function only calls the backward compatibility wrapper save_multi_ingredient_response()
-    which stores data in session state but never writes to database.
-
-    Save final slider-based trial results using unified database schema.
-
-    Args:
-        participant_id: Participant identifier
-        concentrations: Dictionary of actual concentrations from MultiComponentMixture
-        method: Always "slider_based" for slider trials
-
-    Returns:
-        Success status
-    """
-    try:
-        from sql_handler import save_multi_ingredient_response
-
-        # Calculate reaction time from trial start
-        reaction_time_ms = None
-        if hasattr(st.session_state, "trial_start_time"):
-            reaction_time_ms = int(
-                (time.perf_counter() - st.session_state.trial_start_time) * 1000
-            )
-
-        # Get session code from session state
-        session_id = st.session_state.get("session_code", "default_session")
-
-        # Extract actual mM concentrations for database storage
-        ingredient_concentrations = {}
-        for ingredient_name, conc_data in concentrations.items():
-            ingredient_concentrations[ingredient_name] = round(
-                conc_data["actual_concentration_mM"], 3
-            )
-
-        # Get questionnaire responses if available
-        questionnaire_response = st.session_state.get(
-            "post_questionnaire_responses", {}
-        )
-
-        # Store in unified database schema (backward compat wrapper)
-        # Returns tuple (success, sample_id)
-        success, saved_sample_id = save_multi_ingredient_response(
-            participant_id=participant_id,
-            session_id=session_id,
-            method=method,
-            interface_type=INTERFACE_SLIDERS,
-            ingredient_data=ingredient_concentrations,
-            reaction_time_ms=reaction_time_ms,  # type: ignore
-            questionnaire_response=questionnaire_response,
-            is_final_response=True,
-            is_initial=False,
-        )
-
-        if success:
-            # Store for display
-            st.session_state.last_response = {
-                "concentrations": concentrations,
-                "method": method,
-                "reaction_time_ms": reaction_time_ms or 0,
-                "interface_type": INTERFACE_SLIDERS,
-            }
-
-            logger.info(f"Successfully saved slider trial for {participant_id}")
-            return True
-        else:
-            logger.error(f"Failed to save slider trial for {participant_id}")
-            return False
-
-    except Exception as e:
-        logger.error(f"Error saving slider trial: {e}")
-        return False
-
-
 def get_stored_random_values(participant_id: str) -> dict:
     """
     Retrieve stored random slider values from database.
@@ -1261,18 +1200,14 @@ def get_stored_random_values(participant_id: str) -> dict:
         Dictionary of random slider values or empty dict
     """
     try:
-        from sql_handler import get_initial_slider_positions
-
         # Get session code from session state
         session_code = st.session_state.get("session_code")
         if not session_code:
             return {}
 
-        # Retrieve initial positions from database (backward compat function)
-        # Returns None in new schema, indicating to use default random positions
-        initial_positions = get_initial_slider_positions(session_code, participant_id)
-        if not initial_positions:
-            return {}
+        # Note: get_initial_slider_positions() removed (was always returning None)
+        # Use default random positions from session state
+        return {}
 
         # If we got data back, extract slider values
         # (This shouldn't happen with new schema, but kept for safety)

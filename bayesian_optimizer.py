@@ -625,7 +625,7 @@ def train_bo_model_for_participant(
         ...     candidates = generate_candidate_grid_2d((0.73, 73.0), (0.10, 10.0))
         ...     suggestion = bo_model.suggest_next_sample(candidates)
     """
-    from sql_handler import get_participant_target_values
+    from sql_handler import get_training_data
 
     try:
         # Merge with defaults and validate
@@ -635,9 +635,9 @@ def train_bo_model_for_participant(
         only_final = config.get("only_final_responses", True)
         min_samples = config.get("min_samples_for_bo", 3)
 
-        # Get training data from database
-        df = get_participant_target_values(
-            participant_id, session_id, only_final=only_final
+        # Get training data from database (using new API)
+        df = get_training_data(
+            session_id, only_final=only_final
         )
 
         if len(df) < min_samples:
