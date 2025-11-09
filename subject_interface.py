@@ -17,7 +17,6 @@ from session_manager import (
 )
 from sql_handler import (
     get_initial_slider_positions,
-    get_moderator_settings,
     is_participant_activated,
     get_current_cycle,
     increment_cycle,
@@ -258,42 +257,25 @@ def subject_interface():
         time.sleep(2)
         st.rerun()
 
-    elif st.session_state.phase == "tasting":
-        display_phase_status("tasting", st.session_state.participant)
-
-        # Show cycle number
-        cycle_num = get_current_cycle(st.session_state.session_code)
-        st.info(f"Cycle {cycle_num}: Please taste the sample")
-
-        col2 = st.columns([1, 2, 1])[1]
-        with col2:
-            st.markdown("### Tasting Instructions")
-            st.write("1. Take a small sip of the sample")
-            st.write("2. Take your time to evaluate the taste")
-            st.write("3. Click 'Done Tasting' when ready to provide feedback")
-
-            if st.button(
-                "Done Tasting",
-                type="primary",
-                use_container_width=True,
-                key="done_tasting_button",
-            ):
-                ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.QUESTIONNAIRE,
-                    session_id=st.session_state.session_code,
-                )
-                st.rerun()
+    # TASTING phase removed - workflow now goes directly from ROBOT_PREPARING to QUESTIONNAIRE
 
     elif st.session_state.phase == "selection":
         display_phase_status("selection", st.session_state.participant)
 
-        # Get moderator settings
-        mod_settings = get_moderator_settings(st.session_state.participant)
-        if not mod_settings:
-            st.error("No experiment settings found. Please contact the moderator.")
+        # Validate session is configured
+        # Settings are already loaded by sync_session_state() into st.session_state
+        if not st.session_state.get("session_code"):
+            st.error("No session found. Please rejoin the session.")
             return
 
-        # Determine interface type based on session state set by start_trial
+        # Verify session is fully configured (moderator has started trial)
+        if not st.session_state.get("num_ingredients") or not st.session_state.get("interface_type"):
+            st.warning("Session not fully configured. Waiting for moderator to start the trial...")
+            time.sleep(2)
+            st.rerun()
+            return
+
+        # Get settings from session state (already loaded by sync_session_state)
         num_ingredients = st.session_state.get("num_ingredients", 2)
         interface_type = st.session_state.get("interface_type", INTERFACE_2D_GRID)
 
@@ -419,11 +401,12 @@ def subject_interface():
                                 )
 
                                 # Save click to database with sample_id
+                                method = st.session_state.get("method", "linear")
                                 success = save_intermediate_click(
                                     st.session_state.participant,
                                     x,
                                     y,
-                                    mod_settings["method"],
+                                    method,
                                     sample_id=sample_id,
                                 )
 
@@ -432,11 +415,45 @@ def subject_interface():
 
                                 # Store current canvas result for later submission
                                 st.session_state.pending_canvas_result = canvas_result
-                                st.session_state.pending_method = mod_settings["method"]
+                                st.session_state.pending_method = method
 
-                                # In new workflow, selection saves data for NEXT cycle
-                                # Show confirmation and allow user to continue or finish
-                                st.success("Selection saved!")
+                                # Prepare selection data for next cycle
+                                from callback import ConcentrationMapper
+                                sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
+                                    x, y, method=method
+                                )
+                                ingredient_concentrations = {
+                                    "Sugar": round(sugar_mm, 3),
+                                    "Salt": round(salt_mm, 3),
+                                }
+
+                                st.session_state.next_selection_data = {
+                                    "interface_type": INTERFACE_2D_GRID,
+                                    "method": method,
+                                    "x_position": x,
+                                    "y_position": y,
+                                    "ingredient_concentrations": ingredient_concentrations,
+                                    "trajectory": st.session_state.trajectory_clicks.copy() if hasattr(st.session_state, "trajectory_clicks") else [],
+                                    "sample_id": sample_id,
+                                }
+
+                                # Auto-transition to ROBOT_PREPARING for next cycle
+                                ExperimentStateMachine.transition(
+                                    new_phase=ExperimentPhase.ROBOT_PREPARING,
+                                    session_id=st.session_state.session_code,
+                                )
+
+                                # Increment cycle counter
+                                new_cycle = increment_cycle(st.session_state.session_code)
+                                st.session_state.cycle_number = new_cycle
+
+                                # Update current_tasted_sample for next cycle
+                                st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+
+                                # Clear trajectory for new cycle
+                                st.session_state.trajectory_clicks = []
+
+                                st.success(f"Selection saved! Starting cycle {new_cycle}")
                                 st.rerun()
 
                             # Display current position and selection history
@@ -850,11 +867,23 @@ def subject_interface():
                 }
                 st.session_state.pending_method = INTERFACE_SLIDERS
 
-                st.success(
-                    "Slider selection recorded! Ready for next cycle or completion."
+                # Auto-transition to ROBOT_PREPARING for next cycle
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.ROBOT_PREPARING,
+                    session_id=st.session_state.session_code,
                 )
-                # In new workflow, selection saves data for NEXT cycle
-                # Moderator decides whether to continue or complete
+
+                # Increment cycle counter
+                new_cycle = increment_cycle(st.session_state.session_code)
+                st.session_state.cycle_number = new_cycle
+
+                # Update current_tasted_sample for next cycle
+                if "ingredient_concentrations" in st.session_state.next_selection_data:
+                    st.session_state.current_tasted_sample = st.session_state.next_selection_data["ingredient_concentrations"].copy()
+
+                st.success(
+                    f"Slider selection recorded! Starting cycle {new_cycle}"
+                )
                 st.rerun()
 
             # Display selection history
@@ -897,16 +926,25 @@ def subject_interface():
                 # Store questionnaire responses
                 st.session_state.questionnaire_responses = responses
 
-                # Get selection data from session state (saved in selection phase)
-                selection_data = st.session_state.get("next_selection_data", {})
-
                 # Get current cycle number
                 current_cycle = get_current_cycle(st.session_state.session_code)
 
-                # Get ingredient concentrations from the selection data
-                ingredient_concentrations = selection_data.get(
-                    "ingredient_concentrations", {}
+                # Get what they TASTED (current cycle's sample)
+                # This comes from the previous cycle's selection (stored when transitioning to ROBOT_PREPARING)
+                # or from initial random position for cycle 1
+                ingredient_concentrations = st.session_state.get(
+                    "current_tasted_sample", {}
                 )
+
+                # Get selection data for NEXT cycle (if it exists - won't exist during questionnaire)
+                # This will be filled in during SELECTION phase
+                selection_data = st.session_state.get("next_selection_data", {})
+
+                # Include trajectory data if available (for grid interface)
+                if hasattr(st.session_state, "trajectory_clicks"):
+                    if not selection_data:
+                        selection_data = {}
+                    selection_data["trajectory"] = st.session_state.trajectory_clicks
 
                 # Save complete cycle data to database
                 try:

@@ -712,54 +712,10 @@ def start_trial(
                     conc_data["actual_concentration_mM"], 3
                 )
 
-            # Initial slider positions are stored in the first sample record
-            # via save_multi_ingredient_response() with is_initial=True below
-            # No separate storage needed in new schema
-
-        # Register initial random positions as first response
-        try:
-            from sql_handler import save_multi_ingredient_response
-
-            # Calculate initial concentrations based on interface type
-            initial_concentrations = {}
-            if interface_type == INTERFACE_SLIDERS and random_concentrations:
-                # Use calculated random concentrations for slider interface
-                initial_concentrations = random_concentrations
-            elif interface_type == INTERFACE_2D_GRID:
-                # Calculate concentrations from random grid position for 2D grid
-                sugar_mm, salt_mm = (
-                    ConcentrationMapper.map_coordinates_to_concentrations(
-                        x, y, method=method
-                    )
-                )
-                initial_concentrations = {
-                    "Sugar": round(sugar_mm, 3),
-                    "Salt": round(salt_mm, 3),
-                }
-
-            # Save initial position as first response with is_initial=True
-            if initial_concentrations:
-                # Note: extra_data not supported by backward compat wrapper
-                # Data accumulates in session state until save_sample_cycle() is called
-                initial_success, initial_sample_id = save_multi_ingredient_response(
-                    participant_id=participant_id,
-                    session_id=session_code,
-                    method=method,
-                    interface_type=interface_type,
-                    ingredient_data=initial_concentrations,
-                    reaction_time_ms=0,  # No reaction time for initial position
-                    questionnaire_response=None,  # type: ignore
-                    is_final_response=False,
-                    is_initial=True,  # Mark as initial random position
-                )
-
-                if initial_success:
-                    st.info(f"Initial random position registered for {participant_id}")
-                else:
-                    st.warning("Could not register initial position")
-
-        except Exception as e:
-            st.warning(f"Could not register initial position: {e}")
+            # Initial random positions are stored in session state
+            # (st.session_state.random_slider_values or st.session_state.x/y for grid)
+            # In the new 6-phase workflow, initial positions don't need separate DB storage
+            # They will be included in selection_data when save_sample_cycle() is called
 
         # Update Streamlit session state
         st.session_state.trial_start_time = time.perf_counter()
@@ -780,6 +736,23 @@ def start_trial(
         # Store initial position in session state (for backward compatibility)
         st.session_state.x = x
         st.session_state.y = y
+
+        # Store the initial random concentration as the "current tasted sample" for cycle 1
+        # This will be used when saving the first cycle's data after questionnaire
+        if random_concentrations:
+            # Slider interface - use calculated random concentrations
+            st.session_state.current_tasted_sample = random_concentrations.copy()
+        elif interface_type == INTERFACE_2D_GRID:
+            # Grid interface - calculate concentrations from random x,y position
+            sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
+                x, y, method=method
+            )
+            st.session_state.current_tasted_sample = {
+                "Sugar": round(sugar_mm, 3),
+                "Salt": round(salt_mm, 3),
+            }
+        else:
+            st.session_state.current_tasted_sample = {}
 
         # Store experiment configuration in session database for subject synchronization
         try:
@@ -825,12 +798,12 @@ def start_trial(
                 )
                 conn.commit()
 
-            # Use state machine to transition to SELECTION phase
-            # In the new workflow, trial starts in SELECTION phase where subject makes first choice
-            # Moderator will then click "Start Next Cycle" to move to ROBOT_PREPARING
+            # Use state machine to transition to ROBOT_PREPARING phase
+            # In the 6-phase workflow, trial starts in ROBOT_PREPARING where robot prepares first sample
+            # This follows the valid transition: WAITING → ROBOT_PREPARING
             try:
                 ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.SELECTION,
+                    new_phase=ExperimentPhase.ROBOT_PREPARING,
                     session_id=session_code,
                 )
             except Exception as sm_error:
@@ -838,7 +811,7 @@ def start_trial(
                 logger.warning(
                     f"State machine transition failed: {sm_error}. Using direct assignment."
                 )
-                st.session_state.phase = "selection"
+                st.session_state.phase = "robot_preparing"
 
         except Exception as e:
             st.warning(f"Could not update session config: {e}")
@@ -864,8 +837,6 @@ def save_click(
 ) -> bool:
     """Save an intermediate click (part of the trajectory)."""
     try:
-        from sql_handler import save_multi_ingredient_response
-
         # Calculate concentrations for every click
         from callback import ConcentrationMapper
 
@@ -887,23 +858,21 @@ def save_click(
             "Salt": round(salt_mm, 3),
         }
 
-        # Get session code for database storage
-        session_code = st.session_state.get("session_code", "default_session")
+        # Store click data in session state for trajectory tracking
+        # This will be included in selection_data when save_sample_cycle() is called
+        if not hasattr(st.session_state, "trajectory_clicks"):
+            st.session_state.trajectory_clicks = []
 
-        # Use save_multi_ingredient_response (backward compat wrapper)
-        # Returns tuple (success, sample_id)
-        success, _ = save_multi_ingredient_response(
-            participant_id=participant_id,
-            session_id=session_code,
-            method=method,
-            interface_type=INTERFACE_2D_GRID,
-            ingredient_data=ingredient_concentrations,
-            reaction_time_ms=reaction_time_ms,  # type: ignore
-            sample_id=sample_id,  # type: ignore
-            is_final_response=False,
-            is_initial=False,
-        )
-        return success
+        st.session_state.trajectory_clicks.append({
+            "x": x,
+            "y": y,
+            "concentrations": ingredient_concentrations,
+            "reaction_time_ms": reaction_time_ms,
+            "sample_id": sample_id,
+            "timestamp": time.time(),
+        })
+
+        return True
 
     except Exception as e:
         # logger.error(f"Error saving click: {e}")
@@ -1201,6 +1170,14 @@ def show_preparation_message():
 
 def save_slider_trial(participant_id: str, concentrations: dict, method: str) -> bool:
     """
+    DEPRECATED: This function is obsolete in the new 6-phase workflow.
+
+    In the new architecture, slider selections are saved via save_sample_cycle()
+    in subject_interface.py during the questionnaire phase, not immediately.
+
+    This function only calls the backward compatibility wrapper save_multi_ingredient_response()
+    which stores data in session state but never writes to database.
+
     Save final slider-based trial results using unified database schema.
 
     Args:

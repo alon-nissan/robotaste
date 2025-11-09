@@ -16,7 +16,6 @@ from sql_handler import (
     get_session,
     update_current_phase,
     get_current_cycle,
-    increment_cycle,
     get_session_samples,
     export_session_csv,
     get_session_stats,
@@ -177,16 +176,16 @@ def moderator_interface():
         col_prep1, col_prep2, col_prep3 = st.columns([1, 2, 1])
         with col_prep2:
             if st.button(
-                "✅ Mark Sample Prepared",
+                "✅ Mark Sample Ready",
                 type="primary",
                 key="mark_prepared",
                 use_container_width=True,
             ):
                 ExperimentStateMachine.transition(
-                    new_phase=ExperimentPhase.TASTING,
+                    new_phase=ExperimentPhase.QUESTIONNAIRE,
                     session_id=st.session_state.session_code,
                 )
-                st.success("Sample marked as prepared! Subject can now taste.")
+                st.success("Sample marked as ready! Subject will answer questionnaire.")
                 time.sleep(0.5)
                 st.rerun()
 
@@ -1142,36 +1141,17 @@ def moderator_interface():
             # ===== CYCLE MANAGEMENT CONTROLS =====
             # Show controls when in SELECTION phase
             if phase == ExperimentPhase.SELECTION:
-                st.markdown("### 🎯 Cycle Management")
-                st.write(
-                    "The participant has completed their selection. What would you like to do?"
+                st.markdown("### 🎯 Session Management")
+                st.info(
+                    "📌 Note: Selection automatically advances to next cycle. You can finish the session at any time."
                 )
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(
-                        "▶️ Start Next Cycle",
-                        type="primary",
-                        use_container_width=True,
-                        key="start_next_cycle",
-                    ):
-                        # Increment cycle counter
-                        new_cycle = increment_cycle(st.session_state.session_code)
-                        st.session_state.cycle_number = new_cycle
-
-                        # Transition to robot_preparing
-                        ExperimentStateMachine.transition(
-                            new_phase=ExperimentPhase.ROBOT_PREPARING,
-                            session_id=st.session_state.session_code,
-                        )
-                        st.success(f"Starting Cycle {new_cycle}")
-                        time.sleep(0.5)
-                        st.rerun()
-
+                # Only show Finish Session button (Start Next Cycle is now automatic)
+                col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     if st.button(
                         "🏁 Finish Session",
-                        type="secondary",
+                        type="primary",
                         use_container_width=True,
                         key="finish_session",
                     ):

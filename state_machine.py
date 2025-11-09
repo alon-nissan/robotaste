@@ -33,7 +33,7 @@ class ExperimentPhase(Enum):
 
     # Cycle phases (repeated for each cycle)
     ROBOT_PREPARING = "robot_preparing"  # Robot is preparing the solution
-    TASTING = "tasting"  # Subject is tasting the solution
+    # TASTING phase removed - go directly from ROBOT_PREPARING to QUESTIONNAIRE
     QUESTIONNAIRE = "questionnaire"  # Subject answering questionnaire
     SELECTION = "selection"  # Subject making selection for next cycle
 
@@ -70,16 +70,13 @@ class ExperimentStateMachine:
             ExperimentPhase.ROBOT_PREPARING  # Moderator starts first cycle
         ],
         ExperimentPhase.ROBOT_PREPARING: [
-            ExperimentPhase.TASTING  # Robot finished preparing
-        ],
-        ExperimentPhase.TASTING: [
-            ExperimentPhase.QUESTIONNAIRE  # Subject finished tasting
+            ExperimentPhase.QUESTIONNAIRE  # Robot finished, go directly to questionnaire (TASTING removed)
         ],
         ExperimentPhase.QUESTIONNAIRE: [
             ExperimentPhase.SELECTION  # Subject finished questionnaire
         ],
         ExperimentPhase.SELECTION: [
-            ExperimentPhase.ROBOT_PREPARING,  # Continue to next cycle
+            ExperimentPhase.ROBOT_PREPARING,  # Auto-transition to next cycle after selection
             ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
         ExperimentPhase.COMPLETE: [
@@ -203,7 +200,7 @@ class ExperimentStateMachine:
         display_names = {
             ExperimentPhase.WAITING: "Waiting to Start",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
-            ExperimentPhase.TASTING: "Tasting in Progress",
+            # ExperimentPhase.TASTING: "Tasting in Progress", stage removed
             ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
             ExperimentPhase.SELECTION: "Making Selection",
             ExperimentPhase.COMPLETE: "Session Complete",
@@ -224,7 +221,7 @@ class ExperimentStateMachine:
         colors = {
             ExperimentPhase.WAITING: "gray",
             ExperimentPhase.ROBOT_PREPARING: "blue",
-            ExperimentPhase.TASTING: "orange",
+            # ExperimentPhase.TASTING: "orange", stage removed
             ExperimentPhase.QUESTIONNAIRE: "purple",
             ExperimentPhase.SELECTION: "green",
             ExperimentPhase.COMPLETE: "gray",
@@ -253,7 +250,7 @@ class ExperimentStateMachine:
         current_phase = ExperimentStateMachine.get_current_phase()
         return current_phase in [
             ExperimentPhase.ROBOT_PREPARING,
-            ExperimentPhase.TASTING,
+            # ExperimentPhase.TASTING, stage removed
             ExperimentPhase.QUESTIONNAIRE,
             ExperimentPhase.SELECTION,
         ]
@@ -278,17 +275,6 @@ class ExperimentStateMachine:
         """
         current_phase = ExperimentStateMachine.get_current_phase()
         return current_phase == ExperimentPhase.ROBOT_PREPARING
-
-    @staticmethod
-    def should_show_tasting() -> bool:
-        """
-        Check if UI should show tasting instructions.
-
-        Returns:
-            True if phase is TASTING
-        """
-        current_phase = ExperimentStateMachine.get_current_phase()
-        return current_phase == ExperimentPhase.TASTING
 
     @staticmethod
     def should_show_questionnaire() -> bool:

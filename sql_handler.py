@@ -1194,32 +1194,32 @@ def get_moderator_settings(participant_id: str) -> Optional[Dict]:
     """
     logger.warning("get_moderator_settings() is a backward compat function")
     try:
-        conn = get_database_connection()
-        cursor = conn.cursor()
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
 
-        # Find sessions for this user
-        cursor.execute(
-            """
-            SELECT s.session_id, s.experiment_config
-            FROM sessions s
-            WHERE s.user_id = ? AND s.state = 'active'
-            ORDER BY s.created_at DESC
-            LIMIT 1
-        """,
-            (participant_id,),
-        )
+            # Find sessions for this user
+            cursor.execute(
+                """
+                SELECT s.session_id, s.experiment_config
+                FROM sessions s
+                WHERE s.user_id = ? AND s.state = 'active'
+                ORDER BY s.created_at DESC
+                LIMIT 1
+            """,
+                (participant_id,),
+            )
 
-        row = cursor.fetchone()
-        if row:
-            import json
+            row = cursor.fetchone()
+            if row:
+                import json
 
-            config = json.loads(row[1]) if row[1] else {}
-            return {
-                "method": config.get("method", "linear"),
-                "interface_type": config.get("interface_type", "grid_2d"),
-                "num_ingredients": config.get("num_ingredients", 2),
-            }
-        return None
+                config = json.loads(row[1]) if row[1] else {}
+                return {
+                    "method": config.get("method", "linear"),
+                    "interface_type": config.get("interface_type", "grid_2d"),
+                    "num_ingredients": config.get("num_ingredients", 2),
+                }
+            return None
     except Exception as e:
         logger.error(f"Error getting moderator settings: {e}")
         return None
@@ -1283,13 +1283,21 @@ def update_response_with_questionnaire(
     sample_id: str = None,
 ) -> tuple:
     """
+    DEPRECATED: This function is obsolete in the new 6-phase workflow.
+
+    In the new architecture, questionnaire data is saved via save_sample_cycle()
+    along with the complete cycle data, not updated separately.
+
+    This function is not called anywhere in the active codebase and only exists
+    for backward compatibility with old code.
+
     BACKWARD COMPATIBILITY: Update response with questionnaire data.
     In new schema, we accumulate data and save complete cycle later.
 
     Returns:
         tuple: (success: bool, sample_id: str)
     """
-    logger.warning("update_response_with_questionnaire() is a backward compat function")
+    logger.warning("DEPRECATED: update_response_with_questionnaire() is obsolete - use save_sample_cycle() instead")
 
     import streamlit as st
     import uuid
