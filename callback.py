@@ -282,13 +282,19 @@ class ConcentrationMapper:
             # Inverse of: sugar = exp(log_min + x_norm * (log_max - log_min))
             # Solve for x_norm: x_norm = (log(sugar) - log_min) / (log_max - log_min)
             if sugar_range[0] <= 0 or salt_range[0] <= 0:
-                raise ValueError("Logarithmic mapping requires positive concentration ranges")
+                raise ValueError(
+                    "Logarithmic mapping requires positive concentration ranges"
+                )
 
             log_sugar_range = (math.log(sugar_range[0]), math.log(sugar_range[1]))
             log_salt_range = (math.log(salt_range[0]), math.log(salt_range[1]))
 
-            x_norm = (math.log(sugar_mm) - log_sugar_range[0]) / (log_sugar_range[1] - log_sugar_range[0])
-            y_norm = (math.log(salt_mm) - log_salt_range[0]) / (log_salt_range[1] - log_salt_range[0])
+            x_norm = (math.log(sugar_mm) - log_sugar_range[0]) / (
+                log_sugar_range[1] - log_sugar_range[0]
+            )
+            y_norm = (math.log(salt_mm) - log_salt_range[0]) / (
+                log_salt_range[1] - log_salt_range[0]
+            )
 
         elif method == "exponential":
             # Inverse of: sugar = max * ((min/max)^(1 - x_norm))
@@ -617,81 +623,6 @@ def calculate_stock_volumes(
     }
 
 
-def create_ingredient_sliders(
-    ingredients_config: list,
-    participant_id: str,
-    current_values: dict = None,  # pyright: ignore[reportArgumentType]
-) -> dict:
-    """
-    Create independent concentration sliders for multi-component interface.
-
-    Args:
-        ingredients_config: List of ingredient configurations
-        participant_id: Participant identifier
-        current_values: Current slider values (if any)
-
-    Returns:
-        Dict with slider values or None if not submitted
-    """
-    if current_values is None:
-        current_values = {}
-
-    st.markdown("### Adjust Ingredient Concentrations")
-    st.info(
-        "Move each slider to adjust the concentration of each ingredient. The position on each slider determines the mixture composition."
-    )
-
-    # Create form for all sliders
-    with st.form(key=f"ingredient_sliders_{participant_id}"):
-        slider_values = {}
-
-        # Create columns for sliders (max 3 per row)
-        num_cols = min(3, len(ingredients_config))
-        cols = st.columns(num_cols)
-
-        for i, ingredient in enumerate(ingredients_config):
-            col_idx = i % num_cols
-            ingredient_name = ingredient["name"]
-
-            with cols[col_idx]:
-                # Create slider with generic label (hide that it's concentration)
-                slider_key = f"slider_{ingredient_name}_{participant_id}"
-                # Use random starting position if available, otherwise default to 50.0
-                random_values = st.session_state.get("random_slider_values", {})
-                if ingredient_name in random_values:
-                    default_value = random_values[ingredient_name]
-                else:
-                    default_value = current_values.get(ingredient_name, 50.0)
-
-                st.markdown(f"**Ingredient {chr(65 + i)}**")
-                slider_values[ingredient_name] = svs.vertical_slider(
-                    key=slider_key,
-                    default_value=default_value,
-                    step=1.0,
-                    min_value=0.0,
-                    max_value=100.0,
-                    slider_color="#3b82f6",  # Blue color matching the theme
-                    track_color="#e2e8f0",  # Light gray track
-                    thumb_color="#1e40af",  # Darker blue thumb
-                )
-
-                # Show position as percentage (what subject sees)
-                st.caption(f"Position: {slider_values[ingredient_name]:.1f}%")
-
-        # Submit button (this will be moved to questionnaire later)
-        submitted = st.form_submit_button(
-            "Update Mixture",
-            type="primary",
-            use_container_width=True,
-            key=f"update_mixture_{participant_id}",
-        )
-
-        if submitted:
-            return slider_values
-
-    return None  # type: ignore
-
-
 def start_trial(
     user_type: str,
     participant_id: str,
@@ -730,7 +661,6 @@ def start_trial(
         session_code = st.session_state.get("session_code")
         if not session_id:
             st.error("No session ID found. Please create a session first.")
-            return
         use_random_start = st.session_state.get("use_random_start", False)
 
         # Get ingredient configuration - FIXED: Use moderator's actual ingredient selection
@@ -873,7 +803,10 @@ def start_trial(
                     SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE session_id = ?
                 """,
-                    (json.dumps(experiment_config), session_id),  # Use session_id for DB
+                    (
+                        json.dumps(experiment_config),
+                        session_id,
+                    ),  # Use session_id for DB
                 )
                 conn.commit()
 
@@ -942,14 +875,16 @@ def save_click(
         if not hasattr(st.session_state, "trajectory_clicks"):
             st.session_state.trajectory_clicks = []
 
-        st.session_state.trajectory_clicks.append({
-            "x": x,
-            "y": y,
-            "concentrations": ingredient_concentrations,
-            "reaction_time_ms": reaction_time_ms,
-            "sample_id": sample_id,
-            "timestamp": time.time(),
-        })
+        st.session_state.trajectory_clicks.append(
+            {
+                "x": x,
+                "y": y,
+                "concentrations": ingredient_concentrations,
+                "reaction_time_ms": reaction_time_ms,
+                "sample_id": sample_id,
+                "timestamp": time.time(),
+            }
+        )
 
         return True
 
@@ -1007,99 +942,6 @@ def clear_canvas_state():
             keys_to_remove.append(key)
     for key in keys_to_remove:
         del st.session_state[key]
-
-
-# Questionnaire Configuration
-QUESTIONNAIRE_CONFIG = {
-    "unified_feedback": {
-        "title": "Response Questionnaire",
-        "description": "Please answer these questions about your current selection or impression.",
-        "questions": [
-            {
-                "key": "confidence",
-                "type": "slider",
-                "label": "How confident are you in this selection/impression?",
-                "min_value": 1,
-                "max_value": 7,
-                "help": "1 = Not confident at all, 7 = Very confident",
-            },
-            {
-                "key": "strategy",
-                "type": "selectbox",
-                "label": "What guided your selection/impression?",
-                "options": [
-                    "Initial impression",
-                    "Random selection",
-                    "Based on previous selections",
-                    "Systematic approach",
-                    "Intuition/gut feeling",
-                    "Other",
-                ],
-            },
-            {
-                "key": "satisfaction",
-                "type": "slider",
-                "label": "How satisfied are you with this selection?",
-                "min_value": 1,
-                "max_value": 7,
-                "help": "1 = Not satisfied at all, 7 = Very satisfied",
-            },
-        ],
-    },
-    # Keep legacy configurations for backward compatibility
-    "pre_sample": {
-        "title": "Initial Impression Questionnaire",
-        "description": "Please answer these questions about your initial impression.",
-        "questions": [
-            {
-                "key": "confidence",
-                "type": "slider",
-                "label": "How confident are you in this initial impression?",
-                "min_value": 1,
-                "max_value": 7,
-                "help": "1 = Not confident at all, 7 = Very confident",
-            },
-            {
-                "key": "strategy",
-                "type": "selectbox",
-                "label": "What guided your initial impression?",
-                "options": [
-                    "Initial impression",
-                    "Random response",
-                    "Past experience",
-                    "Intuition/gut feeling",
-                    "Other",
-                ],
-            },
-        ],
-    },
-    "post_response": {
-        "title": "Selection Feedback Questionnaire",
-        "description": "Please answer these questions about your selection.",
-        "questions": [
-            {
-                "key": "confidence",
-                "type": "slider",
-                "label": "How confident are you in this selection?",
-                "min_value": 1,
-                "max_value": 7,
-                "help": "1 = Not confident at all, 7 = Very confident",
-            },
-            {
-                "key": "strategy",
-                "type": "selectbox",
-                "label": "What guided your selection?",
-                "options": [
-                    "Random selection",
-                    "Based on previous selections",
-                    "Systematic approach",
-                    "Intuition/gut feeling",
-                    "Other",
-                ],
-            },
-        ],
-    },
-}
 
 
 def render_questionnaire(
@@ -1235,76 +1077,15 @@ def render_questionnaire(
     return None  # type: ignore
 
 
-def show_preparation_message():
-    """Display the solution preparation message."""
-    st.success("Thank you for your response!")
-    st.info(
-        "The solution is being prepared. Please answer the questionnaire while you wait."
-    )
-
-    # Add a small loading animation
-    with st.spinner("Preparing solution..."):
-        time.sleep(1)  # Brief pause for realism
-
-
-def get_stored_random_values(participant_id: str) -> dict:
-    """
-    Retrieve stored random slider values from database.
-
-    This fixes the random start bug by ensuring random values are persistent
-    and retrieved correctly from the database.
-
-    Args:
-        participant_id: Participant identifier
-
-    Returns:
-        Dictionary of random slider values or empty dict
-    """
-    try:
-        # Get session code from session state
-        session_code = st.session_state.get("session_code")
-        if not session_code:
-            return {}
-
-        # Note: get_initial_slider_positions() removed (was always returning None)
-        # Use default random positions from session state
-        return {}
-
-        # If we got data back, extract slider values
-        # (This shouldn't happen with new schema, but kept for safety)
-        random_values = {}
-        ingredient_config = st.session_state.get(
-            "ingredient_config", DEFAULT_INGREDIENT_CONFIG
-        )
-        num_ingredients = st.session_state.get("num_ingredients", 2)
-
-        for i, ingredient in enumerate(ingredient_config[:num_ingredients]):
-            column_name = f"ingredient_{i+1}_initial"
-            if (
-                column_name in initial_positions
-                and initial_positions[column_name] is not None
-            ):
-                random_values[ingredient["name"]] = initial_positions[column_name]
-
-        return random_values
-
-    except Exception as e:
-        logger.warning(f"Could not retrieve stored random values: {e}")
-        return {}
-
-
 def ensure_random_values_loaded(participant_id: str) -> bool:
     """
     Ensure random slider values are loaded into session state.
 
-    This fixes the random start issue by checking if values exist in database
-    and loading them into session state for immediate use.
-
     Args:
         participant_id: Participant identifier
 
     Returns:
-        True if values were loaded or already exist, False otherwise
+        True if values exist in session state, False otherwise
     """
     try:
         # Check if values already exist in session state
@@ -1312,20 +1093,11 @@ def ensure_random_values_loaded(participant_id: str) -> bool:
         if existing_values:
             return True
 
-        # Try to load from database
-        stored_values = get_stored_random_values(participant_id)
-        if stored_values:
-            st.session_state.random_slider_values = stored_values
-            return True
-
         # No values found
         return False
 
     except Exception as e:
-        st.error(f"Error ensuring random values loaded: {e}")
-        import traceback
-
-        st.error(f"Full traceback: {traceback.format_exc()}")
+        logger.error(f"Error ensuring random values loaded: {e}")
         return False
 
 

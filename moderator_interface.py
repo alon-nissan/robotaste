@@ -6,7 +6,6 @@ from callback import (
     start_trial,
     calculate_stock_volumes,
 )
-from ui_components import create_header
 from session_manager import (
     display_session_qr_code,
     get_session_info,
@@ -66,7 +65,7 @@ def moderator_interface():
     # Validate session
     if not st.session_state.get("session_id"):
         st.error("No active session. Please create or join a session.")
-        if st.button("🏠 Return to Home", key="moderator_return_home_no_session"):
+        if st.button("Return to Home", key="moderator_return_home_no_session"):
             st.query_params.clear()
             st.rerun()
         return
@@ -81,7 +80,7 @@ def moderator_interface():
             st.session_state.session_id = None
             st.session_state.session_code = None
             if st.button(
-                "🏠 Return to Home", key="moderator_return_home_invalid_session"
+                "Return to Home", key="moderator_return_home_invalid_session"
             ):
                 st.query_params.clear()
                 st.rerun()
@@ -89,7 +88,7 @@ def moderator_interface():
     else:
         # Session not yet in database - show configuration message
         st.info(
-            "📋 Please configure your experiment settings below, then click 'Start Trial' to begin."
+            "Please configure your experiment settings below, then click 'Start Trial' to begin."
         )
 
     # Recover phase from database on browser refresh
@@ -111,62 +110,6 @@ def moderator_interface():
             # Normalize to "trial_started" for moderator UI to show monitoring
             st.session_state.phase = "trial_started"
 
-    # # Header
-    # create_header(
-    #     f"Moderator Dashboard - {st.session_state.session_code}",
-    #     f"Managing session for {session_info['moderator_name']}",
-    #     "",
-    # )
-
-    # ===== TOP SECTION: Essential Session Info & Quick Actions =====
-    st.markdown("### Session Overview")
-
-    # Essential session metrics in a clean layout
-    overview_col1, overview_col2, overview_col3, overview_col4 = st.columns(4)
-
-    with overview_col1:
-        st.metric("🔑 Session Code", st.session_state.session_code)
-
-    with overview_col2:
-        # Get subject phase from database
-        current_phase_str = get_current_phase_safe()
-        phase = ExperimentPhase.from_string(current_phase_str)
-
-        if phase:
-            phase_display = ExperimentStateMachine.get_phase_display_name(phase)
-            # Show connection + phase
-            st.metric("Subject Status", f"Connected - {phase_display}")
-        else:
-            st.metric("Subject Status", "🟡 Waiting")
-
-    with overview_col3:
-        # Show color-coded phase badge (6 phases: waiting, robot_preparing, tasting, questionnaire, selection, complete)
-        current_phase_str = get_current_phase_safe()
-        phase = ExperimentPhase.from_string(current_phase_str)
-        if phase:
-            phase_color = ExperimentStateMachine.get_phase_color(phase)
-            phase_name = ExperimentStateMachine.get_phase_display_name(phase)
-            # Use colored markdown badge
-            # Colors: waiting=gray, robot_preparing=blue, tasting=orange, questionnaire=purple, selection=green, complete=gray
-            if phase_color == "green":
-                badge = f":green[{phase_name}]"
-            elif phase_color == "blue":
-                badge = f":blue[{phase_name}]"
-            elif phase_color == "orange":
-                badge = f":orange[{phase_name}]"
-            elif phase_color == "purple":
-                badge = f":violet[{phase_name}]"
-            elif phase_color == "gray":
-                badge = f":gray[{phase_name}]"
-            else:
-                badge = f"{phase_name}"
-            st.metric("Current Phase", badge)
-        else:
-            st.metric("Current Phase", "Waiting")
-
-    with overview_col4:
-        st.metric("⏰ Status", "🟢 Active")
-
     # ===== ROBOT PREPARING PHASE CONTROL =====
     # Show "Sample Prepared" button ONLY in robot_preparing phase
     current_phase_str = get_current_phase_safe()
@@ -177,7 +120,7 @@ def moderator_interface():
         col_prep1, col_prep2, col_prep3 = st.columns([1, 2, 1])
         with col_prep2:
             if st.button(
-                "✅ Mark Sample Ready",
+                "Mark Sample Ready",
                 type="primary",
                 key="mark_prepared",
                 use_container_width=True,
@@ -250,7 +193,7 @@ def moderator_interface():
             st.write("reset_session_placeholder")  # Placeholder for layout alignment
             """
             if st.button(
-                "🆕 New Session",
+                "New Session",
                 type="secondary",
                 use_container_width=True,
                 key="new_session_button",
@@ -326,8 +269,7 @@ def moderator_interface():
 
         # ===== INGREDIENT RANGE CONFIGURATION =====
         if selected_ingredients:
-            st.markdown("#### 📏 Concentration Ranges")
-            st.info("Set the minimum and maximum concentrations for each ingredient")
+            st.markdown("#### Concentration Ranges")
 
             # Initialize ingredient ranges in session state
             if "ingredient_ranges" not in st.session_state:
@@ -410,8 +352,7 @@ def moderator_interface():
             st.markdown("---")
 
         # ===== QUESTIONNAIRE CONFIGURATION =====
-        st.markdown("#### 📋 Questionnaire Selection")
-        st.info("Choose the questionnaire type for post-selection feedback")
+        st.markdown("#### Questionnaire Selection")
 
         # Import questionnaire configuration
         from questionnaire_config import (
@@ -481,10 +422,7 @@ def moderator_interface():
         st.markdown("---")
 
         # ===== BAYESIAN OPTIMIZATION CONFIGURATION =====
-        st.markdown("#### 🤖 Bayesian Optimization Settings")
-        st.info(
-            "Configure adaptive sampling to intelligently guide participants toward their optimal taste preference using machine learning"
-        )
+        st.markdown("#### Bayesian Optimization Settings")
 
         # Initialize BO config in session state
         if "bo_config" not in st.session_state:
@@ -587,7 +525,7 @@ def moderator_interface():
                 st.session_state.bo_config["kernel_nu"] = kernel_nu
 
             # Advanced settings expander
-            with st.expander("⚙️ Advanced BO Settings", expanded=False):
+            with st.expander("Advanced BO Settings", expanded=False):
                 st.caption(
                     "For expert users. Leave at defaults unless you understand these parameters."
                 )
@@ -642,7 +580,7 @@ def moderator_interface():
                     st.session_state.bo_config["random_state"] = random_state
 
             st.caption(
-                "📚 For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`"
+                "For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`"
             )
 
         st.markdown("---")
@@ -676,35 +614,19 @@ def moderator_interface():
         )
         interface_type = mixture.get_interface_type()
 
-        # Show interface type
-        interface_info = {
-            INTERFACE_2D_GRID: "2D Grid Interface (X-Y coordinates)",
-            INTERFACE_SLIDERS: "Slider Interface (Independent concentrations)",
-        }
-        st.info(f"Interface: {interface_info[interface_type]}")
-
         # Method selection (only for 2D grid)
         if interface_type == INTERFACE_2D_GRID:
             method = st.selectbox(
-                "🧮 Mapping Method:",
+                "Mapping Method:",
                 ["linear", "logarithmic", "exponential"],
                 help="Choose how coordinates map to concentrations",
                 key="moderator_mapping_method_selector",
             )
             # Store in session state immediately for database persistence
             st.session_state.selected_method = method
-
-            # Method explanation
-            method_info = {
-                "linear": "Direct proportional mapping",
-                "logarithmic": "Logarithmic scale mapping",
-                "exponential": "📉 Exponential scale mapping",
-            }
-            st.info(method_info[method])
         else:
             method = INTERFACE_SLIDERS
             st.session_state.selected_method = method
-            st.info("Slider-based concentration control")
 
             # Random start option for sliders
             st.session_state.use_random_start = st.checkbox(
@@ -793,7 +715,7 @@ def moderator_interface():
 
                     if success_db:
                         st.session_state.session_created_in_db = True
-                        st.success("✅ Session created in database")
+                        st.success("Session created in database")
                     else:
                         st.error(
                             "Failed to create session in database. Please try again."
@@ -859,9 +781,6 @@ def moderator_interface():
 
         # Helper message at bottom of setup section
         st.markdown("---")
-        st.info(
-            "Configure your experiment above and click 'Start Trial' to begin monitoring."
-        )
 
     # ===== SUBJECT CONNECTION & ACCESS SECTION =====
     st.markdown("---")
@@ -1004,7 +923,7 @@ def moderator_interface():
 
                 # ============= RIGHT PANEL: Recipe Card =============
                 with col_right:
-                    st.markdown("#### 📝 Preparation Recipe")
+                    st.markdown("#### Preparation Recipe")
 
                     if concentrations and ingredient_configs:
                         # Calculate stock volumes
@@ -1095,7 +1014,7 @@ def moderator_interface():
             st.markdown("---")
 
             # ===== CYCLE HISTORY TABLE =====
-            st.markdown("### 📊 Cycle History")
+            st.markdown("### Cycle History")
 
             try:
                 cycle_num = get_current_cycle(st.session_state.session_id)
@@ -1123,7 +1042,7 @@ def moderator_interface():
                             "Target Score": sample.get("questionnaire_answer", {}).get(
                                 "overall_liking", "N/A"
                             ),
-                            "Is Final": "✓" if sample.get("is_final") else "",
+                            "Is Final": "Yes" if sample.get("is_final") else "",
                             "Timestamp": (
                                 sample.get("created_at", "")[:19]
                                 if sample.get("created_at")
@@ -1144,16 +1063,13 @@ def moderator_interface():
             # ===== CYCLE MANAGEMENT CONTROLS =====
             # Show controls when in SELECTION phase
             if phase == ExperimentPhase.SELECTION:
-                st.markdown("### 🎯 Session Management")
-                st.info(
-                    "📌 Note: Selection automatically advances to next cycle. You can finish the session at any time."
-                )
+                st.markdown("### Session Management")
 
                 # Only show Finish Session button (Start Next Cycle is now automatic)
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     if st.button(
-                        "🏁 Finish Session",
+                        "Finish Session",
                         type="primary",
                         use_container_width=True,
                         key="finish_session",
@@ -1186,7 +1102,7 @@ def moderator_interface():
 
             # Force dark mode option for better readability
             force_dark_mode = st.checkbox(
-                "🌙 Force Dark Mode (recommended for better readability)",
+                "Force Dark Mode (recommended for better readability)",
                 value=st.session_state.get("force_dark_mode", False),
                 key="moderator_force_dark_mode",
                 help="Enables dark mode theme to fix text visibility issues in select boxes",
@@ -1223,7 +1139,7 @@ def moderator_interface():
             st.markdown("#### Data Export")
 
             if st.button(
-                "📥 Export Session Data (CSV)",
+                "Export Session Data (CSV)",
                 key="moderator_export_csv",
                 help="Download all experiment data for this session as CSV file",
             ):

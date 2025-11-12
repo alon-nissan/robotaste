@@ -2,18 +2,10 @@
 Session Management for Multi-Device RoboTaste Deployment
 ========================================================
 
-Updated for new database schema (robotaste.db).
 Handles session creation, device pairing, and synchronization.
 
-Key Changes from v1:
-- Uses new sql_handler_new with simplified schema
-- session_id (UUID) serves as both ID and join code
-- Simplified state management
-- No fine-grained phase tracking in DB
-
 Author: Masters Research Project
-Version: 2.0 - Simplified Architecture
-Last Updated: November 2025
+Last Updated: 2025
 """
 
 import random
@@ -63,86 +55,6 @@ def create_qr_code(url: str) -> str:
     img_base64 = base64.b64encode(buffer.getvalue()).decode()
 
     return f"data:image/png;base64,{img_base64}"
-
-
-def create_session(moderator_name: str, experiment_config: Dict) -> str:
-    """
-    Create a new session with complete experiment configuration.
-
-    Args:
-        moderator_name: Name of moderator creating session
-        experiment_config: Complete experiment configuration dict containing:
-            - user_id: User (taster) ID
-            - num_ingredients: Number of ingredients
-            - interface_type: 'grid_2d' or 'slider_based'
-            - method: 'linear', 'logarithmic', 'exponential'
-            - ingredients: List of ingredient dicts
-            - question_type_id: FK to questionnaire_types
-            - bayesian_optimization: BO config dict
-
-    Returns:
-        Tuple of (session_id (UUID string), session_code (6-char string))
-
-    Example:
-        >>> config = {
-        ...     "user_id": "taster_001",
-        ...     "num_ingredients": 2,
-        ...     "interface_type": "grid_2d",
-        ...     "method": "logarithmic",
-        ...     "ingredients": [
-        ...         {"position": 1, "name": "Sugar", "min": 0.73, "max": 73.0, "unit": "mM"},
-        ...         {"position": 2, "name": "Salt", "min": 0.10, "max": 10.0, "unit": "mM"}
-        ...     ],
-        ...     "question_type_id": 1,
-        ...     "bayesian_optimization": {
-        ...         "enabled": True,
-        ...         "acquisition_function": "ei"
-        ...     }
-        ... }
-        >>> session_id, session_code = create_session("Dr. Smith", config)
-        >>> print(session_code)  # Shows '3XK9A2' (6 characters)
-    """
-    try:
-        # Extract required fields
-        user_id = experiment_config.get("user_id", "default_user")
-        num_ingredients = experiment_config["num_ingredients"]
-        interface_type = experiment_config["interface_type"]
-        method = experiment_config["method"]
-        ingredients = experiment_config["ingredients"]
-        question_type_id = experiment_config.get("question_type_id", 1)
-        bo_config = experiment_config.get("bayesian_optimization", {})
-
-        # Add moderator name to config
-        full_config = {**experiment_config, "moderator_name": moderator_name}
-
-        # Ensure user exists in database
-        sql.create_user(user_id)
-
-        # Step 1: Create minimal session (returns both UUID and code)
-        session_id, session_code = sql.create_session(moderator_name)
-
-        # Step 2: Update with full configuration
-        sql.update_session_with_config(
-            session_id=session_id,
-            user_id=user_id,
-            num_ingredients=num_ingredients,
-            interface_type=interface_type,
-            method=method,
-            ingredients=ingredients,
-            question_type_id=question_type_id,
-            bo_config=bo_config,
-            experiment_config=full_config,
-        )
-
-        logger.info(f"Created session {session_id} with code {session_code} for moderator {moderator_name}")
-        return session_id, session_code
-
-    except KeyError as e:
-        logger.error(f"Missing required field in experiment_config: {e}")
-        raise ValueError(f"Invalid experiment_config: missing {e}")
-    except Exception as e:
-        logger.error(f"Failed to create session: {e}")
-        raise
 
 
 def join_session(session_code: str) -> Optional[str]:
@@ -329,20 +241,3 @@ def display_session_qr_code(
             key=f"session_qr_copy_url_{context}_{session_code}",
         ):
             st.success("URL copied to clipboard!")
-
-
-def cleanup_old_sessions(hours: int = 24):
-    """Clean up sessions older than specified hours."""
-    with sql.get_database_connection() as conn:
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            UPDATE sessions SET is_active = 0 
-            WHERE last_activity < datetime('now', '-{} hours')
-        """.format(
-                hours
-            )
-        )
-
-        conn.commit()

@@ -1,18 +1,13 @@
 """
-State Machine for Experiment Phase Management - Simplified Architecture
-========================================================================
+State Machine for Experiment Phase Management
+==============================================
 
-Updated for new database schema (robotaste.db) with simplified workflow.
+Manages experiment phase transitions and state validation.
 
-Key Changes from v1:
-- Reduced from 8 phases to 5 phases
-- No PRE/POST questionnaire distinction
-- No database sync for transient phases (only persist session-level state)
-- Streamlined workflow: WAITING → ROBOT_PREPARING → TASTING → QUESTIONNAIRE → SELECTION
+Workflow: WAITING → ROBOT_PREPARING → LOADING → QUESTIONNAIRE → SELECTION → COMPLETE
 
 Author: Masters Research Project
-Version: 2.0 - Simplified Architecture
-Last Updated: November 2025
+Last Updated: 2025
 """
 
 from enum import Enum
@@ -26,20 +21,13 @@ logger = logging.getLogger(__name__)
 
 
 class ExperimentPhase(Enum):
-    """All possible phases in the simplified experiment workflow."""
+    """All possible phases in the experiment workflow."""
 
-    # Session-level phases
-    # WELCOME = "welcome"  # Initial welcome phase (not used in state machine)
     WAITING = "waiting"  # Session created, waiting for moderator to start
-
-    # Cycle phases (repeated for each cycle)
     ROBOT_PREPARING = "robot_preparing"  # Robot is preparing the solution
-    LOADING = "loading"  # Loading screen (5 seconds) before questionnaire in cycles 1+
-    # TASTING phase removed - go directly from ROBOT_PREPARING to QUESTIONNAIRE
+    LOADING = "loading"  # Loading screen before questionnaire in cycles 1+
     QUESTIONNAIRE = "questionnaire"  # Subject answering questionnaire
     SELECTION = "selection"  # Subject making selection for next cycle
-
-    # Final phase
     COMPLETE = "complete"  # Session finished
 
     @classmethod
@@ -206,7 +194,6 @@ class ExperimentStateMachine:
             ExperimentPhase.WAITING: "Waiting to Start",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
             ExperimentPhase.LOADING: "Preparing Sample",
-            # ExperimentPhase.TASTING: "Tasting in Progress", stage removed
             ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
             ExperimentPhase.SELECTION: "Making Selection",
             ExperimentPhase.COMPLETE: "Session Complete",

@@ -1,5 +1,5 @@
 """
-🍯 RoboTaste - Interactive Taste Preference Experiment Platform
+RoboTaste - Interactive Taste Preference Experiment Platform
 
 OVERVIEW:
 =========

@@ -1,4 +1,3 @@
-from ui_components import create_header
 from session_manager import (
     get_session_info,
     join_session,
@@ -11,8 +10,6 @@ import time
 
 def landing_page():
     """Multi-device landing page with session management."""
-    create_header("RoboTaste Multi-Device System", "Create or join a session", "")
-
     # Check URL parameters for session joining
     role = st.query_params.get("role", "")
     session_code = st.query_params.get("session", "")
@@ -48,7 +45,7 @@ def landing_page():
         tab1, tab2, tab3 = st.tabs(["New Session", "Join Session", "About"])
 
         with tab1:
-            st.markdown("### 🔧 Create New Session (Moderator)")
+            st.markdown("### Create New Session (Moderator)")
             st.info(
                 "Start a new experiment session that subjects can join using a session code or QR code."
             )
@@ -124,7 +121,7 @@ def landing_page():
                     st.error("Please enter a valid 6-character session code")
 
         with tab3:
-            st.markdown("### 📖 About RoboTaste")
+            st.markdown("### About RoboTaste")
             st.markdown(
                 """
             **Multi-Device Taste Preference Experiment Platform**
@@ -134,7 +131,7 @@ def landing_page():
             - **Vertical Sliders**: Multi-component concentration control
             - **Multi-Device**: Moderator dashboard + subject interface
             - **Real-time Sync**: Live monitoring and data collection
-            - ☁️ **Cloud Ready**: Deployed on Streamlit Cloud
+            - **Cloud Ready**: Deployed on Streamlit Cloud
             
             **How to Use:**
             1. **Moderator**: Create a new session from any device
@@ -149,7 +146,7 @@ def landing_page():
 
             # Show active sessions for debugging (admin view)
             if st.button(
-                "🔍 Show Active Sessions (Debug)", key="landing_debug_active_sessions"
+                "Show Active Sessions (Debug)", key="landing_debug_active_sessions"
             ):
                 from session_manager import get_active_sessions
 

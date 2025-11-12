@@ -7,9 +7,7 @@ from callback import (
     create_canvas_drawing,
     render_questionnaire,
     save_intermediate_click,
-    show_preparation_message,
 )
-from ui_components import create_header, display_phase_status
 from session_manager import (
     get_session_info,
     join_session,
@@ -63,23 +61,15 @@ def subject_interface():
     """
     Multi-device subject interface with session management.
 
-    NEW 6-PHASE WORKFLOW:
-    =====================
-    1. welcome (UI only) - Participant enters ID and waits for activation
+    Experiment Workflow:
+    1. welcome - Participant enters ID and waits for activation
     2. waiting - Activated, waiting for moderator to start first cycle
     3. robot_preparing - Robot is preparing the sample (auto-polling)
-    4. tasting - Subject tastes sample and clicks "Done Tasting"
+    4. loading - Loading screen between preparation and questionnaire
     5. questionnaire - Subject answers questionnaire about the sample
     6. selection - Subject makes selection for next cycle (grid/sliders)
-    7. Repeat steps 3-6 for each cycle, or transition to:
+    7. Repeat steps 3-6 for each cycle
     8. complete - Session finished
-
-    Key Changes from Old Workflow:
-    - No PRE/POST questionnaire distinction (single questionnaire after tasting)
-    - Questionnaire comes BEFORE selection (not after)
-    - Selection is for the NEXT cycle (not current)
-    - Robot preparing phase added for better UX
-    - Moderator controls cycle progression and completion
     """
     # Initialize session from URL parameters if not in session state
     if not st.session_state.get("session_id"):
@@ -96,7 +86,7 @@ def subject_interface():
                 sync_session_state(session_id, "subject")
             else:
                 st.error(f"Invalid or expired session code: {url_session_code}")
-                if st.button("🏠 Return to Home", key="invalid_session_return"):
+                if st.button("Return to Home", key="invalid_session_return"):
                     st.query_params.clear()
                     st.rerun()
                 return
@@ -106,7 +96,7 @@ def subject_interface():
         st.error(
             "No active session. Please join a session using the code provided by your moderator."
         )
-        if st.button("🏠 Return to Home", key="subject_return_home_no_session"):
+        if st.button("Return to Home", key="subject_return_home_no_session"):
             st.query_params.clear()
             st.rerun()
         return
@@ -116,35 +106,27 @@ def subject_interface():
     if not session_info:
         # Check if this is a valid UUID but not yet in database (two-stage creation)
         if not st.session_state.get("session_created_in_db", True):
-            st.info(
-                "📋 Session created. Waiting for moderator to configure experiment..."
-            )
+            st.info("Session created. Waiting for moderator to configure experiment...")
             st.write(
                 "Please wait while the moderator sets up the experiment parameters."
             )
-            if st.button("🏠 Return to Home", key="subject_return_home_waiting_config"):
+            if st.button("Return to Home", key="subject_return_home_waiting_config"):
                 st.query_params.clear()
                 st.rerun()
         else:
             st.error("Session expired or invalid.")
             st.session_state.session_code = None
-            if st.button(
-                "🏠 Return to Home", key="subject_return_home_invalid_session"
-            ):
+            if st.button("Return to Home", key="subject_return_home_invalid_session"):
                 st.query_params.clear()
                 st.rerun()
         return
     elif session_info.get("state") != "active":
         st.error("Session has ended.")
         st.session_state.session_code = None
-        if st.button("🏠 Return to Home", key="subject_return_home_ended_session"):
+        if st.button("Return to Home", key="subject_return_home_ended_session"):
             st.query_params.clear()
             st.rerun()
         return
-
-    create_header(
-        f"Session {st.session_state.session_code if st.session_state.get('session_code') else st.session_state.session_id}", f"Taste Preference Experiment", ""
-    )
 
     # Initialize phase if not set
     initialize_phase(default_phase="welcome")
@@ -224,8 +206,6 @@ def subject_interface():
                     st.warning("Waiting for moderator to activate your session.")
 
     elif st.session_state.phase == "waiting":
-        display_phase_status("waiting", st.session_state.participant)
-
         col2 = st.columns([1, 2, 1])[1]
         with col2:
             st.info("Waiting for moderator to start the first cycle...")
@@ -245,8 +225,6 @@ def subject_interface():
         st.rerun()
 
     elif st.session_state.phase == "robot_preparing":
-        display_phase_status("robot_preparing", st.session_state.participant)
-
         # Show cycle number
         cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(f"Cycle {cycle_num}: Robot is preparing your sample, please wait...")
@@ -265,8 +243,6 @@ def subject_interface():
         st.rerun()
 
     elif st.session_state.phase == "loading":
-        display_phase_status("loading", st.session_state.participant)
-
         # Show cycle number
         cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(f"Cycle {cycle_num}: Preparing your sample...")
@@ -299,8 +275,6 @@ def subject_interface():
     # TASTING phase removed - workflow now goes directly from ROBOT_PREPARING to QUESTIONNAIRE
 
     elif st.session_state.phase == "selection":
-        display_phase_status("selection", st.session_state.participant)
-
         # Validate session is configured
         # Settings are already loaded by sync_session_state() into st.session_state
         if not st.session_state.get("session_code"):
@@ -554,7 +528,7 @@ def subject_interface():
 
             # Add "Complete Experiment" button for grid interface
             st.markdown("---")
-            st.markdown("### 🏁 Finish Experiment")
+            st.markdown("### Finish Experiment")
             if st.button(
                 "Complete Experiment",
                 type="secondary",
@@ -606,7 +580,7 @@ def subject_interface():
                         session_id=st.session_state.session_id,
                     )
 
-                    st.success("🎉 Experiment completed! Thank you for participating.")
+                    st.success("Experiment completed! Thank you for participating.")
                     time.sleep(2)
                     st.rerun()
 
@@ -1030,7 +1004,7 @@ def subject_interface():
 
             # Add "Complete Experiment" button for slider interface
             st.markdown("---")
-            st.markdown("### 🏁 Finish Experiment")
+            st.markdown("### Finish Experiment")
             if st.button(
                 "Complete Experiment",
                 type="secondary",
@@ -1078,7 +1052,7 @@ def subject_interface():
                         session_id=st.session_state.session_id,
                     )
 
-                    st.success("🎉 Experiment completed! Thank you for participating.")
+                    st.success("Experiment completed! Thank you for participating.")
                     time.sleep(2)
                     st.rerun()
 
@@ -1105,8 +1079,6 @@ def subject_interface():
                         st.write(f"  Ingredient {chr(65 + i)}: {value:.1f}%")
 
     elif st.session_state.phase == "questionnaire":
-        display_phase_status("questionnaire", st.session_state.participant)
-
         # Show cycle number
         cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(
@@ -1222,8 +1194,6 @@ def subject_interface():
                     )
 
     elif st.session_state.phase == "complete":
-        display_phase_status("complete", st.session_state.participant)
-
         col2 = st.columns([1, 2, 1])[1]
         with col2:
             st.markdown("### Thank You!")
