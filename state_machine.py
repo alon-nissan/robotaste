@@ -34,6 +34,7 @@ class ExperimentPhase(Enum):
 
     # Cycle phases (repeated for each cycle)
     ROBOT_PREPARING = "robot_preparing"  # Robot is preparing the solution
+    LOADING = "loading"  # Loading screen (5 seconds) before questionnaire in cycles 1+
     # TASTING phase removed - go directly from ROBOT_PREPARING to QUESTIONNAIRE
     QUESTIONNAIRE = "questionnaire"  # Subject answering questionnaire
     SELECTION = "selection"  # Subject making selection for next cycle
@@ -73,12 +74,14 @@ class ExperimentStateMachine:
         ExperimentPhase.ROBOT_PREPARING: [
             ExperimentPhase.QUESTIONNAIRE  # Robot finished, go directly to questionnaire (TASTING removed)
         ],
+        ExperimentPhase.LOADING: [
+            ExperimentPhase.QUESTIONNAIRE  # Loading screen (5s) before questionnaire in cycles 1+
+        ],
         ExperimentPhase.QUESTIONNAIRE: [
-            ExperimentPhase.SELECTION  # Subject finished questionnaire
+            ExperimentPhase.SELECTION  # Subject finished questionnaire (cycle increments here)
         ],
         ExperimentPhase.SELECTION: [
-            ExperimentPhase.ROBOT_PREPARING,  # Cycle 0 only: moderator prepares first sample
-            ExperimentPhase.QUESTIONNAIRE,  # Cycle 1+: skip robot preparing, go directly to questionnaire
+            ExperimentPhase.LOADING,  # All selections (cycle 1+) go to loading screen
             ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
         ExperimentPhase.COMPLETE: [
@@ -202,6 +205,7 @@ class ExperimentStateMachine:
         display_names = {
             ExperimentPhase.WAITING: "Waiting to Start",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
+            ExperimentPhase.LOADING: "Preparing Sample",
             # ExperimentPhase.TASTING: "Tasting in Progress", stage removed
             ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
             ExperimentPhase.SELECTION: "Making Selection",
@@ -223,6 +227,7 @@ class ExperimentStateMachine:
         colors = {
             ExperimentPhase.WAITING: "gray",
             ExperimentPhase.ROBOT_PREPARING: "blue",
+            ExperimentPhase.LOADING: "blue",
             # ExperimentPhase.TASTING: "orange", stage removed
             ExperimentPhase.QUESTIONNAIRE: "purple",
             ExperimentPhase.SELECTION: "green",

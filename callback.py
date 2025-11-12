@@ -754,23 +754,9 @@ def start_trial(
         else:
             st.session_state.current_tasted_sample = {}
 
-        # Save cycle 0 data to database immediately (initial random concentration)
-        # This ensures the first sample is persisted even if subject doesn't complete questionnaire
-        if st.session_state.current_tasted_sample:
-            try:
-                from sql_handler import save_sample_cycle
-                save_sample_cycle(
-                    session_id=session_code,
-                    cycle_number=0,
-                    ingredient_concentration=st.session_state.current_tasted_sample,
-                    selection_data={},  # No selection yet for cycle 0
-                    questionnaire_answer={},  # No questionnaire for cycle 0
-                    is_final=False,
-                )
-                logger.info(f"Saved cycle 0 initial concentration: {st.session_state.current_tasted_sample}")
-            except Exception as e:
-                logger.warning(f"Could not save cycle 0 data to database: {e}")
-                # Don't fail the workflow if cycle 0 save fails
+        # Note: Cycle 0 data is NOT saved here to avoid duplicate sample IDs.
+        # The initial random sample will be saved with the first questionnaire answer,
+        # creating a single sample ID that links the initial concentrations with the first response.
 
         # Store experiment configuration in session database for subject synchronization
         try:
@@ -788,6 +774,8 @@ def start_trial(
                 "num_ingredients": num_ingredients,
                 "interface_type": interface_type,
                 "method": method,
+                "current_cycle": 0,  # Initialize cycle counter to 0
+                "initial_concentrations": st.session_state.current_tasted_sample,  # Store for subject interface sync
                 "questionnaire_type": questionnaire_type,  # Store selected questionnaire type
                 "bayesian_optimization": st.session_state.get(
                     "bo_config", get_default_bo_config()

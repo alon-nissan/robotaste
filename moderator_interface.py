@@ -690,6 +690,8 @@ def moderator_interface():
                 help="Choose how coordinates map to concentrations",
                 key="moderator_mapping_method_selector",
             )
+            # Store in session state immediately for database persistence
+            st.session_state.selected_method = method
 
             # Method explanation
             method_info = {
@@ -700,6 +702,7 @@ def moderator_interface():
             st.info(method_info[method])
         else:
             method = INTERFACE_SLIDERS
+            st.session_state.selected_method = method
             st.info("Slider-based concentration control")
 
             # Random start option for sliders
@@ -736,9 +739,8 @@ def moderator_interface():
                     interface_type = st.session_state.experiment_config.get(
                         "interface_type", "grid_2d"
                     )
-                    method = st.session_state.experiment_config.get(
-                        "method", "logarithmic"
-                    )
+                    # Use the freshly selected method from session state
+                    method = st.session_state.get("selected_method", "logarithmic")
 
                     # Build ingredient list for database
                     ingredients_for_db = []

@@ -47,7 +47,7 @@ def create_qr_code(url: str) -> str:
     """
     qr = qrcode.QRCode(
         version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,  # type: ignore
         box_size=10,
         border=4,
     )
@@ -58,7 +58,7 @@ def create_qr_code(url: str) -> str:
 
     # Convert to base64 for embedding in HTML
     buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
+    img.save(buffer, format="PNG")  # type: ignore
     buffer.seek(0)
     img_base64 = base64.b64encode(buffer.getvalue()).decode()
 
@@ -119,8 +119,12 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
         # Ensure user exists in database
         sql.create_user(user_id)
 
-        # Create session using new sql_handler
-        session_id = sql.create_session(
+        # Step 1: Create minimal session
+        session_id = sql.create_session(moderator_name)
+
+        # Step 2: Update with full configuration
+        sql.update_session_with_config(
+            session_id=session_id,
             user_id=user_id,
             num_ingredients=num_ingredients,
             interface_type=interface_type,
@@ -205,7 +209,9 @@ def sync_session_state(session_id: str, role: str) -> bool:
 
         # Store session info in Streamlit session state
         st.session_state.session_id = session_id
-        st.session_state.session_code = session_id  # Also set session_code for compatibility
+        st.session_state.session_code = (
+            session_id  # Also set session_code for compatibility
+        )
         st.session_state.session_info = session_info
         st.session_state.device_role = role
         st.session_state.last_sync = datetime.now()
@@ -228,6 +234,10 @@ def sync_session_state(session_id: str, role: str) -> bool:
             st.session_state.moderator_name = experiment_config.get(
                 "moderator_name", "Moderator"
             )
+            # Sync initial concentrations (for cycle 0 questionnaire save)
+            initial_conc = experiment_config.get("initial_concentrations", {})
+            if initial_conc:
+                st.session_state.current_tasted_sample = initial_conc
             # Update both the UI control variable AND display variable
             phase_from_db = session_info.get("current_phase", "waiting")
             st.session_state.phase = phase_from_db  # UI control variable

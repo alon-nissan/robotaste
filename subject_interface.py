@@ -259,6 +259,38 @@ def subject_interface():
         time.sleep(2)
         st.rerun()
 
+    elif st.session_state.phase == "loading":
+        display_phase_status("loading", st.session_state.participant)
+
+        # Show cycle number
+        cycle_num = get_current_cycle(st.session_state.session_code)
+        st.info(f"Cycle {cycle_num}: Preparing your sample...")
+
+        # Initialize loading start time if not set
+        if "loading_start_time" not in st.session_state:
+            st.session_state.loading_start_time = time.time()
+
+        # Check if 5 seconds have elapsed
+        elapsed_time = time.time() - st.session_state.loading_start_time
+        if elapsed_time >= 5:
+            # Clear loading start time
+            del st.session_state.loading_start_time
+
+            # Transition to QUESTIONNAIRE
+            ExperimentStateMachine.transition(
+                new_phase=ExperimentPhase.QUESTIONNAIRE,
+                session_id=st.session_state.session_code,
+            )
+            st.rerun()
+        else:
+            # Show progress bar
+            progress = min(elapsed_time / 5.0, 1.0)
+            st.progress(progress)
+
+            # Rerun after short delay to update progress
+            time.sleep(0.1)
+            st.rerun()
+
     # TASTING phase removed - workflow now goes directly from ROBOT_PREPARING to QUESTIONNAIRE
 
     elif st.session_state.phase == "selection":
@@ -333,11 +365,14 @@ def subject_interface():
                 # Get selection history for persistent visualization
                 selection_history = getattr(st.session_state, "selection_history", None)
 
-                # Legacy canvas drawing - mod_settings no longer contains x/y positions
-                # Use default canvas for grid interface
+                # Get random starting position from session state (set by start_trial)
+                # Falls back to center if not set
+                x = st.session_state.get('x', 300)
+                y = st.session_state.get('y', 300)
+
                 initial_drawing = create_canvas_drawing(
-                    300,  # Default center position
-                    300,  # Default center position
+                    x,  # Random or last position
+                    y,  # Random or last position
                     selection_history,  # type: ignore
                 )
 
@@ -452,30 +487,17 @@ def subject_interface():
                                     "sample_id": sample_id,
                                 }
 
-                                # Get current cycle before incrementing
+                                # Get current cycle (already incremented in QUESTIONNAIRE phase)
                                 current_cycle = get_current_cycle(
                                     st.session_state.session_code
                                 )
 
-                                # Increment cycle counter
-                                new_cycle = increment_cycle(
-                                    st.session_state.session_code
+                                # Transition to LOADING for all selections (cycle 1+)
+                                # Note: Cycle 0 has no SELECTION phase - it ends at QUESTIONNAIRE
+                                ExperimentStateMachine.transition(
+                                    new_phase=ExperimentPhase.LOADING,
+                                    session_id=st.session_state.session_code,
                                 )
-                                st.session_state.cycle_number = new_cycle
-
-                                # Cycle-aware transition:
-                                # - Cycle 0: transition to ROBOT_PREPARING (moderator needs to start)
-                                # - Cycle 1+: skip ROBOT_PREPARING, go directly to QUESTIONNAIRE
-                                if current_cycle == 0:
-                                    ExperimentStateMachine.transition(
-                                        new_phase=ExperimentPhase.ROBOT_PREPARING,
-                                        session_id=st.session_state.session_code,
-                                    )
-                                else:
-                                    ExperimentStateMachine.transition(
-                                        new_phase=ExperimentPhase.QUESTIONNAIRE,
-                                        session_id=st.session_state.session_code,
-                                    )
 
                                 # Update current_tasted_sample for next cycle
                                 st.session_state.current_tasted_sample = (
@@ -486,7 +508,7 @@ def subject_interface():
                                 st.session_state.trajectory_clicks = []
 
                                 st.success(
-                                    f"Selection saved! Starting cycle {new_cycle}"
+                                    f"Selection saved! Starting cycle {current_cycle}"
                                 )
                                 st.rerun()
 
@@ -956,26 +978,15 @@ def subject_interface():
                 }
                 st.session_state.pending_method = INTERFACE_SLIDERS
 
-                # Get current cycle before incrementing
+                # Get current cycle (already incremented in QUESTIONNAIRE phase)
                 current_cycle = get_current_cycle(st.session_state.session_code)
 
-                # Increment cycle counter
-                new_cycle = increment_cycle(st.session_state.session_code)
-                st.session_state.cycle_number = new_cycle
-
-                # Cycle-aware transition:
-                # - Cycle 0: transition to ROBOT_PREPARING (moderator needs to start)
-                # - Cycle 1+: skip ROBOT_PREPARING, go directly to QUESTIONNAIRE
-                if current_cycle == 0:
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.ROBOT_PREPARING,
-                        session_id=st.session_state.session_code,
-                    )
-                else:
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.QUESTIONNAIRE,
-                        session_id=st.session_state.session_code,
-                    )
+                # Transition to LOADING for all selections (cycle 1+)
+                # Note: Cycle 0 has no SELECTION phase - it ends at QUESTIONNAIRE
+                ExperimentStateMachine.transition(
+                    new_phase=ExperimentPhase.LOADING,
+                    session_id=st.session_state.session_code,
+                )
 
                 # Update current_tasted_sample for next cycle
                 if "ingredient_concentrations" in st.session_state.next_selection_data:
@@ -985,7 +996,7 @@ def subject_interface():
                         ].copy()
                     )
 
-                st.success(f"Slider selection recorded! Starting cycle {new_cycle}")
+                st.success(f"Slider selection recorded! Starting cycle {current_cycle}")
                 st.rerun()
 
             # Add "Complete Experiment" button for slider interface
@@ -1125,6 +1136,11 @@ def subject_interface():
                     success = False
 
                 if success:
+                    # Increment cycle counter after saving questionnaire
+                    # This makes cycle 0 end at QUESTIONNAIRE, cycle 1 start at SELECTION
+                    new_cycle = increment_cycle(st.session_state.session_code)
+                    st.session_state.cycle_number = new_cycle
+
                     # Transition to SELECTION phase (new 6-phase workflow)
                     ExperimentStateMachine.transition(
                         new_phase=ExperimentPhase.SELECTION,
