@@ -52,7 +52,7 @@ def get_current_phase_safe() -> str:
     session_created_in_db = st.session_state.get("session_created_in_db", True)
 
     if session_created_in_db:
-        session_info = get_session_info(st.session_state.session_code)
+        session_info = get_session_info(st.session_state.session_id)
         if session_info:
             return session_info.get("current_phase", "waiting")
 
@@ -64,7 +64,7 @@ def moderator_interface():
     """Multi-device moderator interface with session management."""
 
     # Validate session
-    if not st.session_state.session_code:
+    if not st.session_state.get("session_id"):
         st.error("No active session. Please create or join a session.")
         if st.button("🏠 Return to Home", key="moderator_return_home_no_session"):
             st.query_params.clear()
@@ -75,9 +75,10 @@ def moderator_interface():
     session_created_in_db = st.session_state.get("session_created_in_db", True)
     if session_created_in_db:
         # Verify session is still valid in database
-        session_info = get_session_info(st.session_state.session_code)
+        session_info = get_session_info(st.session_state.session_id)
         if not session_info or session_info.get("state") != "active":
             st.error("Session expired or invalid.")
+            st.session_state.session_id = None
             st.session_state.session_code = None
             if st.button(
                 "🏠 Return to Home", key="moderator_return_home_invalid_session"
@@ -96,7 +97,7 @@ def moderator_interface():
     if "phase" not in st.session_state:
         from state_machine import recover_phase_from_database
 
-        recovered_phase = recover_phase_from_database(st.session_state.session_code)
+        recovered_phase = recover_phase_from_database(st.session_state.session_id)
 
         # Moderator UI has only two states:
         # 1. "waiting" = setup mode (configure trial)
@@ -183,7 +184,7 @@ def moderator_interface():
             ):
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.QUESTIONNAIRE,
-                    session_id=st.session_state.session_code,
+                    session_id=st.session_state.session_id,
                 )
                 st.success("Sample marked as ready! Subject will answer questionnaire.")
                 time.sleep(0.5)
@@ -263,7 +264,7 @@ def moderator_interface():
                 try:
                     ExperimentStateMachine.transition(
                         new_phase=ExperimentPhase.WAITING,
-                        session_code=st.session_state.session_code,
+                        session_code=st.session_state.session_code,  # Display only
                         sync_to_database=True
                     )
                     st.toast("Session ended. Returning to setup...")
@@ -777,7 +778,7 @@ def moderator_interface():
 
                     # Create/update session in database
                     success_db = update_session_with_config(
-                        session_id=st.session_state.session_code,
+                        session_id=st.session_state.session_id,
                         user_id=st.session_state.participant,
                         num_ingredients=num_ingredients,
                         interface_type=interface_type,
@@ -866,7 +867,7 @@ def moderator_interface():
     st.markdown("---")
     from state_machine import recover_phase_from_database
 
-    recovered_phase = recover_phase_from_database(st.session_state.session_code)
+    recovered_phase = recover_phase_from_database(st.session_state.session_id)
     if recovered_phase == "waiting":
         with st.expander("Subject Access - QR Code & Session Info", expanded=False):
             st.info(
@@ -929,7 +930,7 @@ def moderator_interface():
 
                 with col_time:
                     # Get sample timestamp from database
-                    samples = get_session_samples(st.session_state.session_code)
+                    samples = get_session_samples(st.session_state.session_id)
                     if samples:
                         latest_sample = samples[-1]  # Most recent
                         created_at = latest_sample.get("created_at", "Unknown")
@@ -1060,7 +1061,7 @@ def moderator_interface():
                 st.caption("Auto-refresh enabled (15s interval)")
 
                 # Sync phase from database (in case subject progressed independently)
-                session_info = get_session_info(st.session_state.session_code)
+                session_info = get_session_info(st.session_state.session_id)
                 if session_info:
                     phase_from_db = session_info.get(
                         "current_phase", st.session_state.get("phase", "waiting")
@@ -1079,7 +1080,7 @@ def moderator_interface():
 
             # ===== SESSION STATISTICS =====
             try:
-                stats = get_session_stats(st.session_state.session_code)
+                stats = get_session_stats(st.session_state.session_id)
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Cycles", stats.get("total_cycles", 0))
                 col2.metric("Final Samples", stats.get("final_samples", 0))
@@ -1097,12 +1098,12 @@ def moderator_interface():
             st.markdown("### 📊 Cycle History")
 
             try:
-                cycle_num = get_current_cycle(st.session_state.session_code)
+                cycle_num = get_current_cycle(st.session_state.session_id)
                 st.info(f"Current Cycle: {cycle_num}")
 
                 # Get all samples for this session
                 samples = get_session_samples(
-                    st.session_state.session_code, only_final=False
+                    st.session_state.session_id, only_final=False
                 )
 
                 if samples:
@@ -1161,13 +1162,13 @@ def moderator_interface():
                         if st.session_state.get("confirm_finish"):
                             # Update session state to completed
                             update_session_state(
-                                st.session_state.session_code, "completed"
+                                st.session_state.session_id, "completed"
                             )
 
                             # Transition to complete
                             ExperimentStateMachine.transition(
                                 new_phase=ExperimentPhase.COMPLETE,
-                                session_id=st.session_state.session_code,
+                                session_id=st.session_state.session_id,
                             )
                             st.success("Session completed!")
                             time.sleep(0.5)

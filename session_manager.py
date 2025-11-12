@@ -81,7 +81,7 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
             - bayesian_optimization: BO config dict
 
     Returns:
-        session_id (UUID string) - also serves as join code
+        Tuple of (session_id (UUID string), session_code (6-char string))
 
     Example:
         >>> config = {
@@ -99,9 +99,8 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
         ...         "acquisition_function": "ei"
         ...     }
         ... }
-        >>> session_id = create_session("Dr. Smith", config)
-        >>> print(session_id)
-        'abc-123-def-456'
+        >>> session_id, session_code = create_session("Dr. Smith", config)
+        >>> print(session_code)  # Shows '3XK9A2' (6 characters)
     """
     try:
         # Extract required fields
@@ -119,8 +118,8 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
         # Ensure user exists in database
         sql.create_user(user_id)
 
-        # Step 1: Create minimal session
-        session_id = sql.create_session(moderator_name)
+        # Step 1: Create minimal session (returns both UUID and code)
+        session_id, session_code = sql.create_session(moderator_name)
 
         # Step 2: Update with full configuration
         sql.update_session_with_config(
@@ -135,8 +134,8 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
             experiment_config=full_config,
         )
 
-        logger.info(f"Created session {session_id} for moderator {moderator_name}")
-        return session_id
+        logger.info(f"Created session {session_id} with code {session_code} for moderator {moderator_name}")
+        return session_id, session_code
 
     except KeyError as e:
         logger.error(f"Missing required field in experiment_config: {e}")
@@ -146,28 +145,29 @@ def create_session(moderator_name: str, experiment_config: Dict) -> str:
         raise
 
 
-def join_session(session_id: str) -> bool:
+def join_session(session_code: str) -> Optional[str]:
     """
     Check if session exists and is active (subject can join).
 
     Args:
-        session_id: Session UUID
+        session_code: 6-character session code
 
     Returns:
-        True if session exists and is active, False otherwise
+        session_id (UUID) if session exists and is active, None otherwise
     """
     try:
-        session = sql.get_session(session_id)
+        session = sql.get_session_by_code(session_code)
         if session and session["state"] == "active":
-            logger.info(f"Subject joined session {session_id}")
-            return True
+            session_id = session["session_id"]
+            logger.info(f"Subject joined session {session_code} (ID: {session_id})")
+            return session_id
 
-        logger.warning(f"Cannot join session {session_id} - not found or not active")
-        return False
+        logger.warning(f"Cannot join session {session_code} - not found or not active")
+        return None
 
     except Exception as e:
-        logger.error(f"Error checking session {session_id}: {e}")
-        return False
+        logger.error(f"Error checking session {session_code}: {e}")
+        return None
 
 
 def get_session_info(session_id: str) -> Optional[Dict[str, Any]]:
@@ -209,9 +209,7 @@ def sync_session_state(session_id: str, role: str) -> bool:
 
         # Store session info in Streamlit session state
         st.session_state.session_id = session_id
-        st.session_state.session_code = (
-            session_id  # Also set session_code for compatibility
-        )
+        st.session_state.session_code = session_info.get("session_code", "")  # Get 6-char code from DB
         st.session_state.session_info = session_info
         st.session_state.device_role = role
         st.session_state.last_sync = datetime.now()
@@ -270,26 +268,26 @@ def sync_session_state(session_id: str, role: str) -> bool:
 
 
 def generate_session_urls(
-    session_id: str, base_url: str = "https://robotaste.streamlit.app"
+    session_code: str, base_url: str = "https://robotaste.streamlit.app"
 ) -> Dict[str, str]:
     """
     Generate URLs for moderator and subject interfaces.
 
     Args:
-        session_id: Session UUID (serves as join code)
+        session_code: 6-character session code (user-facing identifier)
         base_url: Base URL of deployment
 
     Returns:
         Dict with 'moderator' and 'subject' URLs
     """
     return {
-        "moderator": f"{base_url}/?role=moderator&session={session_id}",
-        "subject": f"{base_url}/?role=subject&session={session_id}",
+        "moderator": f"{base_url}/?role=moderator&session={session_code}",
+        "subject": f"{base_url}/?role=subject&session={session_code}",
     }
 
 
 def display_session_qr_code(
-    session_id: str,
+    session_code: str,
     base_url: str = "https://robotaste.streamlit.app",
     context: str = "default",
 ):
@@ -297,11 +295,11 @@ def display_session_qr_code(
     Display QR code for subject to join session.
 
     Args:
-        session_id: Session UUID
+        session_code: 6-character session code
         base_url: Base URL of deployment
         context: Unique context string for widget keys
     """
-    urls = generate_session_urls(session_id, base_url)
+    urls = generate_session_urls(session_code, base_url)
     subject_url = urls["subject"]
     qr_code_data = create_qr_code(subject_url)
 
@@ -320,15 +318,15 @@ def display_session_qr_code(
         )
 
     with col2:
-        st.markdown("**Session ID:**")
-        st.code(session_id, language="text")
+        st.markdown("**Session Code:**")
+        st.code(session_code, language="text")
         st.markdown("**Subject URL:**")
         st.code(subject_url, language="text")
 
         if st.button(
             "Copy Subject URL",
             help="Copy URL to clipboard",
-            key=f"session_qr_copy_url_{context}_{session_id[:8]}",
+            key=f"session_qr_copy_url_{context}_{session_code}",
         ):
             st.success("URL copied to clipboard!")
 

@@ -66,22 +66,24 @@ def landing_page():
                 use_container_width=True,
                 key="landing_create_session_button",
             ):
-                # Generate UUID only - no database insertion yet
-                # Full session will be created when moderator configures and clicks "Start Trial"
-                import uuid
+                # Create minimal session in database with both UUID and 6-char code
+                # Full config will be added when moderator clicks "Start Trial"
+                import sql_handler as sql
 
-                new_session_code = str(uuid.uuid4())
+                # Create session in database (returns both ID and code)
+                new_session_id, new_session_code = sql.create_session(moderator_name)
 
-                # Store in session state for moderator interface
+                # Store both identifiers in session state for moderator interface
+                st.session_state.session_id = new_session_id
                 st.session_state.session_code = new_session_code
                 st.session_state.device_role = "moderator"
                 st.session_state.moderator_name = moderator_name
-                st.session_state.session_created_in_db = False  # Flag: not in DB yet
+                st.session_state.session_created_in_db = True  # Session now exists in DB
 
                 st.query_params.update(
-                    {"role": "moderator", "session": new_session_code}
+                    {"role": "moderator", "session": new_session_code}  # Use 6-char code in URL
                 )
-                st.success(f"Session ID generated: {new_session_code[:8]}...")
+                st.success(f"Session Code: {new_session_code}")
                 st.info("Please configure your experiment settings on the next screen.")
                 time.sleep(1)
                 st.rerun()

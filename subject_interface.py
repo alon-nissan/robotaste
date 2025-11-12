@@ -29,6 +29,7 @@ import streamlit_vertical_slider as svs
 from streamlit_drawable_canvas import st_canvas
 import time
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -80,25 +81,28 @@ def subject_interface():
     - Robot preparing phase added for better UX
     - Moderator controls cycle progression and completion
     """
-    # Initialize session_code from URL parameters if not in session state
-    if not st.session_state.get("session_code"):
-        url_session = st.query_params.get("session", "")
+    # Initialize session from URL parameters if not in session state
+    if not st.session_state.get("session_id"):
+        url_session_code = st.query_params.get("session", "")
         url_role = st.query_params.get("role", "")
 
-        if url_session and url_role == "subject":
-            if join_session(url_session):
-                st.session_state.session_code = url_session
-                sync_session_state(url_session, "subject")
+        if url_session_code and url_role == "subject":
+            # join_session now returns session_id (UUID) if successful
+            session_id = join_session(url_session_code)
+            if session_id:
+                # Store both identifiers in session state
+                st.session_state.session_id = session_id
+                st.session_state.session_code = url_session_code
+                sync_session_state(session_id, "subject")
             else:
-                st.error(f"Invalid or expired session: {url_session}")
+                st.error(f"Invalid or expired session code: {url_session_code}")
                 if st.button("🏠 Return to Home", key="invalid_session_return"):
                     st.query_params.clear()
                     st.rerun()
                 return
 
     # Check if we have a valid session
-    st.write(st.session_state.session_code)
-    if not st.session_state.session_code:
+    if not st.session_state.get("session_id"):
         st.error(
             "No active session. Please join a session using the code provided by your moderator."
         )
@@ -107,7 +111,8 @@ def subject_interface():
             st.rerun()
         return
 
-    session_info = get_session_info(st.session_state.session_code)
+    # Use session_id for database lookups
+    session_info = get_session_info(st.session_state.session_id)
     if not session_info:
         # Check if this is a valid UUID but not yet in database (two-stage creation)
         if not st.session_state.get("session_created_in_db", True):
@@ -138,7 +143,7 @@ def subject_interface():
         return
 
     create_header(
-        f"Session {st.session_state.session_code}", f"Taste Preference Experiment", ""
+        f"Session {st.session_state.session_code if st.session_state.get('session_code') else st.session_state.session_id}", f"Taste Preference Experiment", ""
     )
 
     # Initialize phase if not set
@@ -161,7 +166,7 @@ def subject_interface():
 
     # Display current cycle number if in active phase
     if st.session_state.phase not in ["welcome", "waiting", "complete"]:
-        cycle_num = get_current_cycle(st.session_state.session_code)
+        cycle_num = get_current_cycle(st.session_state.session_id)
         if cycle_num > 0:
             st.markdown(f"**Current Cycle:** {cycle_num}")
 
@@ -195,13 +200,13 @@ def subject_interface():
                 user = get_user(participant_id)  # type: ignore
                 if user is not None:
                     # Sync session state from database to get experiment configuration
-                    sync_session_state(st.session_state.session_code, "subject")
+                    sync_session_state(st.session_state.session_id, "subject")
 
                     # Transition to WAITING phase (new 6-phase workflow)
                     try:
                         ExperimentStateMachine.transition(
                             new_phase=ExperimentPhase.WAITING,
-                            session_id=st.session_state.session_code,
+                            session_id=st.session_state.session_id,
                         )
                     except Exception as e:
                         # Fallback: directly set phase if state machine fails
@@ -227,7 +232,7 @@ def subject_interface():
             st.write("The experiment will begin shortly. Please be patient.")
 
         # Poll database for phase changes from moderator
-        session_info = get_session_info(st.session_state.session_code)
+        session_info = get_session_info(st.session_state.session_id)
         if session_info:
             phase_from_db = session_info.get("current_phase", "waiting")
             if phase_from_db != st.session_state.phase:
@@ -243,11 +248,11 @@ def subject_interface():
         display_phase_status("robot_preparing", st.session_state.participant)
 
         # Show cycle number
-        cycle_num = get_current_cycle(st.session_state.session_code)
+        cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(f"Cycle {cycle_num}: Robot is preparing your sample, please wait...")
 
         # Poll database for phase changes from moderator
-        session_info = get_session_info(st.session_state.session_code)
+        session_info = get_session_info(st.session_state.session_id)
         if session_info:
             phase_from_db = session_info.get("current_phase", "robot_preparing")
             if phase_from_db != st.session_state.phase:
@@ -263,7 +268,7 @@ def subject_interface():
         display_phase_status("loading", st.session_state.participant)
 
         # Show cycle number
-        cycle_num = get_current_cycle(st.session_state.session_code)
+        cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(f"Cycle {cycle_num}: Preparing your sample...")
 
         # Initialize loading start time if not set
@@ -279,7 +284,7 @@ def subject_interface():
             # Transition to QUESTIONNAIRE
             ExperimentStateMachine.transition(
                 new_phase=ExperimentPhase.QUESTIONNAIRE,
-                session_id=st.session_state.session_code,
+                session_id=st.session_state.session_id,
             )
             st.rerun()
         else:
@@ -365,14 +370,38 @@ def subject_interface():
                 # Get selection history for persistent visualization
                 selection_history = getattr(st.session_state, "selection_history", None)
 
-                # Get random starting position from session state (set by start_trial)
-                # Falls back to center if not set
-                x = st.session_state.get('x', 300)
-                y = st.session_state.get('y', 300)
+                # Store initial position permanently (only set once)
+                # This ensures the grey dot stays at the original position throughout the session
+                if not hasattr(st.session_state, "initial_grid_position"):
+                    from callback import ConcentrationMapper
+
+                    # Get initial concentrations from database (synced by session_manager)
+                    initial_conc = st.session_state.get("current_tasted_sample", {})
+
+                    if (
+                        initial_conc
+                        and "Sugar" in initial_conc
+                        and "Salt" in initial_conc
+                    ):
+                        # Convert concentrations back to grid coordinates
+                        method = st.session_state.get("method", "linear")
+                        x, y = ConcentrationMapper.map_concentrations_to_coordinates(
+                            sugar_mm=initial_conc["Sugar"],
+                            salt_mm=initial_conc["Salt"],
+                            method=method,
+                        )
+                        st.session_state.initial_grid_position = {"x": x, "y": y}
+                    else:
+                        # Fallback to center only if no initial concentrations exist
+                        st.session_state.initial_grid_position = {"x": 250, "y": 250}
+
+                # Always use the stored initial position for grey dot
+                x = st.session_state.initial_grid_position["x"]
+                y = st.session_state.initial_grid_position["y"]
 
                 initial_drawing = create_canvas_drawing(
-                    x,  # Random or last position
-                    y,  # Random or last position
+                    x,  # Derived from concentrations
+                    y,  # Derived from concentrations
                     selection_history,  # type: ignore
                 )
 
@@ -496,7 +525,7 @@ def subject_interface():
                                 # Note: Cycle 0 has no SELECTION phase - it ends at QUESTIONNAIRE
                                 ExperimentStateMachine.transition(
                                     new_phase=ExperimentPhase.LOADING,
-                                    session_id=st.session_state.session_code,
+                                    session_id=st.session_state.session_id,
                                 )
 
                                 # Update current_tasted_sample for next cycle
@@ -574,7 +603,7 @@ def subject_interface():
                     # Transition to COMPLETE phase
                     ExperimentStateMachine.transition(
                         new_phase=ExperimentPhase.COMPLETE,
-                        session_id=st.session_state.session_code,
+                        session_id=st.session_state.session_id,
                     )
 
                     st.success("🎉 Experiment completed! Thank you for participating.")
@@ -979,13 +1008,13 @@ def subject_interface():
                 st.session_state.pending_method = INTERFACE_SLIDERS
 
                 # Get current cycle (already incremented in QUESTIONNAIRE phase)
-                current_cycle = get_current_cycle(st.session_state.session_code)
+                current_cycle = get_current_cycle(st.session_state.session_id)
 
                 # Transition to LOADING for all selections (cycle 1+)
                 # Note: Cycle 0 has no SELECTION phase - it ends at QUESTIONNAIRE
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.LOADING,
-                    session_id=st.session_state.session_code,
+                    session_id=st.session_state.session_id,
                 )
 
                 # Update current_tasted_sample for next cycle
@@ -1046,7 +1075,7 @@ def subject_interface():
                     # Transition to COMPLETE phase
                     ExperimentStateMachine.transition(
                         new_phase=ExperimentPhase.COMPLETE,
-                        session_id=st.session_state.session_code,
+                        session_id=st.session_state.session_id,
                     )
 
                     st.success("🎉 Experiment completed! Thank you for participating.")
@@ -1079,7 +1108,7 @@ def subject_interface():
         display_phase_status("questionnaire", st.session_state.participant)
 
         # Show cycle number
-        cycle_num = get_current_cycle(st.session_state.session_code)
+        cycle_num = get_current_cycle(st.session_state.session_id)
         st.info(
             f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted"
         )
@@ -1098,7 +1127,7 @@ def subject_interface():
                 st.session_state.questionnaire_responses = responses
 
                 # Get current cycle number
-                current_cycle = get_current_cycle(st.session_state.session_code)
+                current_cycle = get_current_cycle(st.session_state.session_id)
 
                 # Get what they TASTED (current cycle's sample)
                 # This comes from the previous cycle's selection (stored when transitioning to ROBOT_PREPARING)
@@ -1111,6 +1140,43 @@ def subject_interface():
                 # This will be filled in during SELECTION phase
                 selection_data = st.session_state.get("next_selection_data", {})
 
+                # For cycle 0, populate selection_data with initial position
+                if current_cycle == 0 and not selection_data:
+                    # Get interface type to determine how to store initial position
+                    interface_type = st.session_state.get("interface_type", "")
+
+                    if interface_type == "2d_grid" and ingredient_concentrations:
+                        # Calculate initial grid coordinates from concentrations
+                        from callback import ConcentrationMapper
+
+                        method = st.session_state.get("method", "linear")
+
+                        if (
+                            "Sugar" in ingredient_concentrations
+                            and "Salt" in ingredient_concentrations
+                        ):
+                            x, y = (
+                                ConcentrationMapper.map_concentrations_to_coordinates(
+                                    sugar_mm=ingredient_concentrations["Sugar"],
+                                    salt_mm=ingredient_concentrations["Salt"],
+                                    method=method,
+                                )
+                            )
+                            selection_data = {
+                                "x": x,
+                                "y": y,
+                                "method": method,
+                                "timestamp": datetime.now().isoformat(),
+                                "is_initial_position": True,
+                            }
+                    elif interface_type == "sliders" and ingredient_concentrations:
+                        # Store initial slider positions
+                        selection_data = {
+                            "concentrations": ingredient_concentrations.copy(),
+                            "timestamp": datetime.now().isoformat(),
+                            "is_initial_position": True,
+                        }
+
                 # Include trajectory data if available (for grid interface)
                 if hasattr(st.session_state, "trajectory_clicks"):
                     if not selection_data:
@@ -1120,7 +1186,7 @@ def subject_interface():
                 # Save complete cycle data to database
                 try:
                     sample_id = save_sample_cycle(
-                        session_id=st.session_state.session_code,
+                        session_id=st.session_state.session_id,
                         cycle_number=current_cycle,
                         ingredient_concentration=ingredient_concentrations,
                         selection_data=selection_data,
@@ -1144,7 +1210,7 @@ def subject_interface():
                     # Transition to SELECTION phase (new 6-phase workflow)
                     ExperimentStateMachine.transition(
                         new_phase=ExperimentPhase.SELECTION,
-                        session_id=st.session_state.session_code,
+                        session_id=st.session_state.session_id,
                     )
                     st.success(
                         "Questionnaire saved! Now make your selection for the next cycle."
@@ -1164,7 +1230,7 @@ def subject_interface():
             st.success("The experiment session has been completed successfully.")
 
             # Show session summary
-            cycle_num = get_current_cycle(st.session_state.session_code)
+            cycle_num = get_current_cycle(st.session_state.session_id)
             st.info(f"Total cycles completed: {cycle_num}")
 
             st.write("Thank you for your participation!")

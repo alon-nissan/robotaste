@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS questionnaire_types (
 -- Table 3: Sessions (Experiment Sessions)
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
+    session_code TEXT UNIQUE NOT NULL,
     user_id TEXT,
     ingredients TEXT,
     question_type_id INTEGER,
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS bo_configuration (
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
+CREATE INDEX IF NOT EXISTS idx_sessions_code ON sessions(session_code);
 CREATE INDEX IF NOT EXISTS idx_samples_session_id ON samples(session_id);
 CREATE INDEX IF NOT EXISTS idx_samples_is_final ON samples(is_final);
 CREATE INDEX IF NOT EXISTS idx_samples_cycle_number ON samples(cycle_number);

@@ -112,29 +112,69 @@ def init_database() -> bool:
 # ============================================================================
 
 
-def create_session(moderator_name: str) -> str:
+def generate_session_code() -> str:
+    """
+    Generate a unique 6-character alphanumeric session code.
+    Uses uppercase letters and digits (A-Z, 0-9) for 36^6 = 2.2 billion combinations.
+
+    Returns:
+        6-character session code (e.g., "A3X9K2")
+    """
+    import random
+    import string
+
+    # Use uppercase letters and digits only (more readable than mixed case)
+    chars = string.ascii_uppercase + string.digits
+    max_attempts = 100
+
+    for attempt in range(max_attempts):
+        # Generate random 6-character code
+        code = ''.join(random.choices(chars, k=6))
+
+        # Check if code already exists in database
+        try:
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT session_code FROM sessions WHERE session_code = ?",
+                    (code,)
+                )
+                if cursor.fetchone() is None:
+                    # Code is unique
+                    return code
+        except Exception as e:
+            logger.error(f"Error checking session code uniqueness: {e}")
+            raise
+
+    # If we couldn't find a unique code after max_attempts, raise error
+    raise RuntimeError(f"Failed to generate unique session code after {max_attempts} attempts")
+
+
+def create_session(moderator_name: str) -> Tuple[str, str]:
     """
     Create new session with minimal info.
     Args:
         moderator_name: Name of the moderator (not stored in DB)
     Returns:
-        session_id (UUID string)
+        Tuple of (session_id (UUID string), session_code (6-char string))
     """
     session_id = str(uuid.uuid4())
+    session_code = generate_session_code()
+
     with get_database_connection() as conn:
         cursor = conn.cursor()
-        # Insert session
+        # Insert session with both identifiers
         cursor.execute(
             """
             INSERT INTO sessions (
-                session_id, state
-            ) VALUES (?,'active')
+                session_id, session_code, state
+            ) VALUES (?, ?, 'active')
         """,
-            (session_id,),
+            (session_id, session_code),
         )
         conn.commit()
-        logger.info(f"Created session {session_id}")
-        return session_id
+        logger.info(f"Created session {session_id} with code {session_code}")
+        return session_id, session_code
 
 
 def _create_session(
@@ -275,8 +315,9 @@ def get_session(session_id: str) -> Optional[Dict]:
             cursor.execute(
                 """
                 SELECT
-                    s.session_id, s.user_id, s.ingredients, s.question_type_id,
-                    s.state, s.current_phase, s.experiment_config, s.created_at, s.updated_at,
+                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.state, s.current_phase, s.current_cycle, s.experiment_config,
+                    s.created_at, s.updated_at,
                     qt.name as questionnaire_name, qt.data as questionnaire_data
                 FROM sessions s
                 LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
@@ -292,8 +333,9 @@ def get_session(session_id: str) -> Optional[Dict]:
             # Parse JSON fields
             return {
                 "session_id": row["session_id"],
+                "session_code": row["session_code"],
                 "user_id": row["user_id"],
-                "ingredients": json.loads(row["ingredients"]),
+                "ingredients": json.loads(row["ingredients"]) if row["ingredients"] else [],
                 "question_type_id": row["question_type_id"],
                 "questionnaire_name": row["questionnaire_name"],
                 "questionnaire_data": (
@@ -314,6 +356,72 @@ def get_session(session_id: str) -> Optional[Dict]:
 
     except Exception as e:
         logger.error(f"Failed to get session {session_id}: {e}")
+        return None
+
+
+def get_session_by_code(session_code: str) -> Optional[Dict]:
+    """
+    Get complete session configuration by 6-character session code.
+
+    Args:
+        session_code: 6-character session code (e.g., "A3X9K2")
+
+    Returns:
+        Dict with session data including parsed JSON fields, or None if not found
+        (Same structure as get_session())
+
+    Example:
+        >>> session = get_session_by_code("A3X9K2")
+        >>> print(session["session_id"])  # Returns full UUID
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT
+                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.state, s.current_phase, s.current_cycle, s.experiment_config,
+                    s.created_at, s.updated_at,
+                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                FROM sessions s
+                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
+                WHERE s.session_code = ?
+            """,
+                (session_code,),
+            )
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            # Parse JSON fields (same structure as get_session())
+            return {
+                "session_id": row["session_id"],
+                "session_code": row["session_code"],
+                "user_id": row["user_id"],
+                "ingredients": json.loads(row["ingredients"]) if row["ingredients"] else [],
+                "question_type_id": row["question_type_id"],
+                "questionnaire_name": row["questionnaire_name"],
+                "questionnaire_data": (
+                    json.loads(row["questionnaire_data"])
+                    if row["questionnaire_data"]
+                    else None
+                ),
+                "state": row["state"],
+                "current_phase": row["current_phase"],
+                "experiment_config": (
+                    json.loads(row["experiment_config"])
+                    if row["experiment_config"]
+                    else {}
+                ),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get session by code {session_code}: {e}")
         return None
 
 

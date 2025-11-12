@@ -243,6 +243,79 @@ class ConcentrationMapper:
 
         return round(sugar_mass, 4), round(salt_mass, 4)
 
+    @staticmethod
+    def map_concentrations_to_coordinates(
+        sugar_mm: float,
+        salt_mm: float,
+        method: str = "linear",
+        canvas_size: int = CANVAS_SIZE,
+        sugar_range: Tuple[float, float] = SUGAR_RANGE_MM,
+        salt_range: Tuple[float, float] = SALT_RANGE_MM,
+    ) -> Tuple[float, float]:
+        """
+        Convert sugar & salt concentrations back to canvas coordinates.
+
+        This is the INVERSE of map_coordinates_to_concentrations().
+
+        Args:
+            sugar_mm: Sugar concentration in mM
+            salt_mm: Salt concentration in mM
+            method: Mapping method ('linear', 'logarithmic', 'exponential')
+            canvas_size: Size of the canvas
+            sugar_range: (min, max) sugar concentration in mM
+            salt_range: (min, max) salt concentration in mM
+
+        Returns:
+            (x, y) canvas coordinates
+
+        Note:
+            Y-axis is flipped: higher concentration = lower y value
+            This matches the forward mapping behavior.
+        """
+        if method == "linear":
+            # Inverse of: sugar = min + x_norm * (max - min)
+            # Solve for x_norm: x_norm = (sugar - min) / (max - min)
+            x_norm = (sugar_mm - sugar_range[0]) / (sugar_range[1] - sugar_range[0])
+            y_norm = (salt_mm - salt_range[0]) / (salt_range[1] - salt_range[0])
+
+        elif method == "logarithmic":
+            # Inverse of: sugar = exp(log_min + x_norm * (log_max - log_min))
+            # Solve for x_norm: x_norm = (log(sugar) - log_min) / (log_max - log_min)
+            if sugar_range[0] <= 0 or salt_range[0] <= 0:
+                raise ValueError("Logarithmic mapping requires positive concentration ranges")
+
+            log_sugar_range = (math.log(sugar_range[0]), math.log(sugar_range[1]))
+            log_salt_range = (math.log(salt_range[0]), math.log(salt_range[1]))
+
+            x_norm = (math.log(sugar_mm) - log_sugar_range[0]) / (log_sugar_range[1] - log_sugar_range[0])
+            y_norm = (math.log(salt_mm) - log_salt_range[0]) / (log_salt_range[1] - log_salt_range[0])
+
+        elif method == "exponential":
+            # Inverse of: sugar = max * ((min/max)^(1 - x_norm))
+            # Solve for x_norm: x_norm = 1 - (log(sugar/max) / log(min/max))
+            ratio_sugar = sugar_mm / sugar_range[1]
+            ratio_salt = salt_mm / salt_range[1]
+
+            base_sugar = sugar_range[0] / sugar_range[1]
+            base_salt = salt_range[0] / salt_range[1]
+
+            x_norm = 1 - (math.log(ratio_sugar) / math.log(base_sugar))
+            y_norm = 1 - (math.log(ratio_salt) / math.log(base_salt))
+
+        else:
+            raise ValueError(f"Unknown mapping method: {method}")
+
+        # Clamp normalized values to [0, 1]
+        x_norm = max(0.0, min(1.0, x_norm))
+        y_norm = max(0.0, min(1.0, y_norm))
+
+        # Convert back to canvas coordinates
+        x = x_norm * canvas_size
+        # Flip y-axis: y_norm=1 (max salt) should be at canvas y=0 (top)
+        y = (1.0 - y_norm) * canvas_size
+
+        return round(x, 1), round(y, 1)
+
 
 def generate_random_position(
     x_range: Tuple[float, float] = POSITION_BOUNDS,
@@ -652,12 +725,12 @@ def start_trial(
             INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
         )
 
-        # Get session code - create one if missing
+        # Get session identifiers - session_id for DB, session_code for display
+        session_id = st.session_state.get("session_id")
         session_code = st.session_state.get("session_code")
-        if not session_code:
-            session_code = f"session_{int(time.time())}"
-            st.session_state.session_code = session_code
-            st.warning(f"Created new session code: {session_code}")
+        if not session_id:
+            st.error("No session ID found. Please create a session first.")
+            return
         use_random_start = st.session_state.get("use_random_start", False)
 
         # Get ingredient configuration - FIXED: Use moderator's actual ingredient selection
@@ -800,7 +873,7 @@ def start_trial(
                     SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE session_id = ?
                 """,
-                    (json.dumps(experiment_config), session_code),
+                    (json.dumps(experiment_config), session_id),  # Use session_id for DB
                 )
                 conn.commit()
 
@@ -810,7 +883,7 @@ def start_trial(
             try:
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.ROBOT_PREPARING,
-                    session_id=session_code,
+                    session_id=session_id,  # Use session_id for DB
                 )
             except Exception as sm_error:
                 # Fallback: directly set phase if state machine fails
