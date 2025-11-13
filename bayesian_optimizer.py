@@ -548,6 +548,8 @@ class RoboTasteBO:
 
         # Calculate acquisition function
         if acquisition == "ei":
+            logger.debug(acq_kwargs)
+            logger.debug(f"Calculating EI with xi={acq_kwargs.get('xi')}")
             acq_values = self.expected_improvement(candidates, **acq_kwargs)
         elif acquisition == "ucb":
             acq_values = self.upper_confidence_bound(candidates, **acq_kwargs)
@@ -636,9 +638,7 @@ def train_bo_model_for_participant(
         min_samples = config.get("min_samples_for_bo", 3)
 
         # Get training data from database (using new API)
-        df = get_training_data(
-            session_id, only_final=only_final
-        )
+        df = get_training_data(session_id, only_final=False)
 
         if len(df) < min_samples:
             logger.info(
@@ -653,20 +653,24 @@ def train_bo_model_for_participant(
 
         for _, row in df.iterrows():
             try:
-                ingredient_dict = json.loads(row["ingredient_data"])
-
-                # Get ingredient names from first sample (assumes consistent ingredients)
+                # Extract ingredient names from DataFrame columns (all columns except target_value)
+                # This works for 2-6 ingredients automatically!
                 if ingredient_names is None:
-                    ingredient_names = sorted(ingredient_dict.keys())
-                    logger.info(f"Detected ingredients: {ingredient_names}")
+                    ingredient_names = sorted(
+                        [col for col in df.columns if col != "target_value"]
+                    )
+                    logger.info(
+                        f"Detected {len(ingredient_names)} ingredients: {ingredient_names}"
+                    )
 
-                # Convert to feature vector (fixed order)
-                feature_vector = [ingredient_dict[name] for name in ingredient_names]
+                # Get ingredient concentrations directly from DataFrame columns
+                # Works for any number of ingredients (2, 3, 4, 5, or 6)
+                feature_vector = [row[name] for name in ingredient_names]
                 X_list.append(feature_vector)
-                y_list.append(row["target_variable_value"])
+                y_list.append(row["target_value"])
 
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Skipping invalid response record: {e}")
+            except KeyError as e:
+                logger.warning(f"Skipping sample due to missing column: {e}")
                 continue
 
         if len(X_list) < min_samples:
@@ -818,6 +822,152 @@ def get_ingredient_ranges_from_experiment_config(
         ranges[name] = (min_c, max_c)
 
     return ranges
+
+
+def get_bo_status(session_id: str) -> Dict[str, Any]:
+    """
+    Get Bayesian Optimization status for moderator display.
+
+    Returns real-time information about the BO state for the given session,
+    including whether BO is active, cycle progress, and latest predictions.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Dictionary with BO status information:
+        {
+            "is_active": bool,              # True if cycle >= min_samples
+            "is_enabled": bool,              # True if BO enabled in config
+            "current_cycle": int,            # Current cycle number
+            "samples_collected": int,        # Number of samples in database
+            "min_samples_required": int,     # Minimum samples needed for BO
+            "latest_prediction": float | None,    # Latest predicted value
+            "latest_uncertainty": float | None,   # Latest uncertainty
+            "latest_acquisition": float | None,   # Latest acquisition value
+            "bo_config": dict,               # BO configuration
+            "status_message": str            # Human-readable status
+        }
+
+    Example:
+        >>> status = get_bo_status("abc123")
+        >>> print(status["status_message"])
+        "Optimizing (Cycle 5/15)"
+    """
+    import sql_handler as sql
+
+    try:
+        # Get session and config
+        session = sql.get_session(session_id)
+        if not session:
+            return {
+                "is_active": False,
+                "is_enabled": False,
+                "current_cycle": 0,
+                "samples_collected": 0,
+                "min_samples_required": 3,
+                "latest_prediction": None,
+                "latest_uncertainty": None,
+                "latest_acquisition": None,
+                "bo_config": {},
+                "status_message": "Session not found",
+            }
+
+        experiment_config = session.get("experiment_config", {})
+        bo_config = experiment_config.get(
+            "bayesian_optimization", get_default_bo_config()
+        )
+
+        # Get cycle information
+        current_cycle = sql.get_current_cycle(session_id)
+        min_samples = bo_config.get("min_samples_for_bo", 3)
+        is_enabled = bo_config.get("enabled", True)
+        is_active = is_enabled and (current_cycle >= min_samples)
+
+        # Get training data to count samples
+        training_df = sql.get_training_data(
+            session_id, only_final=bo_config.get("only_final_responses", True)
+        )
+        samples_collected = len(training_df) if training_df is not None else 0
+
+        # Initialize result
+        result = {
+            "is_active": is_active,
+            "is_enabled": is_enabled,
+            "current_cycle": current_cycle,
+            "samples_collected": samples_collected,
+            "min_samples_required": min_samples,
+            "latest_prediction": None,
+            "latest_uncertainty": None,
+            "latest_acquisition": None,
+            "bo_config": bo_config,
+            "status_message": "",
+        }
+
+        # Generate status message
+        if not is_enabled:
+            result["status_message"] = "BO Disabled"
+        elif current_cycle < min_samples:
+            result["status_message"] = (
+                f"Exploring (Cycle {current_cycle}/{min_samples - 1})"
+            )
+        else:
+            result["status_message"] = f"Optimizing (Cycle {current_cycle})"
+
+        # Try to get latest prediction if BO is active
+        if is_active and samples_collected >= min_samples:
+            try:
+                # Get latest sample's selection_data which contains BO metadata
+                with sql.get_database_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        SELECT selection_data
+                        FROM samples
+                        WHERE session_id = ?
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (session_id,),
+                    )
+                    row = cursor.fetchone()
+
+                    if row and row[0]:
+                        import json
+
+                        selection_data = json.loads(row[0])
+
+                        # Extract BO metadata if it exists
+                        if selection_data.get("mode") == "bayesian_optimization":
+                            result["latest_prediction"] = selection_data.get(
+                                "predicted_value"
+                            )
+                            result["latest_uncertainty"] = selection_data.get(
+                                "uncertainty"
+                            )
+                            result["latest_acquisition"] = selection_data.get(
+                                "acquisition_value"
+                            )
+
+            except Exception as e:
+                # Silently fail - this is just for display
+                pass
+
+        return result
+
+    except Exception as e:
+        return {
+            "is_active": False,
+            "is_enabled": False,
+            "current_cycle": 0,
+            "samples_collected": 0,
+            "min_samples_required": 3,
+            "latest_prediction": None,
+            "latest_uncertainty": None,
+            "latest_acquisition": None,
+            "bo_config": {},
+            "status_message": f"Error: {str(e)}",
+        }
 
 
 if __name__ == "__main__":

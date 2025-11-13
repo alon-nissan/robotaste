@@ -129,15 +129,14 @@ def generate_session_code() -> str:
 
     for attempt in range(max_attempts):
         # Generate random 6-character code
-        code = ''.join(random.choices(chars, k=6))
+        code = "".join(random.choices(chars, k=6))
 
         # Check if code already exists in database
         try:
             with get_database_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT session_code FROM sessions WHERE session_code = ?",
-                    (code,)
+                    "SELECT session_code FROM sessions WHERE session_code = ?", (code,)
                 )
                 if cursor.fetchone() is None:
                     # Code is unique
@@ -147,7 +146,9 @@ def generate_session_code() -> str:
             raise
 
     # If we couldn't find a unique code after max_attempts, raise error
-    raise RuntimeError(f"Failed to generate unique session code after {max_attempts} attempts")
+    raise RuntimeError(
+        f"Failed to generate unique session code after {max_attempts} attempts"
+    )
 
 
 def create_session(moderator_name: str) -> Tuple[str, str]:
@@ -219,7 +220,9 @@ def get_session(session_id: str) -> Optional[Dict]:
                 "session_id": row["session_id"],
                 "session_code": row["session_code"],
                 "user_id": row["user_id"],
-                "ingredients": json.loads(row["ingredients"]) if row["ingredients"] else [],
+                "ingredients": (
+                    json.loads(row["ingredients"]) if row["ingredients"] else []
+                ),
                 "question_type_id": row["question_type_id"],
                 "questionnaire_name": row["questionnaire_name"],
                 "questionnaire_data": (
@@ -285,7 +288,9 @@ def get_session_by_code(session_code: str) -> Optional[Dict]:
                 "session_id": row["session_id"],
                 "session_code": row["session_code"],
                 "user_id": row["user_id"],
-                "ingredients": json.loads(row["ingredients"]) if row["ingredients"] else [],
+                "ingredients": (
+                    json.loads(row["ingredients"]) if row["ingredients"] else []
+                ),
                 "question_type_id": row["question_type_id"],
                 "questionnaire_name": row["questionnaire_name"],
                 "questionnaire_data": (
@@ -420,10 +425,10 @@ def increment_cycle(session_id: str) -> int:
             cursor.execute(
                 """
                 UPDATE sessions
-                SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP
+                SET experiment_config = ?, current_cycle = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ?
             """,
-                (json.dumps(config), session_id),
+                (json.dumps(config), config["current_cycle"], session_id),
             )
             conn.commit()
 
@@ -676,6 +681,45 @@ def get_session_samples(session_id: str, only_final: bool = False) -> List[Dict]
 # ============================================================================
 
 
+def get_questionnaire_type_id(questionnaire_type_name: str) -> Optional[int]:
+    """
+    Get questionnaire_type_id from questionnaire_types table.
+
+    Args:
+        questionnaire_type_name: Name of questionnaire type (e.g., 'hedonic_preference')
+
+    Returns:
+        Integer ID from questionnaire_types table, or None if not found
+
+    Example:
+        >>> type_id = get_questionnaire_type_id('hedonic_preference')
+        >>> print(type_id)
+        1
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id FROM questionnaire_types
+                WHERE name = ?
+            """,
+                (questionnaire_type_name,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return row["id"]
+            else:
+                logger.warning(
+                    f"Questionnaire type '{questionnaire_type_name}' not found in database"
+                )
+                return None
+
+    except Exception as e:
+        logger.error(f"Failed to get questionnaire type ID: {e}")
+        return None
+
+
 def extract_target_variable(
     questionnaire_answer: Dict, questionnaire_type: str
 ) -> Optional[float]:
@@ -719,7 +763,14 @@ def extract_target_variable(
             logger.warning(f"Unknown questionnaire type: {questionnaire_type}")
             return None
 
-        target_key = q_def.get("target_variable")
+        # Try new nested structure first (bayesian_target.variable)
+        bayesian_config = q_def.get("bayesian_target", {})
+        target_key = bayesian_config.get("variable")
+
+        # Fallback to old flat structure for backward compatibility
+        if not target_key:
+            target_key = q_def.get("target_variable")
+
         if not target_key:
             logger.warning(f"No target variable defined for {questionnaire_type}")
             return None
@@ -1036,7 +1087,9 @@ def update_session_with_config(
             cursor = conn.cursor()
 
             # Check if session exists, if not create it
-            cursor.execute("SELECT session_id FROM sessions WHERE session_id = ?", (session_id,))
+            cursor.execute(
+                "SELECT session_id FROM sessions WHERE session_id = ?", (session_id,)
+            )
             if not cursor.fetchone():
                 logger.info(f"Session {session_id} doesn't exist, creating it first")
                 cursor.execute(
@@ -1088,7 +1141,9 @@ def update_session_with_config(
                     bo_config.get("kernel_nu", 2.5),
                     bo_config.get("length_scale_initial", 1.0),
                     json.dumps(bo_config.get("length_scale_bounds", [0.1, 10.0])),
-                    json.dumps(bo_config.get("constant_kernel_bounds", [0.001, 1000.0])),
+                    json.dumps(
+                        bo_config.get("constant_kernel_bounds", [0.001, 1000.0])
+                    ),
                     bo_config.get("alpha", 0.001),
                     bo_config.get("n_restarts_optimizer", 10),
                     1 if bo_config.get("normalize_y", True) else 0,

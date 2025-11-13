@@ -21,6 +21,8 @@ from sql_handler import (
     get_bo_config,
     update_session_state,
     get_latest_sample_concentrations,
+    get_database_connection,
+    get_training_data,
 )
 from state_machine import (
     ExperimentPhase,
@@ -61,7 +63,6 @@ def get_current_phase_safe() -> str:
 
 def moderator_interface():
     """Multi-device moderator interface with session management."""
-
     # Validate session
     if not st.session_state.get("session_id"):
         st.error("No active session. Please create or join a session.")
@@ -79,9 +80,7 @@ def moderator_interface():
             st.error("Session expired or invalid.")
             st.session_state.session_id = None
             st.session_state.session_code = None
-            if st.button(
-                "Return to Home", key="moderator_return_home_invalid_session"
-            ):
+            if st.button("Return to Home", key="moderator_return_home_invalid_session"):
                 st.query_params.clear()
                 st.rerun()
             return
@@ -1010,6 +1009,255 @@ def moderator_interface():
                 )
             except Exception as e:
                 st.warning(f"Could not load session stats: {e}")
+
+            st.markdown("---")
+
+            # ===== BAYESIAN OPTIMIZATION STATUS =====
+            st.markdown("### Bayesian Optimization")
+
+            try:
+                from bayesian_optimizer import get_bo_status
+                import plotly.graph_objects as go
+                import numpy as np
+
+                bo_status = get_bo_status(st.session_state.session_id)
+
+                # BO Enable/Disable Toggle
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    # Get current BO enabled status
+                    current_enabled = bo_status.get("is_enabled", True)
+                    bo_enabled = st.checkbox(
+                        "Enable BO",
+                        value=current_enabled,
+                        key="bo_enabled_toggle",
+                        help="Enable Bayesian Optimization for automatic sample selection after cycle 2",
+                    )
+
+                    # Update BO config if toggle changed
+                    if bo_enabled != current_enabled:
+                        session = get_session(st.session_state.session_id)
+                        if session and "experiment_config" in session:
+                            experiment_config = session["experiment_config"]
+                            if "bayesian_optimization" not in experiment_config:
+                                from bayesian_optimizer import get_default_bo_config
+
+                                experiment_config["bayesian_optimization"] = (
+                                    get_default_bo_config()
+                                )
+
+                            experiment_config["bayesian_optimization"][
+                                "enabled"
+                            ] = bo_enabled
+
+                            # Update in database
+                            import json
+
+                            with get_database_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    """
+                                    UPDATE sessions
+                                    SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP
+                                    WHERE session_id = ?
+                                    """,
+                                    (
+                                        json.dumps(experiment_config),
+                                        st.session_state.session_id,
+                                    ),
+                                )
+                                conn.commit()
+                            st.rerun()
+
+                with col2:
+                    st.info(bo_status.get("status_message", "Unknown"))
+
+                # Display BO metrics
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Current Cycle", bo_status.get("current_cycle", 0))
+                col2.metric("Samples Collected", bo_status.get("samples_collected", 0))
+                col3.metric("Min Required", bo_status.get("min_samples_required", 3))
+
+                # Show latest prediction if available
+                latest_pred = bo_status.get("latest_prediction")
+                latest_unc = bo_status.get("latest_uncertainty")
+                if latest_pred is not None and latest_unc is not None:
+                    col4.metric(
+                        "Latest Prediction", f"{latest_pred:.2f} ± {latest_unc:.2f}"
+                    )
+                else:
+                    col4.metric("Latest Prediction", "N/A")
+
+                # Visualization (only if BO is active)
+                if (
+                    bo_status.get("is_active")
+                    and bo_status.get("samples_collected", 0) >= 3
+                ):
+                    st.markdown("#### Predicted Preference Landscape")
+
+                    try:
+                        # Get training data
+                        from bayesian_optimizer import train_bo_model_for_participant
+                        import sql_handler as sql
+
+                        # Get session config to determine interface type
+                        session = sql.get_session(st.session_state.session_id)
+                        if session and "experiment_config" in session:
+                            experiment_config = session["experiment_config"]
+                            num_ingredients = experiment_config.get(
+                                "num_ingredients", 2
+                            )
+                            ingredients = experiment_config.get("ingredients", [])
+
+                            # Train BO model
+                            participant_id = session.get("participant_id", "unknown")
+                            bo_model = train_bo_model_for_participant(
+                                participant_id=participant_id,
+                                session_id=st.session_state.session_id,
+                                bo_config=bo_status.get("bo_config", {}),
+                            )
+
+                            if bo_model and num_ingredients == 2:
+                                # 2D Grid visualization - Heatmap
+                                from bayesian_optimizer import (
+                                    generate_candidate_grid_2d,
+                                )
+
+                                # Get ingredient ranges
+                                ing_ranges = [
+                                    (ing["min_concentration"], ing["max_concentration"])
+                                    for ing in ingredients[:2]
+                                ]
+
+                                # Generate fine grid for visualization
+                                candidates = generate_candidate_grid_2d(
+                                    sugar_range=ing_ranges[0],
+                                    salt_range=ing_ranges[1],
+                                    n_points=30,  # 30x30 grid for smooth heatmap
+                                )
+
+                                # Get predictions
+                                predictions, uncertainties = bo_model.predict(
+                                    candidates, return_std=True
+                                )
+
+                                # Reshape for heatmap
+                                n_points = 30
+                                x_vals = candidates[
+                                    : n_points**2 : n_points, 0
+                                ]  # First ingredient values
+                                y_vals = candidates[
+                                    :n_points, 1
+                                ]  # Second ingredient values
+                                z_vals = predictions.reshape(n_points, n_points)
+
+                                # Create heatmap
+                                fig = go.Figure(
+                                    data=go.Heatmap(
+                                        x=x_vals,
+                                        y=y_vals,
+                                        z=z_vals,
+                                        colorscale="RdYlGn",
+                                        colorbar=dict(title="Predicted<br>Score"),
+                                    )
+                                )
+
+                                # Add past sample markers
+                                training_df = sql.get_training_data(
+                                    st.session_state.session_id,
+                                    only_final=bo_status.get("bo_config", {}).get(
+                                        "only_final_responses", True
+                                    ),
+                                )
+
+                                if training_df is not None and len(training_df) > 0:
+                                    ing_names = [ing["name"] for ing in ingredients[:2]]
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=training_df[ing_names[0]],
+                                            y=training_df[ing_names[1]],
+                                            mode="markers",
+                                            marker=dict(
+                                                size=12,
+                                                color="white",
+                                                symbol="circle",
+                                                line=dict(color="black", width=2),
+                                            ),
+                                            name="Past Samples",
+                                            text=[
+                                                f"Score: {score:.1f}"
+                                                for score in training_df["target_value"]
+                                            ],
+                                            hovertemplate="%{text}<br>%{x:.2f}, %{y:.2f}<extra></extra>",
+                                        )
+                                    )
+
+                                # Formatting
+                                ing_names = [ing["name"] for ing in ingredients[:2]]
+                                fig.update_layout(
+                                    xaxis_title=f"{ing_names[0]} (mM)",
+                                    yaxis_title=f"{ing_names[1]} (mM)",
+                                    height=500,
+                                    hovermode="closest",
+                                )
+
+                                st.plotly_chart(fig, use_container_width=True)
+
+                            elif bo_model and num_ingredients > 2:
+                                # Multi-ingredient visualization - Parallel coordinates
+                                training_df = sql.get_training_data(
+                                    st.session_state.session_id,
+                                    only_final=bo_status.get("bo_config", {}).get(
+                                        "only_final_responses", True
+                                    ),
+                                )
+
+                                if training_df is not None and len(training_df) > 0:
+                                    ing_names = [ing["name"] for ing in ingredients]
+
+                                    # Create dimensions for parallel coordinates
+                                    dimensions = []
+                                    for ing_name in ing_names:
+                                        dimensions.append(
+                                            dict(
+                                                label=ing_name,
+                                                values=training_df[ing_name],
+                                            )
+                                        )
+
+                                    # Add target variable
+                                    dimensions.append(
+                                        dict(
+                                            label="Score",
+                                            values=training_df["target_value"],
+                                        )
+                                    )
+
+                                    fig = go.Figure(
+                                        data=go.Parcoords(
+                                            line=dict(
+                                                color=training_df["target_value"],
+                                                colorscale="RdYlGn",
+                                                showscale=True,
+                                                cmin=training_df["target_value"].min(),
+                                                cmax=training_df["target_value"].max(),
+                                            ),
+                                            dimensions=dimensions,
+                                        )
+                                    )
+
+                                    fig.update_layout(
+                                        height=400,
+                                        title="Ingredient Concentrations vs Scores",
+                                    )
+
+                                    st.plotly_chart(fig, use_container_width=True)
+
+                    except Exception as viz_error:
+                        st.warning(f"Could not generate visualization: {viz_error}")
+
+            except Exception as e:
+                st.warning(f"Could not load BO status: {e}")
 
             st.markdown("---")
 
