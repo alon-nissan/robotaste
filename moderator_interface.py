@@ -837,7 +837,7 @@ def moderator_interface():
 
             # Get current position from latest sample
             concentrations = get_latest_sample_concentrations(
-                st.session_state.session_code
+                st.session_state.session_id
             )
 
             if not concentrations:
@@ -989,9 +989,6 @@ def moderator_interface():
                             f"Moderator synced phase: {st.session_state.get('phase')} -> {phase_from_db}"
                         )
                         st.session_state.phase = phase_from_db
-
-                time.sleep(15)
-                st.rerun()
 
         with main_tab2:
             st.markdown("### Session Analytics")
@@ -1432,3 +1429,19 @@ def moderator_interface():
                 **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
                 """
                 )
+    # ===== AUTO-REFRESH LOGIC =====
+    if ExperimentStateMachine.should_show_monitoring():
+        if st.session_state.get("auto_refresh", True):
+            # Sync phase from database (in case subject progressed independently)
+            session_info = get_session_info(st.session_state.session_id)
+            if session_info:
+                phase_from_db = session_info.get(
+                    "current_phase", st.session_state.get("phase", "waiting")
+                )
+                if phase_from_db != st.session_state.get("phase"):
+                    logger.info(
+                        f"Moderator synced phase: {st.session_state.get('phase')} -> {phase_from_db}"
+                    )
+                    st.session_state.phase = phase_from_db
+            time.sleep(15)
+            st.rerun()

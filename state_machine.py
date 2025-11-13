@@ -244,6 +244,7 @@ class ExperimentStateMachine:
         current_phase = ExperimentStateMachine.get_current_phase()
         return current_phase in [
             ExperimentPhase.ROBOT_PREPARING,
+            ExperimentPhase.LOADING,
             # ExperimentPhase.TASTING, stage removed
             ExperimentPhase.QUESTIONNAIRE,
             ExperimentPhase.SELECTION,

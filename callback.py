@@ -1260,7 +1260,11 @@ def get_bo_suggestion_for_session(
                 canvas_size=CANVAS_SIZE,
             )
 
-            result["grid_coordinates"] = {"x": int(x), "y": int(y)}
+            # Clamp coordinates to canvas bounds [0, CANVAS_SIZE] to ensure visibility
+            result["grid_coordinates"] = {
+                "x": max(0, min(CANVAS_SIZE, int(x))),
+                "y": max(0, min(CANVAS_SIZE, int(y))),
+            }
 
         else:
             # Convert concentrations to slider percentages (0-100)

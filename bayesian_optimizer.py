@@ -588,7 +588,8 @@ class RoboTasteBO:
             f"BO Suggestion ({acquisition.upper()}): "
             f"predicted={result['predicted_value']:.3f}, "
             f"acquisition={result['acquisition_value']:.4f}, "
-            f"uncertainty={result['uncertainty']:.3f}"
+            f"uncertainty={result['uncertainty']:.3f}, "
+            f"candidate={result['best_candidate_dict']}"
         )
 
         return result
