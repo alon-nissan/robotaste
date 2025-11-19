@@ -122,7 +122,7 @@ def moderator_interface():
                 "Mark Sample Ready",
                 type="primary",
                 key="mark_prepared",
-                use_container_width=True,
+                width="stretch",
             ):
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.QUESTIONNAIRE,
@@ -194,7 +194,7 @@ def moderator_interface():
             if st.button(
                 "New Session",
                 type="secondary",
-                use_container_width=True,
+                width='stretch',
                 key="new_session_button",
                 help="End current session and return to setup",
             ):
@@ -646,7 +646,7 @@ def moderator_interface():
             if st.button(
                 "Start Trial",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="moderator_start_trial_button",
             ):
                 # Create session in database if not already created
@@ -830,9 +830,7 @@ def moderator_interface():
             col_refresh, col_status, col_time = st.columns([1, 2, 2])
 
             with col_refresh:
-                if st.button(
-                    "Refresh", key="live_monitor_refresh", use_container_width=True
-                ):
+                if st.button("Refresh", key="live_monitor_refresh", width="stretch"):
                     st.rerun()
 
             # Get current position from latest sample
@@ -1086,10 +1084,7 @@ def moderator_interface():
                     col4.metric("Latest Prediction", "N/A")
 
                 # Visualization (only if BO is active)
-                if (
-                    bo_status.get("is_active")
-                    and bo_status.get("samples_collected", 0) >= 3
-                ):
+                if True:  # Always show visualization for moderator
                     st.markdown("#### Predicted Preference Landscape")
 
                     try:
@@ -1115,7 +1110,7 @@ def moderator_interface():
                             )
 
                             if bo_model and num_ingredients == 2:
-                                # 2D Grid visualization - Heatmap
+                                # 2D Grid visualization - Enhanced with Uncertainty & Acquisition
                                 from bayesian_optimizer import (
                                     generate_candidate_grid_2d,
                                 )
@@ -1133,12 +1128,44 @@ def moderator_interface():
                                     n_points=30,  # 30x30 grid for smooth heatmap
                                 )
 
-                                # Get predictions
+                                # Get predictions and uncertainties
                                 predictions, uncertainties = bo_model.predict(
                                     candidates, return_std=True
                                 )
 
-                                # Reshape for heatmap
+                                # Calculate acquisition function values
+                                acq_func = bo_status.get("bo_config", {}).get(
+                                    "acquisition_function", "ei"
+                                )
+                                if acq_func == "ei":
+                                    xi = bo_status.get("bo_config", {}).get(
+                                        "ei_xi", 0.01
+                                    )
+                                    acquisition_values = bo_model.expected_improvement(
+                                        candidates, xi=xi
+                                    )
+                                else:  # ucb
+                                    kappa = bo_status.get("bo_config", {}).get(
+                                        "ucb_kappa", 2.0
+                                    )
+                                    acquisition_values = (
+                                        bo_model.upper_confidence_bound(
+                                            candidates, kappa=kappa
+                                        )
+                                    )
+
+                                # Get next recommended point
+                                suggestion = bo_model.suggest_next_sample(
+                                    candidates,
+                                    acquisition=acq_func,
+                                    return_all_scores=False,
+                                )
+                                next_point = suggestion["best_candidate"]
+                                next_pred = suggestion["predicted_value"]
+                                next_unc = suggestion["uncertainty"]
+                                next_acq = suggestion["acquisition_value"]
+
+                                # Reshape for heatmaps
                                 n_points = 30
                                 x_vals = candidates[
                                     : n_points**2 : n_points, 0
@@ -1146,20 +1173,11 @@ def moderator_interface():
                                 y_vals = candidates[
                                     :n_points, 1
                                 ]  # Second ingredient values
-                                z_vals = predictions.reshape(n_points, n_points)
+                                z_pred = predictions.reshape(n_points, n_points)
+                                z_unc = uncertainties.reshape(n_points, n_points)
+                                z_acq = acquisition_values.reshape(n_points, n_points)
 
-                                # Create heatmap
-                                fig = go.Figure(
-                                    data=go.Heatmap(
-                                        x=x_vals,
-                                        y=y_vals,
-                                        z=z_vals,
-                                        colorscale="RdYlGn",
-                                        colorbar=dict(title="Predicted<br>Score"),
-                                    )
-                                )
-
-                                # Add past sample markers
+                                # Get training data for markers
                                 training_df = sql.get_training_data(
                                     st.session_state.session_id,
                                     only_final=bo_status.get("bo_config", {}).get(
@@ -1167,8 +1185,67 @@ def moderator_interface():
                                     ),
                                 )
 
+                                ing_names = [ing["name"] for ing in ingredients[:2]]
+
+                                # ===== SINGLE COMPREHENSIVE GP VISUALIZATION =====
+                                fig = go.Figure()
+
+                                # Layer 1: GP Mean Predictions Heatmap (base layer)
+                                fig.add_trace(
+                                    go.Heatmap(
+                                        x=x_vals,
+                                        y=y_vals,
+                                        z=z_pred,
+                                        colorscale="RdYlGn",
+                                        colorbar=dict(title="Predicted<br>Score"),
+                                        name="GP Mean",
+                                        hovertemplate="<b>GP Mean</b><br>%{x:.2f}, %{y:.2f}<br>Score: %{z:.2f}<extra></extra>",
+                                    )
+                                )
+
+                                # Layer 2: Uncertainty Contours (±2σ)
+                                fig.add_trace(
+                                    go.Contour(
+                                        x=x_vals,
+                                        y=y_vals,
+                                        z=z_unc * 2,  # ±2σ
+                                        showscale=False,
+                                        contours=dict(
+                                            coloring="none",
+                                            showlabels=True,
+                                            labelfont=dict(size=10, color="white"),
+                                        ),
+                                        line=dict(color="white", width=1.5, dash="dot"),
+                                        name="Uncertainty (±2σ)",
+                                        hovertemplate="<b>Uncertainty</b><br>%{x:.2f}, %{y:.2f}<br>±2σ: %{z:.2f}<extra></extra>",
+                                    )
+                                )
+
+                                # Layer 3: Acquisition Function Contours
+                                acq_name = (
+                                    "Expected Improvement"
+                                    if acq_func == "ei"
+                                    else "Upper Confidence Bound"
+                                )
+                                fig.add_trace(
+                                    go.Contour(
+                                        x=x_vals,
+                                        y=y_vals,
+                                        z=z_acq,
+                                        showscale=False,
+                                        contours=dict(
+                                            coloring="none",
+                                            showlabels=True,
+                                            labelfont=dict(size=10, color="cyan"),
+                                        ),
+                                        line=dict(color="cyan", width=2, dash="dash"),
+                                        name=acq_name,
+                                        hovertemplate=f"<b>{acq_name}</b><br>%{{x:.2f}}, %{{y:.2f}}<br>Value: %{{z:.3f}}<extra></extra>",
+                                    )
+                                )
+
+                                # Layer 4: Training Data Scatter Points
                                 if training_df is not None and len(training_df) > 0:
-                                    ing_names = [ing["name"] for ing in ingredients[:2]]
                                     fig.add_trace(
                                         go.Scatter(
                                             x=training_df[ing_names[0]],
@@ -1176,29 +1253,68 @@ def moderator_interface():
                                             mode="markers",
                                             marker=dict(
                                                 size=12,
-                                                color="white",
+                                                color=training_df["target_value"],
+                                                colorscale="RdYlGn",
+                                                showscale=False,
                                                 symbol="circle",
                                                 line=dict(color="black", width=2),
                                             ),
-                                            name="Past Samples",
+                                            name="Observed Data",
                                             text=[
-                                                f"Score: {score:.1f}"
+                                                f"Score: {score:.2f}"
                                                 for score in training_df["target_value"]
                                             ],
-                                            hovertemplate="%{text}<br>%{x:.2f}, %{y:.2f}<extra></extra>",
+                                            hovertemplate="<b>Observed</b><br>%{x:.2f}, %{y:.2f}<br>%{text}<extra></extra>",
                                         )
                                     )
 
-                                # Formatting
-                                ing_names = [ing["name"] for ing in ingredients[:2]]
+                                # Layer 5: Next Recommended Point
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[next_point[0]],
+                                        y=[next_point[1]],
+                                        mode="markers",
+                                        marker=dict(
+                                            size=20,
+                                            color="gold",
+                                            symbol="star",
+                                            line=dict(color="black", width=2),
+                                        ),
+                                        name=f"Next Sample (Pred: {next_pred:.2f})",
+                                        hovertemplate=f"<b>Next Sample</b><br>%{{x:.2f}}, %{{y:.2f}}<br>Predicted: {next_pred:.2f}<br>Uncertainty: ±{next_unc*2:.2f}<br>{acq_func.upper()}: {next_acq:.3f}<extra></extra>",
+                                    )
+                                )
+
+                                # Layout
                                 fig.update_layout(
-                                    xaxis_title=f"{ing_names[0]} (mM)",
-                                    yaxis_title=f"{ing_names[1]} (mM)",
-                                    height=500,
+                                    title="Bayesian Optimization Landscape",
+                                    xaxis_title=f"{ing_names[0]} Concentration (mM)",
+                                    yaxis_title=f"{ing_names[1]} Concentration (mM)",
+                                    height=600,
                                     hovermode="closest",
+                                    showlegend=True,
+                                    legend=dict(
+                                        x=1.02,
+                                        y=1,
+                                        xanchor="left",
+                                        yanchor="top",
+                                        bgcolor="rgba(255, 255, 255, 0.8)",
+                                        bordercolor="black",
+                                        borderwidth=1,
+                                    ),
                                 )
 
                                 st.plotly_chart(fig, use_container_width=True)
+
+                                # Add legend explanation
+                                st.caption(
+                                    "**Legend:** "
+                                    "🟢 Heatmap = GP predicted scores | "
+                                    "⚪ Dotted white contours = Uncertainty (±2σ) | "
+                                    "🔵 Dashed cyan contours = Acquisition function | "
+                                    "⚫ Black-outlined circles = Observed data | "
+                                    "⭐ Gold star = Next recommended sample"
+                                )
 
                             elif bo_model and num_ingredients > 2:
                                 # Multi-ingredient visualization - Parallel coordinates
@@ -1250,11 +1366,650 @@ def moderator_interface():
 
                                     st.plotly_chart(fig, use_container_width=True)
 
+                                    # ===== 1D SLICE VIEWER =====
+                                    with st.expander(
+                                        "📊 1D Slice Analysis (GP Predictions & Uncertainty)",
+                                        expanded=False,
+                                    ):
+                                        st.markdown(
+                                            "Explore how the GP model predicts scores along individual ingredient dimensions."
+                                        )
+
+                                        # Get current best sample
+                                        best_idx = training_df["target_value"].idxmax()
+                                        best_values = {
+                                            ing_name: training_df[ing_name].iloc[
+                                                best_idx
+                                            ]
+                                            for ing_name in ing_names
+                                        }
+
+                                        # Select which ingredient to vary
+                                        selected_ing_idx = st.selectbox(
+                                            "Select ingredient to analyze:",
+                                            range(len(ing_names)),
+                                            format_func=lambda i: ing_names[i],
+                                            key="slice_ingredient_select",
+                                        )
+                                        selected_ing = ing_names[selected_ing_idx]
+
+                                        # Create sliders for other ingredients
+                                        st.markdown("**Fix other ingredients at:**")
+                                        fixed_values = {}
+                                        cols_sliders = st.columns(
+                                            min(3, num_ingredients - 1)
+                                        )
+
+                                        col_idx = 0
+                                        for i, ing_name in enumerate(ing_names):
+                                            if i == selected_ing_idx:
+                                                continue
+
+                                            ing_config = ingredients[i]
+                                            with cols_sliders[
+                                                col_idx % len(cols_sliders)
+                                            ]:
+                                                fixed_values[ing_name] = st.slider(
+                                                    f"{ing_name} (mM)",
+                                                    min_value=float(
+                                                        ing_config["min_concentration"]
+                                                    ),
+                                                    max_value=float(
+                                                        ing_config["max_concentration"]
+                                                    ),
+                                                    value=float(best_values[ing_name]),
+                                                    step=(
+                                                        ing_config["max_concentration"]
+                                                        - ing_config[
+                                                            "min_concentration"
+                                                        ]
+                                                    )
+                                                    / 100,
+                                                    key=f"slice_fixed_{ing_name}",
+                                                )
+                                            col_idx += 1
+
+                                        # Generate 1D slice candidates
+                                        selected_ing_config = ingredients[
+                                            selected_ing_idx
+                                        ]
+                                        x_slice = np.linspace(
+                                            selected_ing_config["min_concentration"],
+                                            selected_ing_config["max_concentration"],
+                                            200,
+                                        )
+
+                                        # Create candidate matrix
+                                        candidates_slice = np.zeros(
+                                            (200, num_ingredients)
+                                        )
+                                        for i, ing_name in enumerate(ing_names):
+                                            if i == selected_ing_idx:
+                                                candidates_slice[:, i] = x_slice
+                                            else:
+                                                candidates_slice[:, i] = fixed_values[
+                                                    ing_name
+                                                ]
+
+                                        # Get predictions and uncertainties
+                                        pred_slice, unc_slice = bo_model.predict(
+                                            candidates_slice, return_std=True
+                                        )
+
+                                        # Calculate acquisition function
+                                        acq_func = bo_status.get("bo_config", {}).get(
+                                            "acquisition_function", "ei"
+                                        )
+                                        if acq_func == "ei":
+                                            xi = bo_status.get("bo_config", {}).get(
+                                                "ei_xi", 0.01
+                                            )
+                                            acq_slice = bo_model.expected_improvement(
+                                                candidates_slice, xi=xi
+                                            )
+                                        else:
+                                            kappa = bo_status.get("bo_config", {}).get(
+                                                "ucb_kappa", 2.0
+                                            )
+                                            acq_slice = bo_model.upper_confidence_bound(
+                                                candidates_slice, kappa=kappa
+                                            )
+
+                                        # Create 1D slice plot
+                                        fig_slice = go.Figure()
+
+                                        # GP mean prediction
+                                        fig_slice.add_trace(
+                                            go.Scatter(
+                                                x=x_slice,
+                                                y=pred_slice,
+                                                mode="lines",
+                                                name="GP Mean",
+                                                line=dict(color="red", width=2),
+                                            )
+                                        )
+
+                                        # Uncertainty bands (±2σ)
+                                        fig_slice.add_trace(
+                                            go.Scatter(
+                                                x=np.concatenate(
+                                                    [x_slice, x_slice[::-1]]
+                                                ),
+                                                y=np.concatenate(
+                                                    [
+                                                        pred_slice + 2 * unc_slice,
+                                                        (pred_slice - 2 * unc_slice)[
+                                                            ::-1
+                                                        ],
+                                                    ]
+                                                ),
+                                                fill="toself",
+                                                fillcolor="rgba(255, 0, 0, 0.2)",
+                                                line=dict(color="rgba(255, 0, 0, 0)"),
+                                                name="±2σ Uncertainty",
+                                                showlegend=True,
+                                            )
+                                        )
+
+                                        # Observed training points on this slice dimension
+                                        fig_slice.add_trace(
+                                            go.Scatter(
+                                                x=training_df[selected_ing],
+                                                y=training_df["target_value"],
+                                                mode="markers",
+                                                name="Observed Data",
+                                                marker=dict(
+                                                    size=10,
+                                                    color="red",
+                                                    symbol="circle",
+                                                    line=dict(color="black", width=2),
+                                                ),
+                                            )
+                                        )
+
+                                        # Acquisition function (on secondary y-axis)
+                                        fig_slice.add_trace(
+                                            go.Scatter(
+                                                x=x_slice,
+                                                y=acq_slice,
+                                                mode="lines",
+                                                name="Acquisition Function",
+                                                line=dict(
+                                                    color="green", width=2, dash="dash"
+                                                ),
+                                                yaxis="y2",
+                                            )
+                                        )
+
+                                        # Find and mark next recommended point on this slice
+                                        next_idx_slice = np.argmax(acq_slice)
+                                        fig_slice.add_trace(
+                                            go.Scatter(
+                                                x=[x_slice[next_idx_slice]],
+                                                y=[acq_slice[next_idx_slice]],
+                                                mode="markers",
+                                                name="Max Acquisition",
+                                                marker=dict(
+                                                    size=14,
+                                                    color="green",
+                                                    symbol="triangle-down",
+                                                    line=dict(color="black", width=2),
+                                                ),
+                                                yaxis="y2",
+                                                showlegend=True,
+                                            )
+                                        )
+
+                                        fig_slice.update_layout(
+                                            title=f"GP Predictions along {selected_ing}",
+                                            xaxis_title=f"{selected_ing} Concentration (mM)",
+                                            yaxis_title="Predicted Score",
+                                            yaxis2=dict(
+                                                title=f"{acq_func.upper()} Value",
+                                                overlaying="y",
+                                                side="right",
+                                                showgrid=False,
+                                            ),
+                                            height=450,
+                                            hovermode="x unified",
+                                            legend=dict(
+                                                orientation="h",
+                                                yanchor="bottom",
+                                                y=1.02,
+                                                xanchor="right",
+                                                x=1,
+                                            ),
+                                        )
+
+                                        st.plotly_chart(fig_slice, use_container_width=True)
+
+                                        # Show info about the slice
+                                        st.caption(
+                                            f"**Fixed values:** "
+                                            + ", ".join(
+                                                [
+                                                    f"{k}: {v:.2f} mM"
+                                                    for k, v in fixed_values.items()
+                                                ]
+                                            )
+                                        )
+
                     except Exception as viz_error:
                         st.warning(f"Could not generate visualization: {viz_error}")
 
             except Exception as e:
                 st.warning(f"Could not load BO status: {e}")
+
+            st.markdown("---")
+
+            # ===== OPTIMIZATION PROGRESS ANALYTICS =====
+            st.markdown("### Optimization Progress")
+            import sql_handler as sql
+
+            training_df = sql.get_training_data(
+                st.session_state.session_id,
+                only_final=False,  # Include all samples for progress analysis
+            )
+            st.dataframe(training_df)
+            bool_val = training_df is not None and len(training_df) >= 2
+            st.write(f"Boolean value: {bool_val}")
+            try:
+                if training_df is not None and len(training_df) >= 2:
+                    # Create two columns for side-by-side plots
+                    col1, col2 = st.columns(2)
+
+                    # ===== CONVERGENCE PLOT =====
+                    with col1:
+                        try:
+                            # Calculate best score so far at each iteration
+                            best_so_far = [
+                                training_df.iloc[: i + 1]["target_value"].max()
+                                for i in range(len(training_df))
+                            ]
+
+                            fig_convergence = go.Figure()
+
+                            # Best so far line
+                            fig_convergence.add_trace(
+                                go.Scatter(
+                                    x=list(range(1, len(best_so_far) + 1)),
+                                    y=best_so_far,
+                                    mode="lines+markers",
+                                    name="Best Score Found",
+                                    line=dict(color="#2E86AB", width=3),
+                                    marker=dict(size=8, symbol="circle"),
+                                )
+                            )
+
+                            # Add target line if configured
+                            target_score = bo_status.get("bo_config", {}).get(
+                                "target_score"
+                            )
+                            if target_score:
+                                fig_convergence.add_hline(
+                                    y=target_score,
+                                    line_dash="dash",
+                                    line_color="red",
+                                    annotation_text=f"Target ({target_score})",
+                                    annotation_position="right",
+                                )
+
+                            fig_convergence.update_layout(
+                                title="Convergence Plot",
+                                xaxis_title="Iteration",
+                                yaxis_title="Best Score Found",
+                                height=400,
+                                showlegend=True,
+                                hovermode="x unified",
+                            )
+
+                            st.plotly_chart(fig_convergence, use_container_width=True)
+
+                        except Exception as e:
+                            st.warning(f"Could not generate convergence plot: {e}")
+
+                    # ===== SCORE DISTRIBUTION & PROGRESSION =====
+                    with col2:
+                        try:
+                            # Calculate best so far for comparison
+                            best_so_far = [
+                                training_df.iloc[: i + 1]["target_value"].max()
+                                for i in range(len(training_df))
+                            ]
+
+                            fig_scores = go.Figure()
+
+                            # All samples
+                            fig_scores.add_trace(
+                                go.Scatter(
+                                    x=list(range(1, len(training_df) + 1)),
+                                    y=training_df["target_value"].tolist(),
+                                    mode="markers",
+                                    name="All Samples",
+                                    marker=dict(
+                                        size=10,
+                                        color=training_df["target_value"],
+                                        colorscale="Viridis",
+                                        showscale=True,
+                                        colorbar=dict(title="Score"),
+                                        line=dict(color="black", width=1),
+                                    ),
+                                    opacity=0.7,
+                                )
+                            )
+
+                            # Best so far line
+                            fig_scores.add_trace(
+                                go.Scatter(
+                                    x=list(range(1, len(best_so_far) + 1)),
+                                    y=best_so_far,
+                                    mode="lines",
+                                    name="Best So Far",
+                                    line=dict(color="red", width=3),
+                                )
+                            )
+
+                            fig_scores.update_layout(
+                                title="All Scores vs Best So Far",
+                                xaxis_title="Iteration",
+                                yaxis_title="Score",
+                                height=400,
+                                showlegend=True,
+                                hovermode="x unified",
+                            )
+
+                            st.plotly_chart(fig_scores, use_container_width=True)
+
+                        except Exception as e:
+                            st.warning(
+                                f"Could not generate score progression plot: {e}"
+                            )
+
+                    # ===== SCORE DISTRIBUTION HISTOGRAM =====
+                    try:
+                        fig_hist = go.Figure()
+
+                        fig_hist.add_trace(
+                            go.Histogram(
+                                x=training_df["target_value"],
+                                nbinsx=min(20, len(training_df)),
+                                marker=dict(
+                                    color="#A23B72", line=dict(color="black", width=1)
+                                ),
+                                name="Score Distribution",
+                            )
+                        )
+
+                        # Add mean line
+                        mean_score = training_df["target_value"].mean()
+                        fig_hist.add_vline(
+                            x=mean_score,
+                            line_dash="dash",
+                            line_color="green",
+                            annotation_text=f"Mean: {mean_score:.2f}",
+                            annotation_position="top",
+                        )
+
+                        fig_hist.update_layout(
+                            title="Score Distribution",
+                            xaxis_title="Score",
+                            yaxis_title="Frequency",
+                            height=350,
+                            showlegend=False,
+                        )
+
+                        st.plotly_chart(fig_hist, use_container_width=True)
+
+                    except Exception as e:
+                        st.warning(f"Could not generate score distribution: {e}")
+
+                else:
+                    st.info(
+                        "Not enough data for optimization progress visualization (minimum 2 samples required)"
+                    )
+
+            except Exception as e:
+                st.warning(f"Could not load optimization progress analytics: {e}")
+
+            st.markdown("---")
+
+            # ===== INGREDIENT ANALYSIS =====
+            st.markdown("### Ingredient Analysis")
+
+            try:
+                if training_df is not None and len(training_df) >= 2:
+                    # Get ingredient names (all columns except 'target_value')
+                    ingredient_names = [
+                        col for col in training_df.columns if col != "target_value"
+                    ]
+                    num_ingredients = len(ingredient_names)
+
+                    # ===== INGREDIENT PAIR SCATTER PLOTS =====
+                    if num_ingredients == 2:
+                        # For 2 ingredients: single large scatter plot
+                        try:
+                            ing1, ing2 = ingredient_names[0], ingredient_names[1]
+
+                            fig_scatter = go.Figure()
+
+                            # All samples
+                            fig_scatter.add_trace(
+                                go.Scatter(
+                                    x=training_df[ing1],
+                                    y=training_df[ing2],
+                                    mode="markers",
+                                    name="Samples",
+                                    marker=dict(
+                                        size=12,
+                                        color=training_df["target_value"],
+                                        colorscale="RdYlGn",
+                                        showscale=True,
+                                        colorbar=dict(title="Score"),
+                                        line=dict(color="black", width=1),
+                                    ),
+                                    text=[
+                                        f"Score: {score:.2f}"
+                                        for score in training_df["target_value"]
+                                    ],
+                                    hovertemplate=f"<b>{ing1}</b>: %{{x:.2f}}<br><b>{ing2}</b>: %{{y:.2f}}<br>%{{text}}<extra></extra>",
+                                )
+                            )
+
+                            # Mark initial samples (first 5 or 10% whichever is smaller)
+                            n_initial = min(5, max(1, len(training_df) // 10))
+                            fig_scatter.add_trace(
+                                go.Scatter(
+                                    x=training_df[ing1].iloc[:n_initial],
+                                    y=training_df[ing2].iloc[:n_initial],
+                                    mode="markers",
+                                    name="Initial Samples",
+                                    marker=dict(
+                                        size=15,
+                                        symbol="square",
+                                        color="rgba(255, 0, 0, 0)",
+                                        line=dict(color="red", width=3),
+                                    ),
+                                )
+                            )
+
+                            # Mark best sample
+                            best_idx = training_df["target_value"].idxmax()
+                            fig_scatter.add_trace(
+                                go.Scatter(
+                                    x=[training_df[ing1].iloc[best_idx]],
+                                    y=[training_df[ing2].iloc[best_idx]],
+                                    mode="markers",
+                                    name=f'Best Sample ({training_df["target_value"].iloc[best_idx]:.2f})',
+                                    marker=dict(
+                                        size=20,
+                                        symbol="star",
+                                        color="gold",
+                                        line=dict(color="black", width=2),
+                                    ),
+                                )
+                            )
+
+                            fig_scatter.update_layout(
+                                title=f"{ing1} vs {ing2}",
+                                xaxis_title=f"{ing1} Concentration",
+                                yaxis_title=f"{ing2} Concentration",
+                                height=500,
+                                showlegend=True,
+                            )
+
+                            st.plotly_chart(fig_scatter, use_container_width=True)
+
+                        except Exception as e:
+                            st.warning(f"Could not generate ingredient pair plot: {e}")
+
+                    elif num_ingredients >= 3:
+                        # For 3+ ingredients: grid of pairwise scatter plots
+                        try:
+                            st.markdown("#### Ingredient Pair Relationships")
+
+                            # Create scatter matrix using plotly
+                            from plotly.subplots import make_subplots
+                            import numpy as np
+
+                            # Limit to showing key pairs if too many ingredients
+                            pairs_to_show = []
+                            if num_ingredients <= 4:
+                                # Show all pairs
+                                for i in range(num_ingredients):
+                                    for j in range(i + 1, num_ingredients):
+                                        pairs_to_show.append(
+                                            (ingredient_names[i], ingredient_names[j])
+                                        )
+                            else:
+                                # Show first 6 most variable pairs
+                                variances = {
+                                    ing: training_df[ing].var()
+                                    for ing in ingredient_names
+                                }
+                                top_ingredients = sorted(
+                                    variances, key=variances.get, reverse=True
+                                )[:3]
+                                for i in range(len(top_ingredients)):
+                                    for j in range(i + 1, len(top_ingredients)):
+                                        pairs_to_show.append(
+                                            (top_ingredients[i], top_ingredients[j])
+                                        )
+
+                            # Calculate grid dimensions
+                            n_pairs = len(pairs_to_show)
+                            n_cols = min(3, n_pairs)
+                            n_rows = (n_pairs + n_cols - 1) // n_cols
+
+                            fig_pairs = make_subplots(
+                                rows=n_rows,
+                                cols=n_cols,
+                                subplot_titles=[
+                                    f"{p[0]} vs {p[1]}" for p in pairs_to_show
+                                ],
+                                vertical_spacing=0.12,
+                                horizontal_spacing=0.1,
+                            )
+
+                            for idx, (ing1, ing2) in enumerate(pairs_to_show):
+                                row = idx // n_cols + 1
+                                col = idx % n_cols + 1
+
+                                fig_pairs.add_trace(
+                                    go.Scatter(
+                                        x=training_df[ing1],
+                                        y=training_df[ing2],
+                                        mode="markers",
+                                        marker=dict(
+                                            size=10,
+                                            color=training_df["target_value"],
+                                            colorscale="RdYlGn",
+                                            showscale=(idx == 0),
+                                            colorbar=(
+                                                dict(title="Score", x=1.02)
+                                                if idx == 0
+                                                else None
+                                            ),
+                                            line=dict(color="black", width=1),
+                                        ),
+                                        showlegend=False,
+                                        hovertemplate=f"<b>{ing1}</b>: %{{x:.2f}}<br><b>{ing2}</b>: %{{y:.2f}}<extra></extra>",
+                                    ),
+                                    row=row,
+                                    col=col,
+                                )
+
+                                # Update axes labels
+                                fig_pairs.update_xaxes(
+                                    title_text=ing1, row=row, col=col
+                                )
+                                fig_pairs.update_yaxes(
+                                    title_text=ing2, row=row, col=col
+                                )
+
+                            fig_pairs.update_layout(
+                                height=300 * n_rows, showlegend=False
+                            )
+
+                            st.plotly_chart(fig_pairs, use_container_width=True)
+
+                        except Exception as e:
+                            st.warning(f"Could not generate ingredient pair plots: {e}")
+
+                    # ===== INDIVIDUAL INGREDIENT IMPACT =====
+                    try:
+                        st.markdown("#### Individual Ingredient Impact")
+
+                        # Create columns for ingredient plots
+                        n_cols = min(3, num_ingredients)
+                        cols = st.columns(n_cols)
+
+                        for idx, ing_name in enumerate(ingredient_names):
+                            with cols[idx % n_cols]:
+                                fig_ing = go.Figure()
+
+                                fig_ing.add_trace(
+                                    go.Scatter(
+                                        x=training_df[ing_name],
+                                        y=training_df["target_value"],
+                                        mode="markers",
+                                        marker=dict(
+                                            size=10,
+                                            color=training_df["target_value"],
+                                            colorscale="Viridis",
+                                            line=dict(color="black", width=1),
+                                        ),
+                                        showlegend=False,
+                                        hovertemplate=f"<b>{ing_name}</b>: %{{x:.2f}}<br><b>Score</b>: %{{y:.2f}}<extra></extra>",
+                                    )
+                                )
+
+                                # Calculate correlation
+                                correlation = training_df[ing_name].corr(
+                                    training_df["target_value"]
+                                )
+
+                                fig_ing.update_layout(
+                                    title=f"{ing_name}<br><sub>Correlation: {correlation:.3f}</sub>",
+                                    xaxis_title=f"{ing_name} Concentration",
+                                    yaxis_title="Score",
+                                    height=300,
+                                    margin=dict(t=60, b=40, l=40, r=20),
+                                )
+
+                                st.plotly_chart(fig_ing, use_container_width=True)
+
+                    except Exception as e:
+                        st.warning(
+                            f"Could not generate individual ingredient plots: {e}"
+                        )
+
+                else:
+                    st.info(
+                        "Not enough data for ingredient analysis (minimum 2 samples required)"
+                    )
+
+            except Exception as e:
+                st.warning(f"Could not load ingredient analysis: {e}")
 
             st.markdown("---")
 
@@ -1297,7 +2052,7 @@ def moderator_interface():
                         history_data.append(row)
 
                     df = pd.DataFrame(history_data)
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, width="stretch")
                 else:
                     st.info("No cycles completed yet")
             except Exception as e:
@@ -1316,7 +2071,7 @@ def moderator_interface():
                     if st.button(
                         "Finish Session",
                         type="primary",
-                        use_container_width=True,
+                        width="stretch",
                         key="finish_session",
                     ):
                         # Show confirmation

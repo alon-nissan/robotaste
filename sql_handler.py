@@ -816,11 +816,25 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         1   20.0   3.0           5.0
     """
     try:
-        # Get session to know questionnaire type
+        # Get session to know questionnaire type and ingredient order
         session = get_session(session_id)
         if not session:
             logger.warning(f"Session {session_id} not found")
             return pd.DataFrame()
+
+        # Get expected ingredient order from experiment config
+        experiment_config = session.get("experiment_config", {})
+        expected_ingredients = [ing["name"] for ing in experiment_config.get("ingredients", [])]
+
+        if not expected_ingredients:
+            logger.warning(f"No ingredients defined in experiment config for session {session_id}")
+            # Fallback: try to extract from first sample (backward compatibility)
+            samples = get_session_samples(session_id, only_final=only_final)
+            if samples and samples[0].get("ingredient_concentration"):
+                expected_ingredients = list(samples[0]["ingredient_concentration"].keys())
+                logger.info(f"Using ingredient order from first sample: {expected_ingredients}")
+            else:
+                return pd.DataFrame()
 
         # Get questionnaire type name
         questionnaire_type = session.get("questionnaire_name")
@@ -834,7 +848,7 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
             logger.info(f"No samples found for session {session_id}")
             return pd.DataFrame()
 
-        # Build training data
+        # Build training data with ORDERED columns matching experiment config
         data = []
         for sample in samples:
             # Get concentrations
@@ -846,11 +860,28 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
             )
 
             if target is not None:
-                row = {**concentrations, "target_value": target}
+                # Build row with ingredients in experiment config order
+                row = {}
+                for ing_name in expected_ingredients:
+                    if ing_name in concentrations:
+                        row[ing_name] = concentrations[ing_name]
+                    else:
+                        logger.warning(f"Missing ingredient {ing_name} in sample {sample.get('sample_id', 'unknown')}")
+                        row[ing_name] = 0.0  # Fallback to zero if missing
+
+                row["target_value"] = target
                 data.append(row)
 
         df = pd.DataFrame(data)
-        logger.info(f"Retrieved {len(df)} training samples for session {session_id}")
+
+        # Verify column order matches expected (sanity check)
+        expected_cols = expected_ingredients + ["target_value"]
+        if not df.empty and list(df.columns) != expected_cols:
+            logger.warning(f"Column order mismatch! Expected {expected_cols}, got {list(df.columns)}")
+            # Reorder columns to match expectation
+            df = df[expected_cols]
+
+        logger.info(f"Retrieved {len(df)} training samples for session {session_id} with columns: {list(df.columns)}")
         return df
 
     except Exception as e:

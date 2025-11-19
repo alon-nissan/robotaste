@@ -1072,7 +1072,7 @@ def render_questionnaire(
         submitted = st.form_submit_button(
             button_text,
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key=f"submit_{instance_key}",
         )
 

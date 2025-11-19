@@ -138,6 +138,8 @@ def sync_session_state(session_id: str, role: str) -> bool:
             )
             st.session_state.method = experiment_config.get("method", "logarithmic")
             st.session_state.ingredients = experiment_config.get("ingredients", [])
+            # Store full experiment_config for fallback checks in subject_interface
+            st.session_state.experiment_config = experiment_config
             st.session_state.questionnaire_type = session_info.get(
                 "questionnaire_name", "hedonic_preference"
             )

@@ -173,7 +173,7 @@ def subject_interface():
             if st.button(
                 "Check Status",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="subject_check_status_button",
             ):
                 # Check if user exists and has an active session
@@ -275,6 +275,9 @@ def subject_interface():
     # TASTING phase removed - workflow now goes directly from ROBOT_PREPARING to QUESTIONNAIRE
 
     elif st.session_state.phase == "selection":
+        # Ensure session state is fresh from database (including ingredients)
+        sync_session_state(st.session_state.session_id, "subject")
+
         # Validate session is configured
         # Settings are already loaded by sync_session_state() into st.session_state
         if not st.session_state.get("session_code"):
@@ -1173,7 +1176,7 @@ def subject_interface():
                 finish_button_clicked = st.button(
                     "Finish Selection",
                     type="primary",
-                    use_container_width=False,
+                    width="content",
                     help="Complete your mixture selection and proceed to the questionnaire",
                     key="subject_finish_sliders_button",
                 )

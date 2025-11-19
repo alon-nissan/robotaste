@@ -88,7 +88,7 @@ DEFAULT_BO_CONFIG = {
     # Advanced parameters
     "only_final_responses": True,  # Use only final responses for training
     "candidate_sampling_method": "auto",  # "grid", "lhs", or "auto"
-    "n_candidates_grid": 400,  # For 2D grid (20x20)
+    "n_candidates_grid": 400,  # For 2D grid (20*20)
     "n_candidates_lhs": 1000,  # For N-D Latin Hypercube
 }
 
@@ -264,7 +264,8 @@ class RoboTasteBO:
             >>> custom_config = {"kernel_nu": 1.5, "alpha": 0.01}
             >>> bo = RoboTasteBO(names, ranges, config=custom_config)
         """
-        self.ingredient_names = sorted(ingredient_names)  # Fixed order for consistency
+        # IMPORTANT: Do NOT sort - preserve order from experiment config to match training data
+        self.ingredient_names = list(ingredient_names)
         self.ranges = concentration_ranges
         self.n_dim = len(ingredient_names)
 
@@ -641,6 +642,13 @@ def train_bo_model_for_participant(
         # Get training data from database (using new API)
         df = get_training_data(session_id, only_final=False)
 
+        # Comprehensive logging for debugging
+        logger.info(f"BO Training Debug - Session: {session_id}")
+        logger.info(f"  DataFrame shape: {df.shape}")
+        logger.info(f"  DataFrame columns: {list(df.columns) if not df.empty else 'EMPTY'}")
+        logger.info(f"  Min samples required: {min_samples}")
+        logger.info(f"  Actual samples: {len(df)}")
+
         if len(df) < min_samples:
             logger.info(
                 f"Insufficient data for BO training: {len(df)} samples < {min_samples} required"
@@ -656,10 +664,11 @@ def train_bo_model_for_participant(
             try:
                 # Extract ingredient names from DataFrame columns (all columns except target_value)
                 # This works for 2-6 ingredients automatically!
+                # IMPORTANT: Do NOT sort - preserve order from experiment config
                 if ingredient_names is None:
-                    ingredient_names = sorted(
-                        [col for col in df.columns if col != "target_value"]
-                    )
+                    ingredient_names = [
+                        col for col in df.columns if col != "target_value"
+                    ]
                     logger.info(
                         f"Detected {len(ingredient_names)} ingredients: {ingredient_names}"
                     )
@@ -765,7 +774,8 @@ def generate_candidates_latin_hypercube(
     """
     from scipy.stats import qmc
 
-    ingredient_names = sorted(ranges.keys())
+    # IMPORTANT: Do NOT sort - preserve order from experiment config to match training data
+    ingredient_names = list(ranges.keys())
     n_dim = len(ingredient_names)
 
     # Generate LHS samples in [0, 1]^n_dim

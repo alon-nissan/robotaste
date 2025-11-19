@@ -60,7 +60,7 @@ def landing_page():
             if st.button(
                 "Create New Session",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="landing_create_session_button",
             ):
                 # Create minimal session in database with both UUID and 6-char code
@@ -75,10 +75,15 @@ def landing_page():
                 st.session_state.session_code = new_session_code
                 st.session_state.device_role = "moderator"
                 st.session_state.moderator_name = moderator_name
-                st.session_state.session_created_in_db = True  # Session now exists in DB
+                st.session_state.session_created_in_db = (
+                    True  # Session now exists in DB
+                )
 
                 st.query_params.update(
-                    {"role": "moderator", "session": new_session_code}  # Use 6-char code in URL
+                    {
+                        "role": "moderator",
+                        "session": new_session_code,
+                    }  # Use 6-char code in URL
                 )
                 st.success(f"Session Code: {new_session_code}")
                 st.info("Please configure your experiment settings on the next screen.")
@@ -102,7 +107,7 @@ def landing_page():
             if st.button(
                 "Join Session",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="landing_join_session_button",
             ):
                 if input_session_code and len(input_session_code) == 6:
