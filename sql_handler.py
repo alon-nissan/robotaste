@@ -849,6 +849,23 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
             logger.warning(f"No questionnaire type for session {session_id}")
             return pd.DataFrame()
 
+        # Get target variable name from questionnaire config
+        target_column_name = "target_value"  # Default fallback
+        try:
+            from questionnaire_config import QUESTIONNAIRE_CONFIGS
+            questionnaire_type_normalized = questionnaire_type.strip().lower()
+            q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
+            if not q_def:
+                q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+            if q_def:
+                bayesian_config = q_def.get("bayesian_target", {})
+                target_key = bayesian_config.get("variable")
+                if target_key:
+                    target_column_name = target_key
+                    logger.info(f"Using target column name: '{target_column_name}'")
+        except Exception as e:
+            logger.warning(f"Could not get target variable name from config: {e}, using default 'target_value'")
+
         # Get samples
         samples = get_session_samples(session_id, only_final=only_final)
         if not samples:
@@ -876,13 +893,13 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
                         logger.warning(f"Missing ingredient {ing_name} in sample {sample.get('sample_id', 'unknown')}")
                         row[ing_name] = 0.0  # Fallback to zero if missing
 
-                row["target_value"] = target
+                row[target_column_name] = target
                 data.append(row)
 
         df = pd.DataFrame(data)
 
         # Verify column order matches expected (sanity check)
-        expected_cols = expected_ingredients + ["target_value"]
+        expected_cols = expected_ingredients + [target_column_name]
         if not df.empty and list(df.columns) != expected_cols:
             logger.warning(f"Column order mismatch! Expected {expected_cols}, got {list(df.columns)}")
             # Reorder columns to match expectation

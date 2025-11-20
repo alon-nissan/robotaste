@@ -660,14 +660,18 @@ def train_bo_model_for_participant(
         y_list = []
         ingredient_names = None
 
+        # Detect target column name (last column by convention from get_training_data)
+        target_column = df.columns[-1]
+        logger.info(f"Using target column: '{target_column}'")
+
         for _, row in df.iterrows():
             try:
-                # Extract ingredient names from DataFrame columns (all columns except target_value)
+                # Extract ingredient names from DataFrame columns (all columns except target)
                 # This works for 2-6 ingredients automatically!
                 # IMPORTANT: Do NOT sort - preserve order from experiment config
                 if ingredient_names is None:
                     ingredient_names = [
-                        col for col in df.columns if col != "target_value"
+                        col for col in df.columns if col != target_column
                     ]
                     logger.info(
                         f"Detected {len(ingredient_names)} ingredients: {ingredient_names}"
@@ -677,7 +681,7 @@ def train_bo_model_for_participant(
                 # Works for any number of ingredients (2, 3, 4, 5, or 6)
                 feature_vector = [row[name] for name in ingredient_names]
                 X_list.append(feature_vector)
-                y_list.append(row["target_value"])
+                y_list.append(row[target_column])
 
             except KeyError as e:
                 logger.warning(f"Skipping sample due to missing column: {e}")

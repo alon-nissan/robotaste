@@ -150,6 +150,10 @@ def sync_session_state(session_id: str, role: str) -> bool:
             initial_conc = experiment_config.get("initial_concentrations", {})
             if initial_conc:
                 st.session_state.current_tasted_sample = initial_conc
+            # Sync initial slider values (for cycle 0 selection_data)
+            initial_slider = experiment_config.get("initial_slider_values", {})
+            if initial_slider:
+                st.session_state.random_slider_values = initial_slider
             # Update both the UI control variable AND display variable
             phase_from_db = session_info.get("current_phase", "waiting")
             st.session_state.phase = phase_from_db  # UI control variable

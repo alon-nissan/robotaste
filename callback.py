@@ -778,6 +778,7 @@ def start_trial(
                 "method": method,
                 "current_cycle": 0,  # Initialize cycle counter to 0
                 "initial_concentrations": st.session_state.current_tasted_sample,  # Store for subject interface sync
+                "initial_slider_values": random_slider_values,  # Store random slider positions for subject interface
                 "questionnaire_type": questionnaire_type,  # Store selected questionnaire type
                 "bayesian_optimization": st.session_state.get(
                     "bo_config", get_default_bo_config()

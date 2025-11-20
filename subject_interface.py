@@ -909,9 +909,7 @@ def single_variable_interface():
         else:
             # MANUAL MODE: Traditional slider interface
             st.markdown("### Adjust Concentration")
-            st.write(
-                f"Use the slider below to adjust the {ingredient_name} concentration."
-            )
+            st.write(f"Use the slider below to adjust the ingredient concentration.")
 
             # Get initial slider value based on cycle
             # ALL Cycles 0-2: Load LAST SAMPLE from database (what they tasted)
