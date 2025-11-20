@@ -1,6 +1,6 @@
 from callback import (
     INTERFACE_2D_GRID,
-    INTERFACE_SLIDERS,
+    INTERFACE_SINGLE_INGREDIENT,
     MultiComponentMixture,
     clear_canvas_state,
     start_trial,
@@ -23,6 +23,7 @@ from sql_handler import (
     get_latest_sample_concentrations,
     get_database_connection,
     get_training_data,
+    get_questionnaire_type_id,
 )
 from state_machine import (
     ExperimentPhase,
@@ -317,6 +318,17 @@ def show_single_ingredient_setup():
 
     st.markdown("---")
 
+    # ===== STARTING POSITION CONFIGURATION =====
+    st.markdown("**Starting Position**")
+    use_random_start = st.checkbox(
+        "Randomize starting position",
+        value=True,
+        help="Start slider at random position (10-90%) instead of center (50%)",
+    )
+    st.session_state.use_random_start = use_random_start
+
+    st.markdown("---")
+
     # ===== QUESTIONNAIRE CONFIGURATION =====
     st.markdown("**Questionnaire**")
 
@@ -387,7 +399,7 @@ def show_single_ingredient_setup():
         if st.button(
             "Start Trial",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="single_start_trial_button",
         ):
             # Validation
@@ -423,6 +435,15 @@ def show_single_ingredient_setup():
                 }
 
                 # Create/update session in database
+                # Convert questionnaire type name to integer ID
+                questionnaire_name = st.session_state.get(
+                    "selected_questionnaire_type", "hedonic_preference"
+                )
+                question_type_id = get_questionnaire_type_id(questionnaire_name)
+                if question_type_id is None:
+                    st.error(f"Invalid questionnaire type: {questionnaire_name}")
+                    st.stop()
+
                 success_db = update_session_with_config(
                     session_id=st.session_state.session_id,
                     user_id=st.session_state.participant,
@@ -430,9 +451,7 @@ def show_single_ingredient_setup():
                     interface_type="sliders",
                     method="linear",  # Sliders always use linear mapping
                     ingredients=ingredients_for_db,
-                    question_type_id=st.session_state.get(
-                        "selected_questionnaire_type", 1
-                    ),
+                    question_type_id=question_type_id,
                     bo_config=bo_config,
                     experiment_config=full_experiment_config,
                 )
@@ -734,7 +753,7 @@ def show_binary_mixture_setup():
         if st.button(
             "Start Trial",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="binary_start_trial_button",
         ):
             # Validation
@@ -781,6 +800,15 @@ def show_binary_mixture_setup():
                 }
 
                 # Create/update session in database
+                # Convert questionnaire type name to integer ID
+                questionnaire_name = st.session_state.get(
+                    "selected_questionnaire_type", "hedonic_preference"
+                )
+                question_type_id = get_questionnaire_type_id(questionnaire_name)
+                if question_type_id is None:
+                    st.error(f"Invalid questionnaire type: {questionnaire_name}")
+                    st.stop()
+
                 success_db = update_session_with_config(
                     session_id=st.session_state.session_id,
                     user_id=st.session_state.participant,
@@ -788,9 +816,7 @@ def show_binary_mixture_setup():
                     interface_type="2d_grid",
                     method=method,
                     ingredients=ingredients_for_db,
-                    question_type_id=st.session_state.get(
-                        "selected_questionnaire_type", 1
-                    ),
+                    question_type_id=question_type_id,
                     bo_config=bo_config,
                     experiment_config=full_experiment_config,
                 )
@@ -845,25 +871,531 @@ def show_binary_mixture_setup():
 
 
 def single_bo():
-    """Placeholder for single ingredient BO visualization."""
-    st.info("🚧 Single ingredient BO visualization - To be implemented")
-    st.write("**This will show:**")
-    st.write("- 1D line plot of GP predictions")
-    st.write("- Uncertainty bands (±2σ)")
-    st.write("- Observed samples marked on plot")
-    st.write("- Next recommended sample")
-    st.write("- Acquisition function overlay")
+    """Single ingredient BO visualization with 1D Gaussian Process plots."""
+    from bayesian_optimizer import train_bo_model_for_participant
+    from questionnaire_config import get_questionnaire_config
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    import numpy as np
+
+    # Get session and configuration
+    session = get_session(st.session_state.session_id)
+    if not session or "experiment_config" not in session:
+        st.error("Could not load session configuration")
+        return
+
+    experiment_config = session["experiment_config"]
+    ingredients = experiment_config.get("ingredients", [])
+
+    if not ingredients or len(ingredients) != 1:
+        st.error("Expected exactly 1 ingredient for single_bo visualization")
+        return
+
+    ingredient = ingredients[0]
+    ingredient_name = ingredient["name"]
+    min_concentration = ingredient["min_concentration"]
+    max_concentration = ingredient["max_concentration"]
+
+    # Get BO configuration
+    bo_config = experiment_config.get("bayesian_optimization", {})
+    min_samples_for_bo = bo_config.get("min_samples_for_bo", 3)
+
+    # Get questionnaire config for target variable
+    questionnaire_name = session.get("questionnaire_name", "hedonic_preference")
+    questionnaire_config = get_questionnaire_config(questionnaire_name)
+    target_variable = "overall_liking"  # Default
+    if questionnaire_config and "bayesian_target" in questionnaire_config:
+        target_variable = questionnaire_config["bayesian_target"]["variable"]
+
+    # Get training data
+    try:
+        df = get_training_data(
+            st.session_state.session_id,
+            only_final=False,
+        )
+    except Exception as e:
+        st.warning(f"Could not load training data: {e}")
+        df = None
+
+    # Check if enough data for BO
+    if df is None or len(df) < min_samples_for_bo:
+        current_samples = len(df) if df is not None else 0
+        st.info(
+            f"Bayesian Optimization not yet active. Need {min_samples_for_bo} samples, have {current_samples}."
+        )
+        st.write("Waiting for more participant responses...")
+        return
+
+    # Check if target variable exists in data
+    if target_variable not in df.columns:
+        st.error(
+            f"Target variable '{target_variable}' not found in questionnaire responses"
+        )
+        st.write(f"Available columns: {list(df.columns)}")
+        return
+
+    # Train BO model
+    try:
+        st.markdown(f"#### {ingredient_name} Preference Landscape")
+        st.caption(
+            f"Based on {len(df)} observations | Target: {target_variable.replace('_', ' ').title()}"
+        )
+
+        bo_model = train_bo_model_for_participant(
+            participant_id=st.session_state.participant,
+            session_id=st.session_state.session_id,
+            bo_config=bo_config,
+        )
+
+        if not bo_model.is_fitted:
+            st.error("BO model training failed")
+            return
+
+        # Get observed data
+        X_observed = df[ingredient_name].values
+        y_observed = df[target_variable].values
+
+        # Generate candidates for prediction
+        X_candidates = np.linspace(min_concentration, max_concentration, 1000).reshape(
+            -1, 1
+        )
+
+        # GP predictions
+        pred_mean, pred_sigma = bo_model.predict(X_candidates, return_std=True)
+
+        # Acquisition function
+        acq_func = bo_config.get("acquisition_function", "ei")
+        if acq_func == "ei":
+            ei_xi = bo_config.get("ei_xi", 0.01)
+            acq_values = bo_model.expected_improvement(X_candidates, xi=ei_xi)
+            acq_label = f"Expected Improvement (ξ={ei_xi})"
+        else:  # ucb
+            ucb_kappa = bo_config.get("ucb_kappa", 2.0)
+            acq_values = bo_model.upper_confidence_bound(X_candidates, kappa=ucb_kappa)
+            acq_label = f"Upper Confidence Bound (κ={ucb_kappa})"
+
+        # Get next suggestion
+        suggestion = bo_model.suggest_next_sample(X_candidates)
+        next_x = suggestion["best_candidate"][0]
+        next_pred = suggestion["predicted_value"]
+
+        # Create subplot with dual y-axes
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # Add GP mean prediction (red line)
+        fig.add_trace(
+            go.Scatter(
+                x=X_candidates.ravel(),
+                y=pred_mean,
+                mode="lines",
+                name="GP Mean",
+                line=dict(color="red", width=2),
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
+
+        # Add uncertainty band (±2σ shaded region)
+        fig.add_trace(
+            go.Scatter(
+                x=X_candidates.ravel(),
+                y=pred_mean + 2 * pred_sigma,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            secondary_y=False,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=X_candidates.ravel(),
+                y=pred_mean - 2 * pred_sigma,
+                mode="lines",
+                fill="tonexty",
+                fillcolor="rgba(255, 0, 0, 0.2)",
+                line=dict(width=0),
+                name="±2σ Uncertainty",
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
+
+        # Add observed training data (red scatter)
+        fig.add_trace(
+            go.Scatter(
+                x=X_observed,
+                y=y_observed,
+                mode="markers",
+                name="Observed Data",
+                marker=dict(
+                    color="red",
+                    size=10,
+                    symbol="circle",
+                    line=dict(width=2, color="darkred"),
+                ),
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
+
+        # Add next observation point (red triangle)
+        fig.add_trace(
+            go.Scatter(
+                x=[next_x],
+                y=[next_pred],
+                mode="markers",
+                name="Next Observation",
+                marker=dict(
+                    color="red",
+                    size=15,
+                    symbol="triangle-down",
+                    line=dict(width=2, color="darkred"),
+                ),
+                showlegend=True,
+                text=[f"Next: {next_x:.2f} mM<br>Predicted: {next_pred:.2f}"],
+                hoverinfo="text",
+            ),
+            secondary_y=False,
+        )
+
+        # Add acquisition function (green dashed line, secondary y-axis)
+        fig.add_trace(
+            go.Scatter(
+                x=X_candidates.ravel(),
+                y=acq_values,
+                mode="lines",
+                name=acq_label,
+                line=dict(color="green", width=2, dash="dash"),
+                showlegend=True,
+            ),
+            secondary_y=True,
+        )
+
+        # Update layout
+        fig.update_xaxes(
+            title_text=f"{ingredient_name} Concentration (mM)",
+            showgrid=True,
+            gridcolor="lightgray",
+        )
+        fig.update_yaxes(
+            title_text=target_variable.replace("_", " ").title(),
+            secondary_y=False,
+            showgrid=True,
+            gridcolor="lightgray",
+        )
+        fig.update_yaxes(
+            title_text=acq_label,
+            secondary_y=True,
+            showgrid=False,
+        )
+
+        fig.update_layout(
+            height=500,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.3,
+                xanchor="center",
+                x=0.5,
+            ),
+            margin=dict(l=60, r=60, t=40, b=100),
+        )
+
+        # Display plot
+        st.plotly_chart(fig, width="stretch")
+
+        # Show metrics below plot
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Observations", len(df))
+        with col2:
+            st.metric("Best Observed", f"{bo_model.best_observed_value:.2f}")
+        with col3:
+            st.metric("Next Suggestion", f"{next_x:.2f} mM")
+        with col4:
+            st.metric("Predicted Value", f"{next_pred:.2f}")
+
+    except Exception as e:
+        st.error(f"Error creating BO visualization: {e}")
+        import traceback
+
+        st.code(traceback.format_exc())
 
 
 def binary_bo():
-    """Placeholder for binary mixture BO visualization."""
-    st.info("🚧 Binary mixture BO visualization - To be implemented")
-    st.write("**This will show:**")
-    st.write("- 2D heatmap of GP predictions")
-    st.write("- Uncertainty contours")
-    st.write("- Acquisition function contours")
-    st.write("- Observed samples as scatter points")
-    st.write("- Next recommended sample as star")
+    """Binary mixture BO visualization with 2D Gaussian Process heatmaps."""
+    from bayesian_optimizer import (
+        train_bo_model_for_participant,
+        generate_candidate_grid_2d,
+    )
+    from questionnaire_config import get_questionnaire_config
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    import numpy as np
+
+    # Get session and configuration
+    session = get_session(st.session_state.session_id)
+    if not session or "experiment_config" not in session:
+        st.error("Could not load session configuration")
+        return
+
+    experiment_config = session["experiment_config"]
+    ingredients = experiment_config.get("ingredients", [])
+
+    if not ingredients or len(ingredients) != 2:
+        st.error("Expected exactly 2 ingredients for binary_bo visualization")
+        return
+
+    ingredient_1 = ingredients[0]
+    ingredient_2 = ingredients[1]
+    ing1_name = ingredient_1["name"]
+    ing2_name = ingredient_2["name"]
+    ing1_range = (ingredient_1["min"], ingredient_1["max"])
+    ing2_range = (ingredient_2["min"], ingredient_2["max"])
+
+    # Get BO configuration
+    bo_config = experiment_config.get("bayesian_optimization", {})
+    min_samples_for_bo = bo_config.get("min_samples_for_bo", 3)
+
+    # Get questionnaire config for target variable
+    questionnaire_name = session.get("questionnaire_name", "hedonic_preference")
+    questionnaire_config = get_questionnaire_config(questionnaire_name)
+    target_variable = "overall_liking"  # Default
+    if questionnaire_config and "bayesian_target" in questionnaire_config:
+        target_variable = questionnaire_config["bayesian_target"]["variable"]
+
+    # Get training data
+    try:
+        df = get_training_data(
+            st.session_state.session_id,
+            only_final=bo_config.get("only_final_responses", False),
+        )
+    except Exception as e:
+        st.warning(f"Could not load training data: {e}")
+        df = None
+
+    # Check if enough data for BO
+    if df is None or len(df) < min_samples_for_bo:
+        current_samples = len(df) if df is not None else 0
+        st.info(
+            f"Bayesian Optimization not yet active. Need {min_samples_for_bo} samples, have {current_samples}."
+        )
+        st.write("Waiting for more participant responses...")
+        return
+
+    # Check if target variable exists in data
+    if target_variable not in df.columns:
+        st.error(
+            f"Target variable '{target_variable}' not found in questionnaire responses"
+        )
+        st.write(f"Available columns: {list(df.columns)}")
+        return
+
+    # Train BO model
+    try:
+        st.markdown(f"#### {ing1_name} × {ing2_name} Preference Landscape")
+        st.caption(
+            f"Based on {len(df)} observations | Target: {target_variable.replace('_', ' ').title()}"
+        )
+
+        bo_model = train_bo_model_for_participant(
+            participant_id=st.session_state.participant,
+            session_id=st.session_state.session_id,
+            bo_config=bo_config,
+        )
+
+        if not bo_model.is_fitted:
+            st.error("BO model training failed")
+            return
+
+        # Get observed data
+        X_observed = df[[ing1_name, ing2_name]].values
+        y_observed = df[target_variable].values
+
+        # Generate 2D grid candidates
+        candidates = generate_candidate_grid_2d(ing1_range, ing2_range, n_points=50)
+        X_grid_ing1 = candidates[:, 0].reshape(50, 50)
+        X_grid_ing2 = candidates[:, 1].reshape(50, 50)
+
+        # GP predictions
+        pred_mean, pred_sigma = bo_model.predict(candidates, return_std=True)
+        Z_mean = pred_mean.reshape(50, 50)
+        Z_sigma = pred_sigma.reshape(50, 50)
+
+        # Acquisition function
+        acq_func = bo_config.get("acquisition_function", "ei")
+        if acq_func == "ei":
+            ei_xi = bo_config.get("ei_xi", 0.01)
+            acq_values = bo_model.expected_improvement(candidates, xi=ei_xi)
+            acq_label = f"Expected Improvement (ξ={ei_xi})"
+        else:  # ucb
+            ucb_kappa = bo_config.get("ucb_kappa", 2.0)
+            acq_values = bo_model.upper_confidence_bound(candidates, kappa=ucb_kappa)
+            acq_label = f"Upper Confidence Bound (κ={ucb_kappa})"
+
+        Z_acq = acq_values.reshape(50, 50)
+
+        # Get next suggestion
+        suggestion = bo_model.suggest_next_sample(candidates)
+        next_x = suggestion["best_candidate"]
+        next_pred = suggestion["predicted_value"]
+
+        # Create 3 subplots: GP Mean, Uncertainty, Acquisition
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            subplot_titles=("GP Mean Prediction", "Uncertainty (σ)", acq_label),
+            specs=[[{"type": "contour"}, {"type": "contour"}, {"type": "contour"}]],
+            horizontal_spacing=0.12,
+        )
+
+        # Plot 1: GP Mean with observations and next point
+        fig.add_trace(
+            go.Contour(
+                x=X_grid_ing1[0, :],
+                y=X_grid_ing2[:, 0],
+                z=Z_mean,
+                colorscale="RdYlGn",
+                showscale=True,
+                colorbar=dict(x=0.28, len=0.8),
+                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Predicted: %{{z:.2f}}<extra></extra>",
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Add observed points to GP Mean plot
+        fig.add_trace(
+            go.Scatter(
+                x=X_observed[:, 0],
+                y=X_observed[:, 1],
+                mode="markers",
+                name="Observed",
+                marker=dict(
+                    color="red",
+                    size=8,
+                    symbol="circle",
+                    line=dict(width=1, color="darkred"),
+                ),
+                showlegend=True,
+                hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<extra>Observed</extra>",
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Add next observation point to GP Mean plot
+        fig.add_trace(
+            go.Scatter(
+                x=[next_x[0]],
+                y=[next_x[1]],
+                mode="markers",
+                name="Next",
+                marker=dict(
+                    color="blue",
+                    size=15,
+                    symbol="star",
+                    line=dict(width=2, color="darkblue"),
+                ),
+                showlegend=True,
+                hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Predicted: {next_pred:.2f}<extra>Next Suggestion</extra>",
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Plot 2: Uncertainty
+        fig.add_trace(
+            go.Contour(
+                x=X_grid_ing1[0, :],
+                y=X_grid_ing2[:, 0],
+                z=Z_sigma,
+                colorscale="Reds",
+                showscale=True,
+                colorbar=dict(x=0.63, len=0.8),
+                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Uncertainty: %{{z:.2f}}<extra></extra>",
+            ),
+            row=1,
+            col=2,
+        )
+
+        # Plot 3: Acquisition Function
+        fig.add_trace(
+            go.Contour(
+                x=X_grid_ing1[0, :],
+                y=X_grid_ing2[:, 0],
+                z=Z_acq,
+                colorscale="Greens",
+                showscale=True,
+                colorbar=dict(x=0.98, len=0.8),
+                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>{acq_label}: %{{z:.3f}}<extra></extra>",
+            ),
+            row=1,
+            col=3,
+        )
+
+        # Add next point to acquisition plot
+        fig.add_trace(
+            go.Scatter(
+                x=[next_x[0]],
+                y=[next_x[1]],
+                mode="markers",
+                marker=dict(
+                    color="blue",
+                    size=15,
+                    symbol="star",
+                    line=dict(width=2, color="darkblue"),
+                ),
+                showlegend=False,
+                hovertemplate=f"Max Acquisition<extra></extra>",
+            ),
+            row=1,
+            col=3,
+        )
+
+        # Update axes
+        for col in [1, 2, 3]:
+            fig.update_xaxes(title_text=f"{ing1_name} (mM)", row=1, col=col)
+            fig.update_yaxes(title_text=f"{ing2_name} (mM)", row=1, col=col)
+
+        # Update layout
+        fig.update_layout(
+            height=450,
+            showlegend=True,
+            legend=dict(
+                orientation="v",
+                yanchor="top",
+                y=0.98,
+                xanchor="left",
+                x=0.01,
+            ),
+            margin=dict(l=50, r=50, t=60, b=50),
+        )
+
+        # Display plot
+        st.plotly_chart(fig, width="stretch")
+
+        # Show metrics below plot
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Observations", len(df))
+        with col2:
+            st.metric("Best Observed", f"{bo_model.best_observed_value:.2f}")
+        with col3:
+            st.metric("Next Suggestion", f"({next_x[0]:.2f}, {next_x[1]:.2f}) mM")
+        with col4:
+            st.metric("Predicted Value", f"{next_pred:.2f}")
+
+    except Exception as e:
+        st.error(f"Error creating BO visualization: {e}")
+        import traceback
+
+        st.code(traceback.format_exc())
 
 
 def show_moderator_monitoring():
@@ -1019,7 +1551,7 @@ def show_moderator_monitoring():
                 # Display table
                 st.dataframe(
                     df,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -1043,7 +1575,6 @@ def show_moderator_monitoring():
     # ========== TAB 3: BO VISUALIZATION ==========
     with tab_bo:
         st.markdown("### Bayesian Optimization Analysis")
-
         # Get session config to determine ingredient count
         session = get_session(st.session_state.session_id)
         if session and "experiment_config" in session:
@@ -1110,7 +1641,7 @@ def show_moderator_monitoring():
             st.caption("Complete dataset with all responses and concentrations")
 
             if st.button(
-                "Generate CSV Export", key="export_csv_button", use_container_width=True
+                "Generate CSV Export", key="export_csv_button", width="stretch"
             ):
                 try:
                     session_code = st.session_state.get(
@@ -1125,7 +1656,7 @@ def show_moderator_monitoring():
                             file_name=f"robotaste_session_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                             mime="text/csv",
                             key="download_csv_button",
-                            use_container_width=True,
+                            width="stretch",
                         )
                         st.success("CSV export ready!")
                     else:
@@ -1140,7 +1671,7 @@ def show_moderator_monitoring():
             if st.button(
                 "Generate JSON Export",
                 key="export_json_button",
-                use_container_width=True,
+                width="stretch",
             ):
                 try:
                     import json
@@ -1167,7 +1698,7 @@ def show_moderator_monitoring():
                         file_name=f"robotaste_session_{st.session_state.get('session_code', 'default')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                         mime="application/json",
                         key="download_json_button",
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.success("JSON export ready!")
                 except Exception as e:
@@ -1212,7 +1743,7 @@ def show_moderator_monitoring():
                     preview_rows.append(row)
 
                 preview_df = pd.DataFrame(preview_rows)
-                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                st.dataframe(preview_df, width="stretch", hide_index=True)
             else:
                 st.info("No data available for preview")
         except Exception as e:
@@ -1267,10 +1798,10 @@ def moderator_interface():
         # Buttons to select setup type
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Single Ingredient", use_container_width=True):
+            if st.button("Single Ingredient", width="stretch"):
                 st.session_state.setup_type = "single"
         with col2:
-            if st.button("Binary Mixture", use_container_width=True):
+            if st.button("Binary Mixture", width="stretch"):
                 st.session_state.setup_type = "binary"
 
         # Render setup UI based on selection (unconditionally)

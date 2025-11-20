@@ -2,7 +2,6 @@ streamlit>=1.49.1
 pandas>=1.5.3
 plotly>=5.17.0
 streamlit-drawable-canvas>=0.9.3
-streamlit-vertical-slider>=2.5.5
 streamlit-toggle>=0.1.3
 streamlit-space>=0.1.5
 qrcode>=7.4.2

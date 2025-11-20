@@ -1,7 +1,7 @@
 from callback import (
     CANVAS_SIZE,
     INTERFACE_2D_GRID,
-    INTERFACE_SLIDERS,
+    INTERFACE_SINGLE_INGREDIENT,
     MultiComponentMixture,
     cleanup_pending_results,
     create_canvas_drawing,
@@ -16,6 +16,7 @@ from session_manager import (
 )
 from sql_handler import (
     get_current_cycle,
+    get_session_samples,
     increment_cycle,
     save_sample_cycle,
 )
@@ -24,10 +25,10 @@ from questionnaire_config import get_default_questionnaire_type
 
 
 import streamlit as st
-import streamlit_vertical_slider as svs
 from streamlit_drawable_canvas import st_canvas
 import time
 import logging
+import json
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -690,6 +691,32 @@ def single_variable_interface():
             )
             selection_data = st.session_state.get("next_selection_data", {})
 
+            # For cycle 0, populate selection_data with initial random position
+            if current_cycle == 0 and not selection_data:
+                # Get ingredient info
+                ingredients = st.session_state.get("ingredients", [])
+                if ingredients and len(ingredients) == 1:
+                    ingredient = ingredients[0]
+                    ingredient_name = ingredient["name"]
+
+                    # Get initial random slider value
+                    random_slider_values = st.session_state.get(
+                        "random_slider_values", {}
+                    )
+                    initial_slider_value = random_slider_values.get(
+                        ingredient_name, 50.0
+                    )
+
+                    # Create selection data for initial position
+                    selection_data = {
+                        "interface_type": INTERFACE_SINGLE_INGREDIENT,
+                        "method": "initial_random",
+                        "slider_values": {ingredient_name: initial_slider_value},
+                        "ingredient_concentrations": ingredient_concentrations.copy(),
+                        "is_initial_position": True,
+                    }
+                    st.session_state.next_selection_data = selection_data
+
             # Save cycle data to database
             try:
                 sample_id = save_sample_cycle(
@@ -743,7 +770,9 @@ def single_variable_interface():
 
         # Get experiment settings from session state
         num_ingredients = st.session_state.get("num_ingredients", 1)
-        interface_type = st.session_state.get("interface_type", INTERFACE_SLIDERS)
+        interface_type = st.session_state.get(
+            "interface_type", INTERFACE_SINGLE_INGREDIENT
+        )
 
         # Validate single ingredient configuration
         if num_ingredients != 1:
@@ -773,12 +802,6 @@ def single_variable_interface():
 
         ingredient = ingredients[0]
         ingredient_name = ingredient["name"]
-
-        # Verify interface type
-        if interface_type != INTERFACE_SLIDERS:
-            st.warning(
-                f"Interface type mismatch. Expected sliders, got: {interface_type}"
-            )
 
         # Check if Bayesian Optimization should be used
         from callback import get_bo_suggestion_for_session
@@ -837,9 +860,27 @@ def single_variable_interface():
                 # Store BO selection data
                 ingredient_concentrations = bo_suggestion["concentrations"]
 
+                # Add to selection history for visualization
+                if not hasattr(st.session_state, "slider_selection_history"):
+                    st.session_state.slider_selection_history = []
+
+                current_cycle = get_current_cycle(st.session_state.session_id)
+                selection_number = len(st.session_state.slider_selection_history) + 1
+
+                st.session_state.slider_selection_history.append(
+                    {
+                        "slider_value": float(bo_slider_value),
+                        "cycle": current_cycle,
+                        "order": selection_number,
+                        "timestamp": time.time(),
+                        "sample_id": sample_id,
+                        "is_bo_suggestion": True,
+                    }
+                )
+
                 # Prepare selection data with BO metadata
                 st.session_state.next_selection_data = {
-                    "interface_type": INTERFACE_SLIDERS,
+                    "interface_type": INTERFACE_SINGLE_INGREDIENT,
                     "method": "bayesian_optimization",  # Mark as BO-driven
                     "slider_values": {ingredient_name: bo_slider_value},
                     "ingredient_concentrations": ingredient_concentrations,
@@ -872,17 +913,40 @@ def single_variable_interface():
                 f"Use the slider below to adjust the {ingredient_name} concentration."
             )
 
-            # Get initial slider value
-            # Priority: current_slider_values > random_slider_values > default (50)
+            # Get initial slider value based on cycle
+            # ALL Cycles 0-2: Load LAST SAMPLE from database (what they tasted)
+            # Cycle 3+: Handled by BO mode above
             initial_value = 50.0
-            if hasattr(st.session_state, "current_slider_values"):
-                initial_value = st.session_state.current_slider_values.get(
-                    ingredient_name, initial_value
-                )
-            elif hasattr(st.session_state, "random_slider_values"):
-                initial_value = st.session_state.random_slider_values.get(
-                    ingredient_name, initial_value
-                )
+            current_cycle = get_current_cycle(st.session_state.session_id)
+
+            # Load last tasted sample from database for all cycles
+            try:
+                samples = get_session_samples(st.session_state.session_id)
+                if samples:
+                    last_sample = samples[-1]  # Most recent sample
+                    selection_data = last_sample.get("selection_data")
+                    if selection_data:
+                        if isinstance(selection_data, str):
+                            selection_data = json.loads(selection_data)
+                        slider_values = selection_data.get("slider_values", {})
+                        if ingredient_name in slider_values:
+                            initial_value = slider_values[ingredient_name]
+                            logger.info(
+                                f"Loaded last sample slider value for cycle {current_cycle}: {initial_value}%"
+                            )
+            except Exception as e:
+                logger.error(f"Error loading last sample from database: {e}")
+                # Fall back to session state if database load fails
+                if current_cycle == 0 and hasattr(
+                    st.session_state, "random_slider_values"
+                ):
+                    initial_value = st.session_state.random_slider_values.get(
+                        ingredient_name, 50.0
+                    )
+                elif hasattr(st.session_state, "current_slider_values"):
+                    initial_value = st.session_state.current_slider_values.get(
+                        ingredient_name, initial_value
+                    )
 
             # Create interactive slider
             slider_value = st.slider(
@@ -929,9 +993,26 @@ def single_variable_interface():
                     )
                 }
 
+                # Add to selection history for visualization
+                if not hasattr(st.session_state, "slider_selection_history"):
+                    st.session_state.slider_selection_history = []
+
+                current_cycle = get_current_cycle(st.session_state.session_id)
+                selection_number = len(st.session_state.slider_selection_history) + 1
+
+                st.session_state.slider_selection_history.append(
+                    {
+                        "slider_value": float(slider_value),
+                        "cycle": current_cycle,
+                        "order": selection_number,
+                        "timestamp": time.time(),
+                        "sample_id": sample_id,
+                    }
+                )
+
                 # Prepare selection data
                 st.session_state.next_selection_data = {
-                    "interface_type": INTERFACE_SLIDERS,
+                    "interface_type": INTERFACE_SINGLE_INGREDIENT,
                     "method": "linear",
                     "slider_values": {ingredient_name: float(slider_value)},
                     "ingredient_concentrations": ingredient_concentrations,
@@ -989,7 +1070,7 @@ def single_variable_interface():
 
                     # Prepare final selection data
                     st.session_state.next_selection_data = {
-                        "interface_type": INTERFACE_SLIDERS,
+                        "interface_type": INTERFACE_SINGLE_INGREDIENT,
                         "method": "linear",
                         "slider_values": {ingredient_name: float(slider_value)},
                         "ingredient_concentrations": ingredient_concentrations,

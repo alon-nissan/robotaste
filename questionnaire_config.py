@@ -35,7 +35,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
 
         "questions": [
             {
-                "id": "hedonic_score",
+                "id": "overall_liking",
                 "type": "slider",
                 "label": "How much do you like this sample?",
                 "help_text": "Rate your overall liking from 1 (Dislike Extremely) to 9 (Like Extremely)",
@@ -67,7 +67,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
 
         # Bayesian Optimization Configuration
         "bayesian_target": {
-            "variable": "hedonic_score",
+            "variable": "overall_liking",
             "transform": "identity",  # No transformation needed
             "higher_is_better": True,
             "description": "Maximize overall liking score (1-9 scale)",

@@ -76,7 +76,6 @@ import streamlit as st
 import random
 import time
 import math
-import streamlit_vertical_slider as svs
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional
 from bayesian_optimizer import get_default_bo_config
@@ -92,10 +91,6 @@ CANVAS_SIZE = 500
 GRID_STEP = 50
 NACL_MW = 58.44  # g/mol
 
-# Multi-component mixture configuration
-# TODO: Move to configuration file for easier customization
-# TODO: Add ingredient compatibility matrix
-# TODO: Add safety limits and allergen warnings
 DEFAULT_INGREDIENT_CONFIG = [
     {
         "name": "Sugar",
@@ -149,7 +144,7 @@ DEFAULT_INGREDIENT_CONFIG = [
 
 # Interface type constants
 INTERFACE_2D_GRID = "2d_grid"
-INTERFACE_SLIDERS = "sliders"
+INTERFACE_SINGLE_INGREDIENT = "single_ingredient"
 SUCROSE_MW = 342.3  # g/mol
 
 # Concentration ranges from literature
@@ -481,7 +476,11 @@ class MultiComponentMixture:
 
     def get_interface_type(self) -> str:
         """Determine interface type based on number of ingredients."""
-        return INTERFACE_2D_GRID if self.num_ingredients == 2 else INTERFACE_SLIDERS
+        return (
+            INTERFACE_2D_GRID
+            if self.num_ingredients == 2
+            else INTERFACE_SINGLE_INGREDIENT
+        )
 
     def calculate_concentrations_from_sliders(self, slider_values: dict) -> dict:
         """
@@ -653,7 +652,7 @@ def start_trial(
 
         # Determine interface type
         interface_type = (
-            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SLIDERS
+            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SINGLE_INGREDIENT
         )
 
         # Get session identifiers - session_id for DB, session_code for display
@@ -696,10 +695,10 @@ def start_trial(
                 f"Configuration error: Expected {num_ingredients} ingredients, got {len(ingredients)}"
             )
 
-        # Generate random starting positions for sliders if enabled and using slider interface
+        # Generate random starting positions if enabled
         random_slider_values = {}
         random_concentrations = {}
-        if use_random_start and interface_type == INTERFACE_SLIDERS:
+        if use_random_start and interface_type == INTERFACE_SINGLE_INGREDIENT:
             # Generate random starting positions for each ingredient (10-90%)
             mixture = MultiComponentMixture(ingredients)
             for ingredient in ingredients:
@@ -716,7 +715,7 @@ def start_trial(
                 )
 
             # Initial random positions are stored in session state
-            # (st.session_state.random_slider_values or st.session_state.x/y for grid)
+            # (st.session_state.random_slider_values for single ingredient)
             # In the new 6-phase workflow, initial positions don't need separate DB storage
             # They will be included in selection_data when save_sample_cycle() is called
 

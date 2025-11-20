@@ -757,22 +757,29 @@ def extract_target_variable(
                     continue
             return None
 
-        # Get questionnaire definition
-        q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+        # Get questionnaire definition with normalized lookup
+        # Normalize questionnaire type (handle case/whitespace issues)
+        q_def = None
+        if questionnaire_type:
+            questionnaire_type_normalized = questionnaire_type.strip().lower()
+            q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
+            if not q_def:
+                # Try original value in case keys are mixed case
+                q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+
         if not q_def:
             logger.warning(f"Unknown questionnaire type: {questionnaire_type}")
+            logger.warning(f"Available types: {list(QUESTIONNAIRE_CONFIGS.keys())}")
             return None
 
-        # Try new nested structure first (bayesian_target.variable)
+        # Try nested structure (bayesian_target.variable)
         bayesian_config = q_def.get("bayesian_target", {})
         target_key = bayesian_config.get("variable")
 
-        # Fallback to old flat structure for backward compatibility
         if not target_key:
-            target_key = q_def.get("target_variable")
-
-        if not target_key:
-            logger.warning(f"No target variable defined for {questionnaire_type}")
+            logger.error(f"No bayesian_target.variable defined for questionnaire type '{questionnaire_type}'")
+            logger.error(f"Available config keys: {list(q_def.keys())}")
+            logger.error(f"Bayesian config: {bayesian_config}")
             return None
 
         # Extract value
