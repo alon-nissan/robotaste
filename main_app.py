@@ -202,9 +202,11 @@ def main():
     # If URL params exist but session state is missing, try to sync
     elif role and session_code:
         if role == "moderator":
-            session_info = get_session_info(session_code)
-            if session_info and session_info["is_active"]:
-                sync_session_state(session_code, "moderator")
+            # Get session by code, then extract session_id for syncing
+            from sql_handler import get_session_by_code
+            session_info = get_session_by_code(session_code)
+            if session_info and session_info.get("state") == "active":
+                sync_session_state(session_info["session_id"], "moderator")
             else:
                 # Invalid session, clear URL params
                 st.query_params.clear()

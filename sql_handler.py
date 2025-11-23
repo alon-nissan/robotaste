@@ -1128,6 +1128,12 @@ def update_session_with_config(
         True if successful, False otherwise
     """
     try:
+        logger.info(f"ENTERING update_session_with_config for session {session_id}")
+        logger.info(f"  - user_id: {user_id}")
+        logger.info(f"  - num_ingredients: {num_ingredients}")
+        logger.info(f"  - interface_type: {interface_type}")
+        logger.info(f"  - BO enabled: {bo_config.get('enabled', 'unknown')}")
+
         # Build complete config
         full_config = {
             **experiment_config,
@@ -1180,6 +1186,7 @@ def update_session_with_config(
             )
 
             # Insert or replace BO configuration
+            logger.info(f"Inserting BO configuration for session {session_id}")
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO bo_configuration (
@@ -1218,6 +1225,8 @@ def update_session_with_config(
 
     except Exception as e:
         logger.error(f"Failed to update session: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
 
 

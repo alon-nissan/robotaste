@@ -407,8 +407,8 @@ def show_single_ingredient_setup():
                 st.error("Please fix the concentration range (min must be < max)")
                 st.stop()
 
-            # Create session in database if not already created
-            if not st.session_state.get("session_created_in_db", False):
+            # Save full session configuration to database if not already saved
+            if not st.session_state.get("session_config_saved", False):
                 # Build ingredient list for database
                 ingredients_for_db = [
                     {
@@ -446,7 +446,9 @@ def show_single_ingredient_setup():
 
                 success_db = update_session_with_config(
                     session_id=st.session_state.session_id,
-                    user_id=st.session_state.participant,
+                    user_id=st.session_state.get(
+                        "participant", None
+                    ),  # Use None if not set
                     num_ingredients=1,
                     interface_type="sliders",
                     method="linear",  # Sliders always use linear mapping
@@ -457,10 +459,10 @@ def show_single_ingredient_setup():
                 )
 
                 if success_db:
-                    st.session_state.session_created_in_db = True
-                    st.success("Session created in database")
+                    st.session_state.session_config_saved = True
+                    st.success("Session configured and saved to database")
                 else:
-                    st.error("Failed to create session in database. Please try again.")
+                    st.error("Failed to save session configuration. Please try again.")
                     st.stop()
 
             # Build ingredient configs with custom ranges
@@ -765,8 +767,8 @@ def show_binary_mixture_setup():
                 st.error("Please fix the concentration ranges (min must be < max)")
                 st.stop()
 
-            # Create session in database if not already created
-            if not st.session_state.get("session_created_in_db", False):
+            # Save full session configuration to database if not already saved
+            if not st.session_state.get("session_config_saved", False):
                 # Build ingredient list for database
                 ingredients_for_db = [
                     {
@@ -811,7 +813,9 @@ def show_binary_mixture_setup():
 
                 success_db = update_session_with_config(
                     session_id=st.session_state.session_id,
-                    user_id=st.session_state.participant,
+                    user_id=st.session_state.get(
+                        "participant", None
+                    ),  # Use None if not set
                     num_ingredients=2,
                     interface_type="2d_grid",
                     method=method,
@@ -822,10 +826,10 @@ def show_binary_mixture_setup():
                 )
 
                 if success_db:
-                    st.session_state.session_created_in_db = True
-                    st.success("Session created in database")
+                    st.session_state.session_config_saved = True
+                    st.success("Session configured and saved to database")
                 else:
-                    st.error("Failed to create session in database. Please try again.")
+                    st.error("Failed to save session configuration. Please try again.")
                     st.stop()
 
             # Build ingredient configs with custom ranges
@@ -947,8 +951,9 @@ def single_bo():
             bo_config=bo_config,
         )
 
-        if not bo_model.is_fitted:
-            st.error("BO model training failed")
+        # Safely handle cases where training failed or returned None
+        if bo_model is None or not getattr(bo_model, "is_fitted", False):
+            st.error("BO model training failed or returned no model")
             return
 
         # Get observed data
@@ -1152,8 +1157,8 @@ def binary_bo():
     ingredient_2 = ingredients[1]
     ing1_name = ingredient_1["name"]
     ing2_name = ingredient_2["name"]
-    ing1_range = (ingredient_1["min"], ingredient_1["max"])
-    ing2_range = (ingredient_2["min"], ingredient_2["max"])
+    ing1_range = (ingredient_1["min_concentration"], ingredient_1["max_concentration"])
+    ing2_range = (ingredient_2["min_concentration"], ingredient_2["max_concentration"])
 
     # Get BO configuration
     bo_config = experiment_config.get("bayesian_optimization", {})
@@ -1170,7 +1175,7 @@ def binary_bo():
     try:
         df = get_training_data(
             st.session_state.session_id,
-            only_final=bo_config.get("only_final_responses", False),
+            only_final=False,
         )
     except Exception as e:
         st.warning(f"Could not load training data: {e}")
@@ -1205,6 +1210,10 @@ def binary_bo():
             session_id=st.session_state.session_id,
             bo_config=bo_config,
         )
+        # Safely handle cases where training failed or returned None
+        if bo_model is None or not getattr(bo_model, "is_fitted", False):
+            st.error("BO model training failed or returned no model")
+            return
 
         if not bo_model.is_fitted:
             st.error("BO model training failed")

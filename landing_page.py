@@ -75,8 +75,8 @@ def landing_page():
                 st.session_state.session_code = new_session_code
                 st.session_state.device_role = "moderator"
                 st.session_state.moderator_name = moderator_name
-                st.session_state.session_created_in_db = (
-                    True  # Session now exists in DB
+                st.session_state.session_shell_created = (
+                    True  # Minimal session created (needs full config)
                 )
 
                 st.query_params.update(

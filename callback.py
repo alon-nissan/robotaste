@@ -406,6 +406,11 @@ def create_canvas_drawing(
                 else 1.0
             )
 
+            # Determine color based on selection type (BO vs manual)
+            is_bo = selection.get("is_bo_suggestion", False)
+            fill_color = "#3B82F6" if is_bo else "#EF4444"  # Blue for BO, red for manual
+            stroke_color = "#1D4ED8" if is_bo else "#DC2626"  # Darker blue/red for stroke
+
             # Add selection circle
             objects.append(
                 {
@@ -413,8 +418,8 @@ def create_canvas_drawing(
                     "left": selection["x"],
                     "top": selection["y"],
                     "radius": 10,  # Slightly larger than starting position
-                    "fill": "#EF4444",
-                    "stroke": "#DC2626",
+                    "fill": fill_color,
+                    "stroke": stroke_color,
                     "strokeWidth": 3,
                     "originX": "center",
                     "originY": "center",
@@ -1260,10 +1265,11 @@ def get_bo_suggestion_for_session(
                 canvas_size=CANVAS_SIZE,
             )
 
-            # Clamp coordinates to canvas bounds [0, CANVAS_SIZE] to ensure visibility
+            # Clamp coordinates to canvas bounds [0, CANVAS_SIZE-1] to ensure visibility
+            # Canvas is 0-indexed, so valid range is [0, 499] not [0, 500]
             result["grid_coordinates"] = {
-                "x": max(0, min(CANVAS_SIZE, int(x))),
-                "y": max(0, min(CANVAS_SIZE, int(y))),
+                "x": max(0, min(CANVAS_SIZE - 1, int(x))),
+                "y": max(0, min(CANVAS_SIZE - 1, int(y))),
             }
 
         else:

@@ -217,12 +217,6 @@ def grid_interface():
                     "your previous responses to find your optimal taste preference."
                 )
 
-                # Show prediction information
-                pred_val = bo_suggestion.get("predicted_value")
-                uncertainty = bo_suggestion.get("uncertainty")
-                if pred_val is not None and uncertainty is not None:
-                    st.write(f"**Predicted Score:** {pred_val:.2f} ± {uncertainty:.2f}")
-
                 # Create canvas with BO marker (different color)
                 col1, col2, col3 = st.columns([1, 3, 1])
                 with col2:
@@ -321,6 +315,22 @@ def grid_interface():
                     # Store BO selection data
                     method = st.session_state.get("method", "linear")
                     ingredient_concentrations = bo_suggestion["concentrations"]
+
+                    # Add BO selection to history for persistent visualization
+                    if not hasattr(st.session_state, "selection_history"):
+                        st.session_state.selection_history = []
+
+                    selection_number = len(st.session_state.selection_history) + 1
+                    st.session_state.selection_history.append(
+                        {
+                            "x": bo_x,
+                            "y": bo_y,
+                            "sample_id": sample_id,
+                            "order": selection_number,
+                            "timestamp": time.time(),
+                            "is_bo_suggestion": True,  # Flag to distinguish BO from manual
+                        }
+                    )
 
                     # Prepare selection data with BO metadata
                     st.session_state.next_selection_data = {
@@ -819,12 +829,6 @@ def single_variable_interface():
                 "your previous responses to find your optimal taste preference."
             )
 
-            # Show prediction information
-            pred_val = bo_suggestion.get("predicted_value")
-            uncertainty = bo_suggestion.get("uncertainty")
-            if pred_val is not None and uncertainty is not None:
-                st.write(f"**Predicted Score:** {pred_val:.2f} ± {uncertainty:.2f}")
-
             # Get BO slider value
             bo_slider_value = bo_suggestion.get("slider_values", {}).get(
                 ingredient_name, 50.0
@@ -832,17 +836,15 @@ def single_variable_interface():
 
             # Display read-only slider
             st.slider(
-                label=f"{ingredient_name} Concentration",
+                label=f"Suggested Concentration",
                 min_value=0,
                 max_value=100,
                 value=int(bo_slider_value),
                 step=1,
                 disabled=True,
-                format="%d%%",
+                format="",
                 key=f"bo_slider_{ingredient_name}_{st.session_state.participant}",
             )
-
-            st.write(f"**Selected Concentration:** {bo_slider_value:.1f}%")
 
             # Auto-proceed button
             st.markdown("---")
@@ -948,12 +950,12 @@ def single_variable_interface():
 
             # Create interactive slider
             slider_value = st.slider(
-                label=f"{ingredient_name} Concentration",
+                label=f"Choose your next sample",
                 min_value=0,
                 max_value=100,
                 value=int(initial_value),
                 step=1,
-                format="%d%%",
+                format="",
                 key=f"single_slider_{ingredient_name}_{st.session_state.participant}",
             )
 
@@ -963,8 +965,6 @@ def single_variable_interface():
             st.session_state.current_slider_values[ingredient_name] = float(
                 slider_value
             )
-
-            st.write(f"**Current Selection:** {slider_value}%")
 
             # Finish Selection button
             st.markdown("---")
@@ -1118,7 +1118,6 @@ def subject_interface():
     init_session_state()
     ingredient_num = st.session_state.get("num_ingredients", None)
     if ingredient_num == 2:
-        # st.write(st.session_state)
         grid_interface()
     elif ingredient_num == 1:
         single_variable_interface()
