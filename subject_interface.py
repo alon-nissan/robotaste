@@ -1327,12 +1327,11 @@ def init_session_state():
 def subject_interface():
     init_session_state()
 
-    # Sync phase from database on every load (handles st.rerun() race condition)
-    if st.session_state.get("session_id"):
-        sync_session_state(st.session_state.session_id, "subject")
-
     # Check for COMPLETE phase and show completion screen
+    # Sync only when showing completion (preserves user input during selection)
     if st.session_state.get("phase") == "complete":
+        if st.session_state.get("session_id"):
+            sync_session_state(st.session_state.session_id, "subject")
         from completion_screens import show_subject_completion_screen
         show_subject_completion_screen()
         return

@@ -185,19 +185,62 @@ def sync_session_state(session_id: str, role: str) -> bool:
         return False
 
 
+def get_base_url() -> str:
+    """
+    Automatically detect the base URL based on the deployment environment.
+
+    Checks for:
+    - Streamlit Cloud deployment (streamlit.app)
+    - Local development (localhost with port)
+
+    Returns:
+        Base URL appropriate for the current environment
+    """
+    try:
+        # Try to get the actual hostname/URL from Streamlit's query params or config
+        from streamlit.web import cli as stcli
+        import socket
+
+        # Check if we're on Streamlit Cloud by examining the hostname
+        hostname = socket.gethostname()
+
+        # Check if running on streamlit.app (cloud deployment)
+        if "streamlit" in hostname.lower() or st.get_option("browser.serverAddress") == "robotaste.streamlit.app":
+            return "https://robotaste.streamlit.app"
+
+        # For local development, try to get the actual server address and port
+        server_port = st.get_option("server.port")
+        server_address = st.get_option("browser.serverAddress")
+
+        if server_address and server_address not in ["localhost", "0.0.0.0", ""]:
+            # Use configured server address
+            return f"http://{server_address}:{server_port}"
+        else:
+            # Default to localhost with port
+            return f"http://localhost:{server_port}"
+
+    except Exception as e:
+        logger.warning(f"Could not detect environment, defaulting to Streamlit Cloud: {e}")
+        # Default to production URL if detection fails
+        return "https://robotaste.streamlit.app"
+
+
 def generate_session_urls(
-    session_code: str, base_url: str = "https://robotaste.streamlit.app"
+    session_code: str, base_url: Optional[str] = None
 ) -> Dict[str, str]:
     """
     Generate URLs for moderator and subject interfaces.
 
     Args:
         session_code: 6-character session code (user-facing identifier)
-        base_url: Base URL of deployment
+        base_url: Base URL of deployment (auto-detected if not provided)
 
     Returns:
         Dict with 'moderator' and 'subject' URLs
     """
+    if base_url is None:
+        base_url = get_base_url()
+
     return {
         "moderator": f"{base_url}/?role=moderator&session={session_code}",
         "subject": f"{base_url}/?role=subject&session={session_code}",
@@ -206,7 +249,7 @@ def generate_session_urls(
 
 def display_session_qr_code(
     session_code: str,
-    base_url: str = "https://robotaste.streamlit.app",
+    base_url: Optional[str] = None,
     context: str = "default",
 ):
     """
@@ -214,7 +257,7 @@ def display_session_qr_code(
 
     Args:
         session_code: 6-character session code
-        base_url: Base URL of deployment
+        base_url: Base URL of deployment (auto-detected if not provided)
         context: Unique context string for widget keys
     """
     urls = generate_session_urls(session_code, base_url)
@@ -247,3 +290,38 @@ def display_session_qr_code(
             key=f"session_qr_copy_url_{context}_{session_code}",
         ):
             st.success("URL copied to clipboard!")
+
+
+def display_subject_access_section(session_code: str, base_url: Optional[str] = None):
+    """
+    Display compact subject access section with QR code and link for moderator overview.
+
+    This is a more compact version designed for the moderator overview tab.
+
+    Args:
+        session_code: 6-character session code
+        base_url: Base URL of deployment (auto-detected if not provided)
+    """
+    urls = generate_session_urls(session_code, base_url)
+    subject_url = urls["subject"]
+    qr_code_data = create_qr_code(subject_url)
+
+    st.markdown("**Subject Interface Access**")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        # Display QR code
+        st.markdown(
+            f"""
+            <div style="text-align: center;">
+                <img src="{qr_code_data}" alt="QR Code" style="max-width: 150px; border: 2px solid #e0e0e0; border-radius: 8px; padding: 5px;">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        st.markdown("**Share this link with participants:**")
+        st.markdown(f"[{subject_url}]({subject_url})")
+        st.caption("Scan the QR code or share the link above to allow subjects to join this session.")

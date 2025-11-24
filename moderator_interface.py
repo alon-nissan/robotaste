@@ -8,6 +8,7 @@ from callback import (
 )
 from session_manager import (
     display_session_qr_code,
+    display_subject_access_section,
     get_session_info,
 )
 from sql_handler import (
@@ -1621,6 +1622,11 @@ def show_moderator_monitoring():
         with col4:
             current_phase = session_info.get("current_phase", "unknown")
             st.metric("Phase", current_phase.replace("_", " ").title())
+
+        st.markdown("---")
+
+        # Subject Access Section
+        display_subject_access_section(st.session_state.get("session_code", ""))
 
         st.markdown("---")
 
