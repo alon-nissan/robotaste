@@ -22,24 +22,68 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
-
     # ========================================================================
-    # DEFAULT: Hedonic Preference (9-point scale)
-    # Standard in food science research
+    # DEFAULT: Continuous Hedonic Preference Scale
+    # Continuous 1-9 scale for fine-grained preference measurement
     # ========================================================================
-    "hedonic_preference": {
-        "name": "Hedonic Preference Test",
-        "description": "Standard 9-point hedonic scale used in sensory evaluation",
-        "version": "1.0",
+    "hedonic_preference_continuous": {
+        "name": "Hedonic Preference Test (Continuous)",
+        "description": "Continuous 9-point hedonic scale with 0.01 precision for detailed preference measurement",
+        "version": "2.0",
         "citation": "Peryam & Pilgrim (1957) - Hedonic scale method of measuring food preferences",
-
         "questions": [
             {
                 "id": "overall_liking",
                 "type": "slider",
                 "label": "How much do you like this sample?",
-                "help_text": "Rate your overall liking from 1 (Dislike Extremely) to 9 (Like Extremely)",
-
+                "help_text": "Rate your overall liking from 1.00 (Dislike Extremely) to 9.00 (Like Extremely)",
+                # 9-point hedonic scale labels (shown at key anchor points)
+                "scale_labels": {
+                    1: "Dislike Extremely",
+                    2: "Dislike Very Much",
+                    3: "Dislike Moderately",
+                    4: "Dislike Slightly",
+                    5: "Neither Like nor Dislike",
+                    6: "Like Slightly",
+                    7: "Like Moderately",
+                    8: "Like Very Much",
+                    9: "Like Extremely",
+                },
+                "min": 1.0,
+                "max": 9.0,
+                "default": 5.0,  # Neutral starting point
+                "step": 0.01,  # Continuous scale with 0.01 precision
+                "required": True,
+                # Visual styling
+                "display_type": "slider_continuous",  # Continuous slider with decimal display
+                "color_scale": "red_to_green",  # Visual gradient
+            }
+        ],
+        # Bayesian Optimization Configuration
+        "bayesian_target": {
+            "variable": "overall_liking",
+            "transform": "identity",  # No transformation needed
+            "higher_is_better": True,
+            "description": "Maximize overall liking score (1.0-9.0 continuous scale)",
+            "expected_range": [1.0, 9.0],
+            "optimal_threshold": 7.0,  # Scores ≥ 7.0 considered "well-liked"
+        },
+    },
+    # ========================================================================
+    # Discrete Hedonic Preference (9-point scale)
+    # Standard discrete scale with pillbox/radio button interface
+    # ========================================================================
+    "hedonic_preference_discrete": {
+        "name": "Hedonic Preference Test (9-Point Discrete)",
+        "description": "Standard 9-point discrete hedonic scale with radio button selection",
+        "version": "1.1",
+        "citation": "Peryam & Pilgrim (1957) - Hedonic scale method of measuring food preferences",
+        "questions": [
+            {
+                "id": "overall_liking",
+                "type": "slider",
+                "label": "How much do you like this sample?",
+                "help_text": "Select your overall liking from 1 (Dislike Extremely) to 9 (Like Extremely)",
                 # 9-point hedonic scale labels
                 "scale_labels": {
                     1: "Dislike Extremely",
@@ -50,21 +94,18 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                     6: "Like Slightly",
                     7: "Like Moderately",
                     8: "Like Very Much",
-                    9: "Like Extremely"
+                    9: "Like Extremely",
                 },
-
                 "min": 1,
                 "max": 9,
                 "default": 5,  # Neutral starting point
                 "step": 1,
                 "required": True,
-
                 # Visual styling
-                "display_type": "slider_with_labels",  # Show labels at key points
-                "color_scale": "red_to_green"  # Visual gradient
+                "display_type": "pillboxes",  # Radio buttons (pillbox style)
+                "color_scale": "red_to_green",  # Visual gradient
             }
         ],
-
         # Bayesian Optimization Configuration
         "bayesian_target": {
             "variable": "overall_liking",
@@ -72,19 +113,16 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
             "higher_is_better": True,
             "description": "Maximize overall liking score (1-9 scale)",
             "expected_range": [1, 9],
-            "optimal_threshold": 7.0  # Scores ≥ 7 considered "well-liked"
-        }
+            "optimal_threshold": 7.0,  # Scores ≥ 7 considered "well-liked"
+        },
     },
-
     # ========================================================================
-    # LEGACY: Unified Feedback (Current system)
-    # For backward compatibility with existing experiments
+    # Unified Feedback (Multi-dimensional feedback)
     # ========================================================================
     "unified_feedback": {
         "name": "Unified Feedback Questionnaire",
         "description": "Multi-dimensional feedback with confidence and strategy",
         "version": "1.0",
-
         "questions": [
             {
                 "id": "satisfaction",
@@ -95,7 +133,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 7,
                 "default": 4,
                 "step": 1,
-                "required": True
+                "required": True,
             },
             {
                 "id": "confidence",
@@ -106,7 +144,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 7,
                 "default": 4,
                 "step": 1,
-                "required": True
+                "required": True,
             },
             {
                 "id": "strategy",
@@ -119,13 +157,12 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                     "Based on previous selections",
                     "Systematic approach",
                     "Intuition/gut feeling",
-                    "Other"
+                    "Other",
                 ],
                 "default": "Initial impression",
-                "required": False
-            }
+                "required": False,
+            },
         ],
-
         # Bayesian Optimization Configuration
         "bayesian_target": {
             "variable": "satisfaction",
@@ -133,10 +170,9 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
             "higher_is_better": True,
             "description": "Maximize satisfaction score (1-7 scale)",
             "expected_range": [1, 7],
-            "optimal_threshold": 5.5
-        }
+            "optimal_threshold": 5.5,
+        },
     },
-
     # ========================================================================
     # MULTI-ATTRIBUTE: Extended sensory evaluation
     # For research examining multiple preference dimensions
@@ -145,7 +181,6 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
         "name": "Multi-Attribute Sensory Evaluation",
         "description": "Comprehensive evaluation across multiple sensory dimensions",
         "version": "1.0",
-
         "questions": [
             {
                 "id": "overall_liking",
@@ -156,7 +191,11 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "default": 5,
                 "step": 1,
                 "required": True,
-                "scale_labels": {1: "Dislike Extremely", 5: "Neutral", 9: "Like Extremely"}
+                "scale_labels": {
+                    1: "Dislike Extremely",
+                    5: "Neutral",
+                    9: "Like Extremely",
+                },
             },
             {
                 "id": "sweetness_liking",
@@ -166,7 +205,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 9,
                 "default": 5,
                 "step": 1,
-                "required": True
+                "required": True,
             },
             {
                 "id": "flavor_intensity",
@@ -177,7 +216,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 9,
                 "default": 5,
                 "step": 1,
-                "required": False
+                "required": False,
             },
             {
                 "id": "purchase_intent",
@@ -188,10 +227,13 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "default": 3,
                 "step": 1,
                 "required": False,
-                "scale_labels": {1: "Definitely would not buy", 3: "Maybe", 5: "Definitely would buy"}
-            }
+                "scale_labels": {
+                    1: "Definitely would not buy",
+                    3: "Maybe",
+                    5: "Definitely would buy",
+                },
+            },
         ],
-
         # Bayesian Optimization Configuration
         "bayesian_target": {
             "variable": "overall_liking",
@@ -199,10 +241,9 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
             "higher_is_better": True,
             "description": "Maximize overall liking score",
             "expected_range": [1, 9],
-            "optimal_threshold": 7.0
-        }
+            "optimal_threshold": 7.0,
+        },
     },
-
     # ========================================================================
     # COMPOSITE: Multi-objective optimization example
     # Demonstrates weighted combination of multiple targets
@@ -211,7 +252,6 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
         "name": "Composite Preference (Liking + Healthiness)",
         "description": "Optimize for both liking and perceived healthiness",
         "version": "1.0",
-
         "questions": [
             {
                 "id": "liking",
@@ -221,7 +261,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 9,
                 "default": 5,
                 "step": 1,
-                "required": True
+                "required": True,
             },
             {
                 "id": "healthiness_perception",
@@ -231,10 +271,9 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
                 "max": 7,
                 "default": 4,
                 "step": 1,
-                "required": True
-            }
+                "required": True,
+            },
         ],
-
         # Bayesian Optimization Configuration
         "bayesian_target": {
             "variable": "composite",  # Special indicator for multi-objective
@@ -243,15 +282,16 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
             "higher_is_better": True,
             "description": "Maximize weighted combination: 70% liking + 30% healthiness",
             "expected_range": [1, 8.5],  # Approximate range of weighted score
-            "optimal_threshold": 6.0
-        }
-    }
+            "optimal_threshold": 6.0,
+        },
+    },
 }
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def get_questionnaire_config(questionnaire_type: str) -> Optional[Dict[str, Any]]:
     """
@@ -266,15 +306,17 @@ def get_questionnaire_config(questionnaire_type: str) -> Optional[Dict[str, Any]
     config = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
 
     if config is None:
-        logger.warning(f"Questionnaire type '{questionnaire_type}' not found. Using default.")
-        return QUESTIONNAIRE_CONFIGS.get("hedonic_preference")
+        logger.warning(
+            f"Questionnaire type '{questionnaire_type}' not found. Using default."
+        )
+        return QUESTIONNAIRE_CONFIGS.get("hedonic_preference_continuous")
 
     return config
 
 
 def get_default_questionnaire_type() -> str:
     """Return the default questionnaire type."""
-    return "hedonic_preference"
+    return "hedonic_preference_continuous"
 
 
 def list_available_questionnaires() -> List[tuple]:
@@ -286,17 +328,18 @@ def list_available_questionnaires() -> List[tuple]:
     """
     questionnaires = []
     for key, config in QUESTIONNAIRE_CONFIGS.items():
-        questionnaires.append((
-            key,
-            config.get("name", key),
-            config.get("description", "No description available")
-        ))
+        questionnaires.append(
+            (
+                key,
+                config.get("name", key),
+                config.get("description", "No description available"),
+            )
+        )
     return questionnaires
 
 
 def validate_questionnaire_response(
-    response: Dict[str, Any],
-    questionnaire_type: str
+    response: Dict[str, Any], questionnaire_type: str
 ) -> tuple[bool, Optional[str]]:
     """
     Validate a questionnaire response against the configuration.
@@ -327,14 +370,16 @@ def validate_questionnaire_response(
             max_val = question["max"]
 
             if not (min_val <= value <= max_val):
-                return False, f"Answer for '{question_id}' out of range [{min_val}, {max_val}]"
+                return (
+                    False,
+                    f"Answer for '{question_id}' out of range [{min_val}, {max_val}]",
+                )
 
     return True, None
 
 
 def extract_target_variable(
-    response: Dict[str, Any],
-    questionnaire_config: Dict[str, Any]
+    response: Dict[str, Any], questionnaire_config: Dict[str, Any]
 ) -> Optional[float]:
     """
     Extract the target variable for Bayesian optimization from a response.
@@ -367,6 +412,7 @@ def extract_target_variable(
         transform = target_config.get("transform", "identity")
         if transform == "log":
             import numpy as np
+
             target_value = np.log(target_value + 1)  # +1 to avoid log(0)
         elif transform == "normalize":
             # Normalize to [0, 1] based on expected range
@@ -385,7 +431,9 @@ def extract_target_variable(
         return None
 
 
-def get_question_by_id(questionnaire_type: str, question_id: str) -> Optional[Dict[str, Any]]:
+def get_question_by_id(
+    questionnaire_type: str, question_id: str
+) -> Optional[Dict[str, Any]]:
     """
     Get a specific question configuration by ID.
 
@@ -411,6 +459,7 @@ def get_question_by_id(questionnaire_type: str, question_id: str) -> Optional[Di
 # QUESTIONNAIRE METADATA
 # ============================================================================
 
+
 def get_questionnaire_metadata(questionnaire_type: str) -> Dict[str, Any]:
     """
     Get metadata about a questionnaire (name, description, version, etc.).
@@ -432,5 +481,5 @@ def get_questionnaire_metadata(questionnaire_type: str) -> Dict[str, Any]:
         "version": config.get("version", "1.0"),
         "num_questions": len(config.get("questions", [])),
         "has_bayesian_target": "bayesian_target" in config,
-        "target_variable": config.get("bayesian_target", {}).get("variable", None)
+        "target_variable": config.get("bayesian_target", {}).get("variable", None),
     }

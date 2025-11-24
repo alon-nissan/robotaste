@@ -1004,42 +1004,121 @@ def render_questionnaire(
                 # Build scale labels display if available
                 scale_labels = question.get("scale_labels", {})
                 help_text = question.get("help_text", "")
+                display_type = question.get("display_type", "slider")
 
-                # If scale labels exist, show them below the slider
-                if scale_labels:
+                # Get numeric parameters - support both int and float
+                min_val = question["min"]
+                max_val = question["max"]
+                default_val = question.get("default", min_val)
+                step_val = question.get("step", 1)
+
+                # Determine if this is a float or int scale
+                is_float = isinstance(step_val, float) and step_val < 1
+
+                # Handle pillboxes display type (radio buttons)
+                if display_type == "pillboxes":
                     st.markdown(f"**{question['label']}**")
                     if help_text:
                         st.caption(help_text)
 
-                    # Show key scale labels
-                    label_display = " | ".join(
-                        [
-                            f"{val}: {label}"
-                            for val, label in sorted(scale_labels.items())
-                        ]
-                    )
-                    st.caption(label_display)
+                    # Show scale labels if available
+                    if scale_labels:
+                        label_display = " | ".join(
+                            [
+                                f"{val}: {label}"
+                                for val, label in sorted(scale_labels.items())
+                            ]
+                        )
+                        st.caption(label_display)
 
-                    responses[question_id] = st.slider(
-                        label=question["label"],  # Proper label for accessibility
-                        min_value=int(question["min"]),
-                        max_value=int(question["max"]),
-                        value=int(question.get("default", question["min"])),
-                        step=int(question.get("step", 1)),
-                        key=question_key,
-                        label_visibility="collapsed",  # Hide label since we showed it above
-                        format="%d",  # Show as integers
-                    )
-                else:
-                    responses[question_id] = st.slider(
+                    # Create options list (only works for integer scales)
+                    options = list(range(int(min_val), int(max_val) + 1))
+                    default_index = options.index(int(default_val)) if int(default_val) in options else 0
+
+                    responses[question_id] = st.radio(
                         label=question["label"],
-                        min_value=int(question["min"]),
-                        max_value=int(question["max"]),
-                        value=int(question.get("default", question["min"])),
-                        step=int(question.get("step", 1)),
+                        options=options,
+                        index=default_index,
+                        format_func=lambda x: scale_labels.get(x, str(x)) if scale_labels else str(x),
+                        horizontal=True,
                         key=question_key,
-                        help=help_text if help_text else None,
+                        label_visibility="collapsed",
                     )
+
+                # Handle continuous slider display (float values)
+                elif display_type == "slider_continuous" or is_float:
+                    if scale_labels:
+                        st.markdown(f"**{question['label']}**")
+                        if help_text:
+                            st.caption(help_text)
+
+                        # Show key scale labels
+                        label_display = " | ".join(
+                            [
+                                f"{val}: {label}"
+                                for val, label in sorted(scale_labels.items())
+                            ]
+                        )
+                        st.caption(label_display)
+
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=float(min_val),
+                            max_value=float(max_val),
+                            value=float(default_val),
+                            step=float(step_val),
+                            key=question_key,
+                            label_visibility="collapsed",
+                            format="%.2f",  # Show 2 decimal places
+                        )
+                    else:
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=float(min_val),
+                            max_value=float(max_val),
+                            value=float(default_val),
+                            step=float(step_val),
+                            key=question_key,
+                            help=help_text if help_text else None,
+                            format="%.2f",
+                        )
+
+                # Handle standard discrete slider (default behavior)
+                else:
+                    if scale_labels:
+                        st.markdown(f"**{question['label']}**")
+                        if help_text:
+                            st.caption(help_text)
+
+                        # Show key scale labels
+                        label_display = " | ".join(
+                            [
+                                f"{val}: {label}"
+                                for val, label in sorted(scale_labels.items())
+                            ]
+                        )
+                        st.caption(label_display)
+
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=int(min_val),
+                            max_value=int(max_val),
+                            value=int(default_val),
+                            step=int(step_val),
+                            key=question_key,
+                            label_visibility="collapsed",
+                            format="%d",  # Show as integers
+                        )
+                    else:
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=int(min_val),
+                            max_value=int(max_val),
+                            value=int(default_val),
+                            step=int(step_val),
+                            key=question_key,
+                            help=help_text if help_text else None,
+                        )
 
             elif question_type == "dropdown":
                 responses[question_id] = st.selectbox(
