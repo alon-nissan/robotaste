@@ -546,13 +546,38 @@ def save_sample_cycle(
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
+            # Extract BO acquisition parameters from selection_data if available
+            acquisition_function = None
+            acquisition_xi = None
+            acquisition_kappa = None
+            acquisition_value = None
+            predicted_value = None
+            uncertainty = None
+
+            if selection_data and isinstance(selection_data, dict):
+                # Extract acquisition function type
+                acquisition_function = selection_data.get("acquisition_function")
+
+                # Extract acquisition parameters (xi or kappa)
+                acquisition_params = selection_data.get("acquisition_params", {})
+                if isinstance(acquisition_params, dict):
+                    acquisition_xi = acquisition_params.get("xi")
+                    acquisition_kappa = acquisition_params.get("kappa")
+
+                # Extract BO prediction metrics
+                acquisition_value = selection_data.get("acquisition_value")
+                predicted_value = selection_data.get("predicted_value")
+                uncertainty = selection_data.get("uncertainty")
+
             cursor.execute(
                 """
                 INSERT INTO samples (
                     sample_id, session_id, cycle_number,
                     ingredient_concentration, selection_data,
-                    questionnaire_answer, is_final
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    questionnaire_answer, is_final,
+                    acquisition_function, acquisition_xi, acquisition_kappa,
+                    acquisition_value, predicted_value, uncertainty
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     sample_id,
@@ -562,6 +587,12 @@ def save_sample_cycle(
                     json.dumps(selection_data) if selection_data else None,
                     json.dumps(questionnaire_answer),
                     1 if is_final else 0,
+                    acquisition_function,
+                    acquisition_xi,
+                    acquisition_kappa,
+                    acquisition_value,
+                    predicted_value,
+                    uncertainty,
                 ),
             )
 
@@ -569,6 +600,12 @@ def save_sample_cycle(
             logger.info(
                 f"Saved sample {sample_id} for session {session_id}, cycle {cycle_number}"
             )
+            if acquisition_function:
+                logger.info(
+                    f"  BO parameters: {acquisition_function}, "
+                    f"xi={acquisition_xi}, kappa={acquisition_kappa}, "
+                    f"predicted={predicted_value}, uncertainty={uncertainty}"
+                )
             return sample_id
 
     except Exception as e:
@@ -1187,15 +1224,25 @@ def update_session_with_config(
 
             # Insert or replace BO configuration
             logger.info(f"Inserting BO configuration for session {session_id}")
+
+            # Extract stopping criteria from config
+            stopping_criteria = bo_config.get("stopping_criteria", {})
+
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO bo_configuration (
                     session_id, enabled, min_samples_for_bo,
                     acquisition_function, ei_xi, ucb_kappa,
+                    adaptive_acquisition, exploration_budget,
+                    xi_exploration, xi_exploitation,
+                    kappa_exploration, kappa_exploitation,
                     kernel_nu, length_scale_initial, length_scale_bounds,
                     constant_kernel_bounds, alpha, n_restarts_optimizer,
-                    normalize_y, random_state, only_final_responses
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    normalize_y, random_state, only_final_responses,
+                    convergence_enabled, min_cycles_1d, max_cycles_1d,
+                    min_cycles_2d, max_cycles_2d, ei_threshold, ucb_threshold,
+                    stability_window, stability_threshold, consecutive_required, stopping_mode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     session_id,
@@ -1204,6 +1251,14 @@ def update_session_with_config(
                     bo_config.get("acquisition_function", "ei"),
                     bo_config.get("ei_xi", 0.01),
                     bo_config.get("ucb_kappa", 2.0),
+                    # Adaptive acquisition parameters
+                    1 if bo_config.get("adaptive_acquisition", True) else 0,
+                    bo_config.get("exploration_budget", 0.25),
+                    bo_config.get("xi_exploration", 0.1),
+                    bo_config.get("xi_exploitation", 0.01),
+                    bo_config.get("kappa_exploration", 3.0),
+                    bo_config.get("kappa_exploitation", 1.0),
+                    # GP kernel parameters
                     bo_config.get("kernel_nu", 2.5),
                     bo_config.get("length_scale_initial", 1.0),
                     json.dumps(bo_config.get("length_scale_bounds", [0.1, 10.0])),
@@ -1215,6 +1270,18 @@ def update_session_with_config(
                     1 if bo_config.get("normalize_y", True) else 0,
                     bo_config.get("random_state", 42),
                     1 if bo_config.get("only_final_responses", True) else 0,
+                    # Stopping criteria
+                    1 if stopping_criteria.get("enabled", True) else 0,
+                    stopping_criteria.get("min_cycles_1d", 10),
+                    stopping_criteria.get("max_cycles_1d", 30),
+                    stopping_criteria.get("min_cycles_2d", 15),
+                    stopping_criteria.get("max_cycles_2d", 50),
+                    stopping_criteria.get("ei_threshold", 0.001),
+                    stopping_criteria.get("ucb_threshold", 0.01),
+                    stopping_criteria.get("stability_window", 5),
+                    stopping_criteria.get("stability_threshold", 0.05),
+                    stopping_criteria.get("consecutive_required", 2),
+                    stopping_criteria.get("stopping_mode", "suggest_auto"),
                 ),
             )
 

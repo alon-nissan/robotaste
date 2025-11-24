@@ -73,8 +73,16 @@ DEFAULT_BO_CONFIG = {
     "min_samples_for_bo": 3,
     "acquisition_function": "ei",  # "ei" or "ucb"
     # Acquisition function parameters
-    "ei_xi": 0.01,  # Exploration parameter for EI
-    "ucb_kappa": 2.0,  # Exploration parameter for UCB
+    "ei_xi": 0.01,  # Exploration parameter for EI (static, overridden if adaptive enabled)
+    "ucb_kappa": 2.0,  # Exploration parameter for UCB (static, overridden if adaptive enabled)
+    # Adaptive acquisition parameters (time-varying exploration/exploitation)
+    # Based on: Benjamins et al. (2022) "PI is back! Switching Acquisition Functions in BO"
+    "adaptive_acquisition": True,  # Enable time-varying xi/kappa
+    "exploration_budget": 0.25,  # Fraction of cycles for high exploration (0.25 = first 25%)
+    "xi_exploration": 0.1,  # EI xi during exploration phase (high exploration)
+    "xi_exploitation": 0.01,  # EI xi during exploitation phase (low exploration)
+    "kappa_exploration": 3.0,  # UCB kappa during exploration phase (high exploration)
+    "kappa_exploitation": 1.0,  # UCB kappa during exploitation phase (low exploration)
     # Gaussian Process kernel parameters
     "kernel_nu": 2.5,  # Matern smoothness: 0.5, 1.5, 2.5, or inf
     "length_scale_initial": 1.0,
@@ -105,6 +113,118 @@ DEFAULT_BO_CONFIG = {
         "stopping_mode": "suggest_auto",  # "manual_only", "suggest_auto", "auto_with_minimum"
     },
 }
+
+
+def get_adaptive_xi(
+    current_cycle: int,
+    max_cycles: int,
+    exploration_budget: float = 0.25,
+    xi_exploration: float = 0.1,
+    xi_exploitation: float = 0.01,
+) -> float:
+    """
+    Calculate adaptive EI exploration parameter based on optimization progress.
+
+    Implements time-varying exploration/exploitation schedule for Expected Improvement.
+    Linear decay from high exploration (xi_exploration) to high exploitation (xi_exploitation).
+
+    Based on: Benjamins et al. (2022) "PI is back! Switching Acquisition Functions
+    in Bayesian Optimization" (arXiv:2211.01455)
+
+    Args:
+        current_cycle: Current optimization cycle (0-indexed)
+        max_cycles: Maximum number of cycles in the session
+        exploration_budget: Fraction of cycles for exploration phase (default 0.25 = 25%)
+        xi_exploration: xi value during early exploration phase (default 0.1)
+        xi_exploitation: xi value during late exploitation phase (default 0.01)
+
+    Returns:
+        Adaptive xi value for current cycle
+
+    Example:
+        >>> # First 25% of cycles: high exploration
+        >>> get_adaptive_xi(5, 40, 0.25, 0.1, 0.01)  # cycle 5/40 (12.5%)
+        0.1
+        >>> # Middle cycles: linear decay
+        >>> get_adaptive_xi(20, 40, 0.25, 0.1, 0.01)  # cycle 20/40 (50%)
+        0.055
+        >>> # Final cycles: high exploitation
+        >>> get_adaptive_xi(39, 40, 0.25, 0.1, 0.01)  # cycle 39/40 (97.5%)
+        0.01
+    """
+    if max_cycles <= 0:
+        return xi_exploitation
+
+    progress = current_cycle / max_cycles
+
+    # During exploration phase: use high xi
+    if progress <= exploration_budget:
+        return xi_exploration
+
+    # After exploration phase: linear decay to exploitation
+    # Map progress from [exploration_budget, 1.0] to [0.0, 1.0]
+    decay_progress = (progress - exploration_budget) / (1.0 - exploration_budget)
+
+    # Linear interpolation from xi_exploration to xi_exploitation
+    xi = xi_exploration - (xi_exploration - xi_exploitation) * decay_progress
+
+    return xi
+
+
+def get_adaptive_kappa(
+    current_cycle: int,
+    max_cycles: int,
+    exploration_budget: float = 0.25,
+    kappa_exploration: float = 3.0,
+    kappa_exploitation: float = 1.0,
+) -> float:
+    """
+    Calculate adaptive UCB exploration parameter based on optimization progress.
+
+    Implements time-varying exploration/exploitation schedule for Upper Confidence Bound.
+    Linear decay from high exploration (kappa_exploration) to high exploitation (kappa_exploitation).
+
+    Based on: Benjamins et al. (2022) "PI is back! Switching Acquisition Functions
+    in Bayesian Optimization" (arXiv:2211.01455)
+
+    Args:
+        current_cycle: Current optimization cycle (0-indexed)
+        max_cycles: Maximum number of cycles in the session
+        exploration_budget: Fraction of cycles for exploration phase (default 0.25 = 25%)
+        kappa_exploration: kappa value during early exploration phase (default 3.0)
+        kappa_exploitation: kappa value during late exploitation phase (default 1.0)
+
+    Returns:
+        Adaptive kappa value for current cycle
+
+    Example:
+        >>> # First 25% of cycles: high exploration
+        >>> get_adaptive_kappa(5, 40, 0.25, 3.0, 1.0)  # cycle 5/40 (12.5%)
+        3.0
+        >>> # Middle cycles: linear decay
+        >>> get_adaptive_kappa(20, 40, 0.25, 3.0, 1.0)  # cycle 20/40 (50%)
+        2.0
+        >>> # Final cycles: high exploitation
+        >>> get_adaptive_kappa(39, 40, 0.25, 3.0, 1.0)  # cycle 39/40 (97.5%)
+        1.0
+    """
+    if max_cycles <= 0:
+        return kappa_exploitation
+
+    progress = current_cycle / max_cycles
+
+    # During exploration phase: use high kappa
+    if progress <= exploration_budget:
+        return kappa_exploration
+
+    # After exploration phase: linear decay to exploitation
+    # Map progress from [exploration_budget, 1.0] to [0.0, 1.0]
+    decay_progress = (progress - exploration_budget) / (1.0 - exploration_budget)
+
+    # Linear interpolation from kappa_exploration to kappa_exploitation
+    kappa = kappa_exploration - (kappa_exploration - kappa_exploitation) * decay_progress
+
+    return kappa
 
 
 def get_default_bo_config() -> Dict[str, Any]:
@@ -509,6 +629,8 @@ class RoboTasteBO:
         candidates: np.ndarray,
         acquisition: Optional[str] = None,
         return_all_scores: bool = False,
+        current_cycle: Optional[int] = None,
+        max_cycles: Optional[int] = None,
         **acq_kwargs,
     ) -> Dict[str, Any]:
         """
@@ -518,6 +640,8 @@ class RoboTasteBO:
             candidates: (n_candidates, n_ingredients) array of possible samples
             acquisition: Acquisition function to use ("ei" or "ucb", uses config default if None)
             return_all_scores: If True, return scores for all candidates
+            current_cycle: Current optimization cycle (for adaptive acquisition, 0-indexed)
+            max_cycles: Maximum number of cycles (for adaptive acquisition)
             **acq_kwargs: Override acquisition parameters (xi, kappa)
 
         Returns:
@@ -528,6 +652,7 @@ class RoboTasteBO:
                 - acquisition_value: Acquisition function score
                 - uncertainty: Predicted std deviation
                 - mode: "bayesian_optimization" or "random_exploration"
+                - acquisition_params: Dict with xi/kappa values used
                 - all_*_values: (Optional) Arrays for all candidates
         """
         if not self.is_fitted:
@@ -555,11 +680,39 @@ class RoboTasteBO:
         if acquisition is None:
             acquisition = self.config.get("acquisition_function", "ei")
 
-        # Use config defaults for acquisition kwargs if not provided
-        if acquisition == "ei" and "xi" not in acq_kwargs:
-            acq_kwargs["xi"] = self.config.get("ei_xi", 0.01)
-        elif acquisition == "ucb" and "kappa" not in acq_kwargs:
-            acq_kwargs["kappa"] = self.config.get("ucb_kappa", 2.0)
+        # Compute adaptive acquisition parameters if enabled
+        adaptive_enabled = self.config.get("adaptive_acquisition", False)
+        if adaptive_enabled and current_cycle is not None and max_cycles is not None:
+            exploration_budget = self.config.get("exploration_budget", 0.25)
+
+            if acquisition == "ei" and "xi" not in acq_kwargs:
+                # Use adaptive xi
+                xi_exploration = self.config.get("xi_exploration", 0.1)
+                xi_exploitation = self.config.get("xi_exploitation", 0.01)
+                acq_kwargs["xi"] = get_adaptive_xi(
+                    current_cycle, max_cycles, exploration_budget, xi_exploration, xi_exploitation
+                )
+                logger.info(
+                    f"Adaptive EI: cycle {current_cycle}/{max_cycles}, "
+                    f"xi={acq_kwargs['xi']:.4f} (exploration_budget={exploration_budget})"
+                )
+            elif acquisition == "ucb" and "kappa" not in acq_kwargs:
+                # Use adaptive kappa
+                kappa_exploration = self.config.get("kappa_exploration", 3.0)
+                kappa_exploitation = self.config.get("kappa_exploitation", 1.0)
+                acq_kwargs["kappa"] = get_adaptive_kappa(
+                    current_cycle, max_cycles, exploration_budget, kappa_exploration, kappa_exploitation
+                )
+                logger.info(
+                    f"Adaptive UCB: cycle {current_cycle}/{max_cycles}, "
+                    f"kappa={acq_kwargs['kappa']:.4f} (exploration_budget={exploration_budget})"
+                )
+        else:
+            # Use static config defaults for acquisition kwargs if not provided
+            if acquisition == "ei" and "xi" not in acq_kwargs:
+                acq_kwargs["xi"] = self.config.get("ei_xi", 0.01)
+            elif acquisition == "ucb" and "kappa" not in acq_kwargs:
+                acq_kwargs["kappa"] = self.config.get("ucb_kappa", 2.0)
 
         # Calculate acquisition function
         if acquisition == "ei":
@@ -578,6 +731,13 @@ class RoboTasteBO:
         best_idx = np.argmax(acq_values)
         best_candidate = candidates[best_idx]
 
+        # Prepare acquisition parameters for result
+        acquisition_params = {}
+        if acquisition == "ei":
+            acquisition_params["xi"] = acq_kwargs.get("xi", self.config.get("ei_xi", 0.01))
+        elif acquisition == "ucb":
+            acquisition_params["kappa"] = acq_kwargs.get("kappa", self.config.get("ucb_kappa", 2.0))
+
         result = {
             "best_candidate": best_candidate,
             "best_candidate_dict": {
@@ -589,6 +749,7 @@ class RoboTasteBO:
             "uncertainty": float(sigma_values[best_idx]),
             "mode": "bayesian_optimization",
             "acquisition_function": acquisition,
+            "acquisition_params": acquisition_params,
             "n_training_samples": len(self.X_train),  # type: ignore
             "best_observed_value": float(self.best_observed_value),
         }

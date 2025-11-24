@@ -50,6 +50,43 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _render_phase_timeline(exploration_budget: float):
+    """
+    Render a visual timeline showing exploration/exploitation phases.
+
+    Args:
+        exploration_budget: Fraction of session for exploration phase (0.0-1.0)
+    """
+    # Calculate percentages
+    exploration_pct = exploration_budget * 100
+    exploitation_pct = (1 - exploration_budget) * 100
+
+    # Create visual representation using HTML/CSS
+    timeline_html = f"""
+    <div style="margin: 15px 0;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 11px; color: #666; min-width: 40px;">Early</span>
+            <div style="display: flex; flex: 1; height: 35px; border-radius: 5px; overflow: hidden; border: 1px solid #ddd;">
+                <div style="flex: {exploration_budget:.2f}; background: linear-gradient(to right, #1f77b4, #7fcdbb);
+                     display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 500;">
+                    🔵 Exploration ({exploration_pct:.0f}%)
+                </div>
+                <div style="flex: {1-exploration_budget:.2f}; background: linear-gradient(to right, #7fcdbb, #2ca02c);
+                     display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 500;">
+                    🟢 Exploitation ({exploitation_pct:.0f}%)
+                </div>
+            </div>
+            <span style="font-size: 11px; color: #666; min-width: 40px; text-align: right;">Late</span>
+        </div>
+        <div style="margin-top: 8px; font-size: 10px; color: #888; text-align: center; line-height: 1.4;">
+            ← Broad exploration to map taste space | Gradual linear decay | Fine-tuning around optimum →
+        </div>
+    </div>
+    """
+
+    st.markdown(timeline_html, unsafe_allow_html=True)
+
+
 def _render_bo_config(key_prefix: str):
     """
     Render Bayesian Optimization configuration UI (shared by single and binary setups).
@@ -108,31 +145,6 @@ def _render_bo_config(key_prefix: str):
             st.session_state.bo_config["min_samples_for_bo"] = min_samples
 
         with col2:
-            # Dynamic exploration parameter (changes based on acquisition function)
-            if acq_func == "ei":
-                xi = st.slider(
-                    "Exploration Parameter (xi):",
-                    min_value=0.0,
-                    max_value=0.1,
-                    value=st.session_state.bo_config["ei_xi"],
-                    step=0.01,
-                    format="%.3f",
-                    help="Controls exploration vs exploitation. Higher = more exploration. Default: 0.01",
-                    key=f"{key_prefix}bo_xi",
-                )
-                st.session_state.bo_config["ei_xi"] = xi
-            else:  # UCB
-                kappa = st.slider(
-                    "Exploration Parameter (kappa):",
-                    min_value=0.1,
-                    max_value=5.0,
-                    value=st.session_state.bo_config["ucb_kappa"],
-                    step=0.1,
-                    help="Controls exploration vs exploitation. Higher = more exploration. Default: 2.0",
-                    key=f"{key_prefix}bo_kappa",
-                )
-                st.session_state.bo_config["ucb_kappa"] = kappa
-
             # Kernel smoothness (ν parameter)
             kernel_options = {
                 0.5: "0.5 - Rough (for noisy data)",
@@ -156,6 +168,139 @@ def _render_bo_config(key_prefix: str):
                 key=f"{key_prefix}bo_kernel_nu",
             )
             st.session_state.bo_config["kernel_nu"] = kernel_nu
+
+        # Adaptive Exploration Strategy Section
+        with st.expander("🎯 Adaptive Exploration Strategy (Recommended)", expanded=True):
+            st.markdown(
+                """
+                **Adaptive acquisition automatically adjusts exploration over time.**
+                Early cycles explore broadly to map the taste space, later cycles focus on
+                the best region for fine-tuning. Based on recent BO research
+                ([Benjamins et al. 2022](https://arxiv.org/abs/2211.01455)).
+                """
+            )
+
+            # Enable/disable adaptive acquisition
+            adaptive_enabled = st.checkbox(
+                "Enable Adaptive Acquisition",
+                value=st.session_state.bo_config.get("adaptive_acquisition", True),
+                help="Use time-varying exploration parameters. Recommended for optimal convergence within limited samples.",
+                key=f"{key_prefix}adaptive_enabled",
+            )
+            st.session_state.bo_config["adaptive_acquisition"] = adaptive_enabled
+
+            if adaptive_enabled:
+                # Exploration budget slider
+                exploration_budget = st.slider(
+                    "Exploration Budget:",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=st.session_state.bo_config.get("exploration_budget", 0.25),
+                    step=0.05,
+                    format="%.0f%%",
+                    help="Fraction of session for high exploration phase. 25% = first quarter explores broadly, then gradually shifts to exploitation.",
+                    key=f"{key_prefix}exploration_budget",
+                )
+                st.session_state.bo_config["exploration_budget"] = exploration_budget
+
+                st.markdown("---")
+
+                # Two-column layout for exploration/exploitation phases
+                phase_col1, phase_col2 = st.columns(2)
+
+                with phase_col1:
+                    st.markdown("##### 🔵 Early Phase (Exploration)")
+                    if acq_func == "ei":
+                        xi_exploration = st.slider(
+                            "xi (Exploration):",
+                            min_value=0.0,
+                            max_value=0.2,
+                            value=st.session_state.bo_config.get("xi_exploration", 0.1),
+                            step=0.01,
+                            format="%.3f",
+                            help="High exploration during early phase. Higher = more exploration of uncertain regions. Default: 0.1",
+                            key=f"{key_prefix}xi_exploration",
+                        )
+                        st.session_state.bo_config["xi_exploration"] = xi_exploration
+                        st.caption("Higher values → more exploration of uncertain regions")
+                    else:  # UCB
+                        kappa_exploration = st.slider(
+                            "kappa (Exploration):",
+                            min_value=0.1,
+                            max_value=5.0,
+                            value=st.session_state.bo_config.get("kappa_exploration", 3.0),
+                            step=0.1,
+                            help="High exploration during early phase. Higher = more exploration of uncertain regions. Default: 3.0",
+                            key=f"{key_prefix}kappa_exploration",
+                        )
+                        st.session_state.bo_config["kappa_exploration"] = kappa_exploration
+                        st.caption("Higher values → more exploration of uncertain regions")
+
+                with phase_col2:
+                    st.markdown("##### 🟢 Late Phase (Exploitation)")
+                    if acq_func == "ei":
+                        xi_exploitation = st.slider(
+                            "xi (Exploitation):",
+                            min_value=0.0,
+                            max_value=0.1,
+                            value=st.session_state.bo_config.get("xi_exploitation", 0.01),
+                            step=0.005,
+                            format="%.3f",
+                            help="Low exploration during late phase. Lower = focus on fine-tuning optimal region. Default: 0.01",
+                            key=f"{key_prefix}xi_exploitation",
+                        )
+                        st.session_state.bo_config["xi_exploitation"] = xi_exploitation
+                        st.caption("Lower values → fine-tuning around optimum")
+                    else:  # UCB
+                        kappa_exploitation = st.slider(
+                            "kappa (Exploitation):",
+                            min_value=0.1,
+                            max_value=3.0,
+                            value=st.session_state.bo_config.get("kappa_exploitation", 1.0),
+                            step=0.1,
+                            help="Balanced exploration during late phase. Lower = more exploitation. Default: 1.0",
+                            key=f"{key_prefix}kappa_exploitation",
+                        )
+                        st.session_state.bo_config["kappa_exploitation"] = kappa_exploitation
+                        st.caption("Lower values → fine-tuning around optimum")
+
+                # Visual timeline
+                st.markdown("---")
+                st.markdown("##### 📊 Phase Progression")
+                _render_phase_timeline(exploration_budget)
+
+            else:  # Static mode
+                st.warning(
+                    "⚠️ **Static mode:** Using fixed exploration throughout the session. "
+                    "Consider enabling adaptive mode for better convergence within limited samples."
+                )
+
+                st.markdown("---")
+
+                # Show static parameters (only when adaptive is disabled)
+                if acq_func == "ei":
+                    xi = st.slider(
+                        "Exploration Parameter (xi) - STATIC:",
+                        min_value=0.0,
+                        max_value=0.1,
+                        value=st.session_state.bo_config.get("ei_xi", 0.01),
+                        step=0.01,
+                        format="%.3f",
+                        help="Fixed exploration parameter throughout session. 0.01 = balanced. Higher = more exploration. Lower = more exploitation.",
+                        key=f"{key_prefix}bo_xi_static",
+                    )
+                    st.session_state.bo_config["ei_xi"] = xi
+                else:  # UCB
+                    kappa = st.slider(
+                        "Exploration Parameter (kappa) - STATIC:",
+                        min_value=0.1,
+                        max_value=5.0,
+                        value=st.session_state.bo_config.get("ucb_kappa", 2.0),
+                        step=0.1,
+                        help="Fixed exploration parameter throughout session. 2.0 = balanced. Higher = more exploration. Lower = more exploitation.",
+                        key=f"{key_prefix}bo_kappa_static",
+                    )
+                    st.session_state.bo_config["ucb_kappa"] = kappa
 
         # Advanced settings expander
         with st.expander("Advanced BO Settings", expanded=False):
@@ -1163,8 +1308,18 @@ def single_bo():
             acq_values = bo_model.upper_confidence_bound(X_candidates, kappa=ucb_kappa)
             acq_label = f"Upper Confidence Bound (κ={ucb_kappa})"
 
+        # Get current cycle and max cycles for adaptive acquisition
+        from sql_handler import get_current_cycle
+        current_cycle = get_current_cycle(st.session_state.session_id)
+        stopping_criteria = bo_config.get("stopping_criteria", {})
+        max_cycles = stopping_criteria.get("max_cycles_1d", 30)  # 1D for single ingredient
+
         # Get next suggestion
-        suggestion = bo_model.suggest_next_sample(X_candidates)
+        suggestion = bo_model.suggest_next_sample(
+            X_candidates,
+            current_cycle=current_cycle,
+            max_cycles=max_cycles
+        )
         next_x = suggestion["best_candidate"][0]
         next_pred = suggestion["predicted_value"]
 
@@ -1185,10 +1340,14 @@ def single_bo():
         )
 
         # Add uncertainty band (±2σ shaded region)
+        # Clip confidence bounds to [1, 9] for visualization only
+        upper_bound = np.minimum(pred_mean + 2 * pred_sigma, 9.0)
+        lower_bound = np.maximum(pred_mean - 2 * pred_sigma, 1.0)
+
         fig.add_trace(
             go.Scatter(
                 x=X_candidates.ravel(),
-                y=pred_mean + 2 * pred_sigma,
+                y=upper_bound,
                 mode="lines",
                 line=dict(width=0),
                 showlegend=False,
@@ -1199,7 +1358,7 @@ def single_bo():
         fig.add_trace(
             go.Scatter(
                 x=X_candidates.ravel(),
-                y=pred_mean - 2 * pred_sigma,
+                y=lower_bound,
                 mode="lines",
                 fill="tonexty",
                 fillcolor="rgba(255, 0, 0, 0.2)",
@@ -1430,8 +1589,18 @@ def binary_bo():
 
         Z_acq = acq_values.reshape(50, 50)
 
+        # Get current cycle and max cycles for adaptive acquisition
+        from sql_handler import get_current_cycle
+        current_cycle = get_current_cycle(st.session_state.session_id)
+        stopping_criteria = bo_config.get("stopping_criteria", {})
+        max_cycles = stopping_criteria.get("max_cycles_2d", 50)  # 2D for two ingredients
+
         # Get next suggestion
-        suggestion = bo_model.suggest_next_sample(candidates)
+        suggestion = bo_model.suggest_next_sample(
+            candidates,
+            current_cycle=current_cycle,
+            max_cycles=max_cycles
+        )
         next_x = suggestion["best_candidate"]
         next_pred = suggestion["predicted_value"]
 

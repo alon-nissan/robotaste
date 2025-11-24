@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS samples (
     ingredient_concentration TEXT NOT NULL,
     questionnaire_answer TEXT,
     selection_data TEXT,
+    -- Bayesian Optimization prediction data (extracted from selection_data for easy querying)
+    acquisition_function TEXT DEFAULT NULL,
+    acquisition_xi REAL DEFAULT NULL,
+    acquisition_kappa REAL DEFAULT NULL,
+    acquisition_value REAL DEFAULT NULL,
+    predicted_value REAL DEFAULT NULL,
+    uncertainty REAL DEFAULT NULL,
     is_final INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -62,6 +69,14 @@ CREATE TABLE IF NOT EXISTS bo_configuration (
     acquisition_function TEXT DEFAULT 'ei',
     ei_xi REAL DEFAULT 0.01,
     ucb_kappa REAL DEFAULT 2.0,
+    -- Adaptive acquisition parameters
+    adaptive_acquisition INTEGER DEFAULT 1,
+    exploration_budget REAL DEFAULT 0.25,
+    xi_exploration REAL DEFAULT 0.1,
+    xi_exploitation REAL DEFAULT 0.01,
+    kappa_exploration REAL DEFAULT 3.0,
+    kappa_exploitation REAL DEFAULT 1.0,
+    -- Gaussian Process kernel parameters
     kernel_nu REAL DEFAULT 2.5,
     length_scale_initial REAL DEFAULT 1.0,
     length_scale_bounds TEXT DEFAULT '[0.1, 10.0]',
@@ -71,6 +86,18 @@ CREATE TABLE IF NOT EXISTS bo_configuration (
     normalize_y INTEGER DEFAULT 1,
     random_state INTEGER DEFAULT 42,
     only_final_responses INTEGER DEFAULT 1,
+    -- Convergence/stopping criteria
+    convergence_enabled INTEGER DEFAULT 1,
+    min_cycles_1d INTEGER DEFAULT 10,
+    max_cycles_1d INTEGER DEFAULT 30,
+    min_cycles_2d INTEGER DEFAULT 15,
+    max_cycles_2d INTEGER DEFAULT 50,
+    ei_threshold REAL DEFAULT 0.001,
+    ucb_threshold REAL DEFAULT 0.01,
+    stability_window INTEGER DEFAULT 5,
+    stability_threshold REAL DEFAULT 0.05,
+    consecutive_required INTEGER DEFAULT 2,
+    stopping_mode TEXT DEFAULT 'suggest_auto',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
@@ -83,6 +110,32 @@ CREATE INDEX IF NOT EXISTS idx_sessions_code ON sessions(session_code);
 CREATE INDEX IF NOT EXISTS idx_samples_session_id ON samples(session_id);
 CREATE INDEX IF NOT EXISTS idx_samples_is_final ON samples(is_final);
 CREATE INDEX IF NOT EXISTS idx_samples_cycle_number ON samples(cycle_number);
+CREATE INDEX IF NOT EXISTS idx_samples_acquisition_function ON samples(acquisition_function);
+
+-- Create view for Bayesian Optimization cycle analysis
+CREATE VIEW IF NOT EXISTS bo_cycle_analysis AS
+SELECT
+    s.session_id,
+    s.cycle_number,
+    s.acquisition_function,
+    s.acquisition_xi,
+    s.acquisition_kappa,
+    s.acquisition_value,
+    s.predicted_value,
+    s.uncertainty,
+    json_extract(s.ingredient_concentration, '$') as concentrations,
+    json_extract(s.questionnaire_answer, '$.overall_liking') as observed_rating,
+    (json_extract(s.questionnaire_answer, '$.overall_liking') - s.predicted_value) as prediction_error,
+    ses.current_cycle as session_current_cycle,
+    bc.max_cycles_2d,
+    bc.max_cycles_1d,
+    bc.exploration_budget,
+    s.created_at
+FROM samples s
+LEFT JOIN sessions ses ON s.session_id = ses.session_id
+LEFT JOIN bo_configuration bc ON s.session_id = bc.session_id
+WHERE s.acquisition_function IS NOT NULL
+ORDER BY s.session_id, s.cycle_number;
 
 -- Insert default questionnaire types
 INSERT OR IGNORE INTO questionnaire_types (id, name, data) VALUES

@@ -1292,12 +1292,21 @@ def get_bo_suggestion_for_session(
                 random_state=bo_config.get("random_state", 42),
             )
 
-        # Get BO suggestion
+        # Determine max_cycles based on dimensionality
+        stopping_criteria = bo_config.get("stopping_criteria", {})
+        if num_ingredients == 2:
+            max_cycles = stopping_criteria.get("max_cycles_2d", 50)
+        else:
+            max_cycles = stopping_criteria.get("max_cycles_1d", 30)
+
+        # Get BO suggestion with adaptive acquisition parameters
         suggestion = bo_model.suggest_next_sample(
             candidates=candidates,
             acquisition=bo_config.get("acquisition_function", "ei"),
-            xi=bo_config.get("ei_xi", 0.01),
-            # kappa=bo_config.get("ucb_kappa", 2.0)
+            current_cycle=current_cycle,
+            max_cycles=max_cycles,
+            # Note: xi/kappa will be computed adaptively if adaptive_acquisition=True
+            # Otherwise, config defaults will be used
         )
 
         if not suggestion:
@@ -1313,6 +1322,10 @@ def get_bo_suggestion_for_session(
             "predicted_value": suggestion.get("predicted_value"),
             "uncertainty": suggestion.get("uncertainty"),
             "acquisition_value": suggestion.get("acquisition_value"),
+            "acquisition_function": suggestion.get("acquisition_function"),  # ei or ucb
+            "acquisition_params": suggestion.get("acquisition_params", {}),  # Store xi/kappa for tracking
+            "current_cycle": current_cycle,
+            "max_cycles": max_cycles,
             "mode": "bayesian_optimization",
         }
 

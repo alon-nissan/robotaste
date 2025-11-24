@@ -448,6 +448,8 @@ def grid_interface():
                         "predicted_value": bo_suggestion.get("predicted_value"),
                         "uncertainty": bo_suggestion.get("uncertainty"),
                         "acquisition_value": bo_suggestion.get("acquisition_value"),
+                        "acquisition_function": bo_suggestion.get("acquisition_function"),
+                        "acquisition_params": bo_suggestion.get("acquisition_params", {}),
                         "mode": "bayesian_optimization",
                         "sample_id": sample_id,
                     }
@@ -1099,6 +1101,8 @@ def single_variable_interface():
                     "predicted_value": bo_suggestion.get("predicted_value"),
                     "uncertainty": bo_suggestion.get("uncertainty"),
                     "acquisition_value": bo_suggestion.get("acquisition_value"),
+                    "acquisition_function": bo_suggestion.get("acquisition_function"),
+                    "acquisition_params": bo_suggestion.get("acquisition_params", {}),
                     "mode": "bayesian_optimization",
                     "sample_id": sample_id,
                 }
