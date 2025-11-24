@@ -28,6 +28,7 @@ from sql_handler import (
 from state_machine import (
     ExperimentPhase,
     ExperimentStateMachine,
+    InvalidTransitionError,
     initialize_phase,
     recover_phase_from_database,
 )
@@ -209,6 +210,188 @@ def _render_bo_config(key_prefix: str):
                     key=f"{key_prefix}bo_seed",
                 )
                 st.session_state.bo_config["random_state"] = random_state
+
+        # Stopping Criteria Configuration
+        with st.expander("Session Ending / Stopping Criteria", expanded=False):
+            st.caption(
+                "Configure when the session should end based on convergence detection"
+            )
+
+            # Initialize stopping criteria if not present
+            if "stopping_criteria" not in st.session_state.bo_config:
+                default_config = get_default_bo_config()
+                st.session_state.bo_config["stopping_criteria"] = default_config[
+                    "stopping_criteria"
+                ].copy()
+
+            stop_criteria = st.session_state.bo_config["stopping_criteria"]
+
+            # Enable/disable convergence detection
+            stop_enabled = st.checkbox(
+                "Enable Automatic Convergence Detection",
+                value=stop_criteria.get("enabled", True),
+                help="Automatically detect when BO has converged and suggest ending the session",
+                key=f"{key_prefix}stop_enabled",
+            )
+            stop_criteria["enabled"] = stop_enabled
+
+            if stop_enabled:
+                # Determine current number of ingredients from session state
+                n_ingredients = 1  # Default assumption
+                if "ingredients" in st.session_state:
+                    n_ingredients = len(st.session_state.get("ingredients", []))
+                elif "num_ingredients" in st.session_state:
+                    n_ingredients = st.session_state.get("num_ingredients", 1)
+
+                # Stopping mode
+                mode_options = {
+                    "manual_only": "Manual Only - Show status but don't suggest stopping",
+                    "suggest_auto": "Semi-Automatic - Show dialog when converged (Recommended)",
+                    "auto_with_minimum": "Automatic - Auto-end after minimum samples IF converged",
+                }
+                current_mode = stop_criteria.get("stopping_mode", "suggest_auto")
+                mode_index = (
+                    list(mode_options.keys()).index(current_mode)
+                    if current_mode in mode_options
+                    else 1
+                )
+
+                stopping_mode = st.selectbox(
+                    "Stopping Mode:",
+                    options=list(mode_options.keys()),
+                    index=mode_index,
+                    format_func=lambda x: mode_options[x],
+                    help="How the system should behave when convergence is detected",
+                    key=f"{key_prefix}stop_mode",
+                )
+                stop_criteria["stopping_mode"] = stopping_mode
+
+                st.markdown("**Sample Limits:**")
+
+                stop_col1, stop_col2 = st.columns(2)
+
+                with stop_col1:
+                    # Min cycles (dimension-specific)
+                    if n_ingredients == 1:
+                        min_cycles = st.number_input(
+                            "Minimum Cycles (1D):",
+                            min_value=5,
+                            max_value=50,
+                            value=stop_criteria.get("min_cycles_1d", 10),
+                            step=1,
+                            help="Minimum samples before considering convergence. Research recommends: 10-15 for single ingredient",
+                            key=f"{key_prefix}stop_min_1d",
+                        )
+                        stop_criteria["min_cycles_1d"] = min_cycles
+                    else:
+                        min_cycles = st.number_input(
+                            "Minimum Cycles (2D+):",
+                            min_value=10,
+                            max_value=100,
+                            value=stop_criteria.get("min_cycles_2d", 15),
+                            step=1,
+                            help="Minimum samples before considering convergence. Research recommends: 15-20 for binary mixtures",
+                            key=f"{key_prefix}stop_min_2d",
+                        )
+                        stop_criteria["min_cycles_2d"] = min_cycles
+
+                with stop_col2:
+                    # Max cycles (dimension-specific)
+                    if n_ingredients == 1:
+                        max_cycles = st.number_input(
+                            "Maximum Cycles (1D):",
+                            min_value=min_cycles + 5,
+                            max_value=100,
+                            value=stop_criteria.get("max_cycles_1d", 30),
+                            step=1,
+                            help="Hard stop - end session at this many samples even if not converged. Research recommends: 30 for single ingredient",
+                            key=f"{key_prefix}stop_max_1d",
+                        )
+                        stop_criteria["max_cycles_1d"] = max_cycles
+                    else:
+                        max_cycles = st.number_input(
+                            "Maximum Cycles (2D+):",
+                            min_value=min_cycles + 10,
+                            max_value=200,
+                            value=stop_criteria.get("max_cycles_2d", 50),
+                            step=1,
+                            help="Hard stop - end session at this many samples even if not converged. Research recommends: 50 for binary mixtures",
+                            key=f"{key_prefix}stop_max_2d",
+                        )
+                        stop_criteria["max_cycles_2d"] = max_cycles
+
+                st.markdown("**Convergence Thresholds:**")
+
+                thresh_col1, thresh_col2 = st.columns(2)
+
+                with thresh_col1:
+                    # EI threshold
+                    ei_thresh = st.number_input(
+                        "Expected Improvement Threshold:",
+                        min_value=0.0001,
+                        max_value=0.1,
+                        value=stop_criteria.get("ei_threshold", 0.001),
+                        step=0.0001,
+                        format="%.4f",
+                        help="EI below this value indicates convergence (little expected gain from next sample). Lower = stop sooner. Research default: 0.001",
+                        key=f"{key_prefix}stop_ei",
+                    )
+                    stop_criteria["ei_threshold"] = ei_thresh
+
+                    # Stability window
+                    stab_window = st.number_input(
+                        "Stability Window:",
+                        min_value=3,
+                        max_value=10,
+                        value=stop_criteria.get("stability_window", 5),
+                        step=1,
+                        help="Number of recent cycles to check for stability. Default: 5",
+                        key=f"{key_prefix}stop_window",
+                    )
+                    stop_criteria["stability_window"] = stab_window
+
+                with thresh_col2:
+                    # Stability threshold
+                    stab_thresh = st.number_input(
+                        "Stability Threshold (std dev):",
+                        min_value=0.01,
+                        max_value=0.5,
+                        value=stop_criteria.get("stability_threshold", 0.05),
+                        step=0.01,
+                        format="%.2f",
+                        help="Standard deviation of recent best values below this indicates stable optimum. Lower = stricter. Default: 0.05",
+                        key=f"{key_prefix}stop_stab",
+                    )
+                    stop_criteria["stability_threshold"] = stab_thresh
+
+                    # Consecutive required
+                    consec = st.number_input(
+                        "Consecutive Converged Cycles:",
+                        min_value=1,
+                        max_value=5,
+                        value=stop_criteria.get("consecutive_required", 2),
+                        step=1,
+                        help="Require convergence criteria to be met for N consecutive cycles (prevents false positives). Default: 2",
+                        key=f"{key_prefix}stop_consec",
+                    )
+                    stop_criteria["consecutive_required"] = consec
+
+                # Use recommended defaults button
+                if st.button(
+                    "Reset to Research-Based Defaults", key=f"{key_prefix}stop_defaults"
+                ):
+                    default_config = get_default_bo_config()
+                    st.session_state.bo_config["stopping_criteria"] = default_config[
+                        "stopping_criteria"
+                    ].copy()
+                    st.rerun()
+
+                st.info(
+                    f"**Current Settings:** "
+                    f"Session will run {min_cycles}-{max_cycles} cycles. "
+                    f"Convergence detected when EI < {ei_thresh:.4f} AND "
+                    f"stability σ < {stab_thresh:.2f} for {consec} consecutive cycles."
+                )
 
         st.caption(
             "For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`"
@@ -1623,6 +1806,214 @@ def show_moderator_monitoring():
 
             st.markdown("---")
 
+            # ========== CONVERGENCE STATUS PANEL ==========
+            st.markdown("### Convergence Status")
+
+            try:
+                from bayesian_optimizer import (
+                    check_convergence,
+                    get_convergence_metrics,
+                )
+
+                # Get stopping criteria from session config
+                experiment_config = session.get("experiment_config", {})
+                bo_config_full = experiment_config.get("bayesian_optimization", {})
+                stopping_criteria = bo_config_full.get("stopping_criteria")
+
+                # Check convergence
+                convergence = check_convergence(
+                    st.session_state.session_id, stopping_criteria
+                )
+                metrics = convergence["metrics"]
+
+                # Status header with emoji
+                status_emoji = convergence["status_emoji"]
+                recommendation = convergence["recommendation"]
+
+                # Color coding
+                if recommendation == "stop_recommended":
+                    status_color = "🟢"
+                    alert_type = "success"
+                elif recommendation == "consider_stopping":
+                    status_color = "🟡"
+                    alert_type = "warning"
+                else:
+                    status_color = "🔴"
+                    alert_type = "info"
+
+                # Display status
+                st.markdown(f"## {status_emoji} Status: {convergence['reason']}")
+
+                # Metrics display
+                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+                with metric_col1:
+                    st.metric("Current Cycle", metrics.get("current_cycle", 0))
+
+                with metric_col2:
+                    st.metric(
+                        "Cycle Range",
+                        f"{convergence['thresholds']['min_cycles']}-{convergence['thresholds']['max_cycles']}",
+                    )
+
+                with metric_col3:
+                    acq_val = metrics.get("max_acquisition")
+                    acq_thresh = convergence["thresholds"]["acquisition_threshold"]
+                    if acq_val is not None:
+                        st.metric(
+                            "Acquisition (EI/UCB)",
+                            f"{acq_val:.4f}",
+                            delta=f"Threshold: {acq_thresh:.4f}",
+                            delta_color="inverse",
+                        )
+                    else:
+                        st.metric("Acquisition", "N/A")
+
+                with metric_col4:
+                    stability = metrics.get("recent_stability")
+                    stab_thresh = convergence["thresholds"]["stability_threshold"]
+                    if stability is not None:
+                        st.metric(
+                            "Stability (σ)",
+                            f"{stability:.3f}",
+                            delta=f"Threshold: {stab_thresh:.2f}",
+                            delta_color="inverse",
+                        )
+                    else:
+                        st.metric("Stability", "N/A (< 5 samples)")
+
+                # Progress bar
+                current = metrics.get("current_cycle", 0)
+                max_cycles = convergence["thresholds"]["max_cycles"]
+                progress = min(1.0, current / max_cycles) if max_cycles > 0 else 0
+                st.progress(progress)
+                st.caption(
+                    f"Progress: {current}/{max_cycles} cycles ({progress*100:.1f}%)"
+                )
+
+                # Criteria checklist
+                with st.expander("Convergence Criteria Details", expanded=False):
+                    st.markdown("**Criteria Met:**")
+                    for criterion in convergence.get("criteria_met", []):
+                        st.markdown(f"- ✅ {criterion}")
+
+                    if convergence.get("criteria_failed"):
+                        st.markdown("**Criteria Not Met:**")
+                        for criterion in convergence.get("criteria_failed", []):
+                            st.markdown(f"- ❌ {criterion}")
+
+                    st.markdown(
+                        f"**Confidence:** {convergence.get('confidence', 0)*100:.1f}%"
+                    )
+
+                # Status message based on recommendation
+                if recommendation == "stop_recommended":
+                    st.success(
+                        "✅ Session has converged! Consider ending the session to avoid participant fatigue."
+                    )
+                elif recommendation == "consider_stopping":
+                    st.warning("⚠️ Session is nearing convergence. Monitor closely.")
+                else:
+                    st.info(
+                        "📊 Session is still optimizing. Continue collecting samples."
+                    )
+
+                # End Session button - Always available to moderator
+                st.markdown("---")
+                if st.button(
+                    "🛑 End Session Now", type="primary", key="end_session_manual"
+                ):
+                    # Transition to COMPLETE phase using proper state machine method
+                    try:
+                        # Use transition() which handles validation, DB updates, and session state
+                        success = ExperimentStateMachine.transition(
+                            ExperimentPhase.COMPLETE, st.session_state.session_id
+                        )
+
+                        if success:
+                            st.success("Session ended successfully!")
+                            st.rerun()
+                        else:
+                            logger.error(
+                                f"Failed to end session {st.session_state.session_id}: transition returned False"
+                            )
+                            st.error("Failed to end session: Invalid state transition")
+
+                    except InvalidTransitionError as e:
+                        # Log the specific transition error
+                        logger.error(
+                            f"Invalid transition when ending session {st.session_state.session_id}: {e}"
+                        )
+                        st.error(f"Cannot end session from current phase. Details: {e}")
+
+                    except Exception as e:
+                        # Log unexpected errors with full traceback
+                        logger.error(
+                            f"Unexpected error ending session {st.session_state.session_id}: {e}",
+                            exc_info=True,
+                        )
+                        st.error(f"Failed to end session: {e}")
+
+                # Real-time metrics chart (if sufficient data)
+                if metrics.get("has_sufficient_data"):
+                    with st.expander("Convergence Metrics Over Time", expanded=False):
+                        import plotly.graph_objects as go
+
+                        # Acquisition values over time
+                        acq_values = metrics.get("acquisition_values", [])
+                        if acq_values:
+                            fig_acq = go.Figure()
+                            fig_acq.add_trace(
+                                go.Scatter(
+                                    y=acq_values,
+                                    mode="lines+markers",
+                                    name="Acquisition Value",
+                                    line=dict(color="blue", width=2),
+                                )
+                            )
+                            fig_acq.add_hline(
+                                y=acq_thresh,
+                                line_dash="dash",
+                                line_color="red",
+                                annotation_text="Convergence Threshold",
+                            )
+                            fig_acq.update_layout(
+                                title="Acquisition Function Over Cycles",
+                                xaxis_title="BO Suggestion Number",
+                                yaxis_title="Acquisition Value",
+                                height=300,
+                            )
+                            st.plotly_chart(fig_acq, use_container_width=True)
+
+                        # Best values over time
+                        best_values = metrics.get("best_values", [])
+                        if best_values:
+                            fig_best = go.Figure()
+                            fig_best.add_trace(
+                                go.Scatter(
+                                    y=best_values,
+                                    mode="lines+markers",
+                                    name="Best Observed Value",
+                                    line=dict(color="green", width=2),
+                                )
+                            )
+                            fig_best.update_layout(
+                                title="Best Observed Rating Over Time",
+                                xaxis_title="Cycle",
+                                yaxis_title="Rating",
+                                height=300,
+                            )
+                            st.plotly_chart(fig_best, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error loading convergence status: {e}")
+                import traceback
+
+                with st.expander("Error Details"):
+                    st.code(traceback.format_exc())
+
+            st.markdown("---")
+
             # Route to appropriate visualization
             if num_ingredients == 1:
                 single_bo()
@@ -1820,3 +2211,7 @@ def moderator_interface():
             show_binary_mixture_setup()
     elif ExperimentStateMachine.should_show_monitoring():
         show_moderator_monitoring()
+    else:
+        # If not setup and not monitoring, must be COMPLETE phase
+        from completion_screens import show_moderator_completion_summary
+        show_moderator_completion_summary()

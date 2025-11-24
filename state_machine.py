@@ -57,16 +57,20 @@ class ExperimentStateMachine:
     # Define valid transitions (phase -> list of allowed next phases)
     VALID_TRANSITIONS = {
         ExperimentPhase.WAITING: [
-            ExperimentPhase.LOADING  # Moderator starts first cycle
+            ExperimentPhase.LOADING,  # Moderator starts first cycle
+            ExperimentPhase.COMPLETE,  # Moderator can force-end from any phase
         ],
         ExperimentPhase.ROBOT_PREPARING: [
-            ExperimentPhase.QUESTIONNAIRE  # Robot finished, go directly to questionnaire (TASTING removed)
+            ExperimentPhase.QUESTIONNAIRE,  # Robot finished, go directly to questionnaire (TASTING removed)
+            ExperimentPhase.COMPLETE,  # Moderator can force-end from any phase
         ],
         ExperimentPhase.LOADING: [
-            ExperimentPhase.QUESTIONNAIRE  # Loading screen (5s) before questionnaire in cycles 1+
+            ExperimentPhase.QUESTIONNAIRE,  # Loading screen (5s) before questionnaire in cycles 1+
+            ExperimentPhase.COMPLETE,  # Moderator can force-end from any phase
         ],
         ExperimentPhase.QUESTIONNAIRE: [
-            ExperimentPhase.SELECTION  # Subject finished questionnaire (cycle increments here)
+            ExperimentPhase.SELECTION,  # Subject finished questionnaire (cycle increments here)
+            ExperimentPhase.COMPLETE,  # Moderator can force-end from any phase
         ],
         ExperimentPhase.SELECTION: [
             ExperimentPhase.LOADING,  # All selections (cycle 1+) go to loading screen

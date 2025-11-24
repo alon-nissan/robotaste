@@ -129,6 +129,111 @@ def grid_interface():
                 new_cycle = increment_cycle(st.session_state.session_id)
                 st.session_state.cycle_number = new_cycle
 
+                # Check convergence and potentially show stopping dialog
+                try:
+                    from bayesian_optimizer import check_convergence
+                    from sql_handler import get_session
+
+                    session = get_session(st.session_state.session_id)
+                    if session:
+                        experiment_config = session.get("experiment_config", {})
+                        bo_config = experiment_config.get("bayesian_optimization", {})
+                        stopping_criteria = bo_config.get("stopping_criteria", {})
+                        stopping_mode = stopping_criteria.get("stopping_mode", "manual_only")
+
+                        # Only check if convergence detection is enabled and mode is not manual_only
+                        if stopping_criteria.get("enabled", True) and stopping_mode != "manual_only":
+                            convergence = check_convergence(st.session_state.session_id, stopping_criteria)
+
+                            # Track consecutive converged cycles
+                            if "consecutive_converged" not in st.session_state:
+                                st.session_state.consecutive_converged = 0
+
+                            consecutive_required = stopping_criteria.get("consecutive_required", 2)
+
+                            if convergence.get("converged", False):
+                                st.session_state.consecutive_converged += 1
+                            else:
+                                st.session_state.consecutive_converged = 0
+
+                            # Check if we should suggest stopping
+                            if st.session_state.consecutive_converged >= consecutive_required or \
+                               convergence.get("recommendation") == "stop_recommended":
+
+                                # Show stopping dialog (only if in suggest_auto mode)
+                                if stopping_mode == "suggest_auto":
+                                    st.balloons()
+                                    st.success("🎉 Optimal preference found!")
+                                    st.info(f"**{convergence.get('reason', 'Session converged')}**")
+
+                                    # Show metrics
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Cycles Completed", convergence["metrics"].get("current_cycle", 0))
+                                    with col2:
+                                        best_values = convergence["metrics"].get("best_values", [])
+                                        if best_values:
+                                            st.metric("Best Rating", f"{max(best_values):.2f}")
+                                    with col3:
+                                        st.metric("Confidence", f"{convergence.get('confidence', 0)*100:.0f}%")
+
+                                    st.markdown("---")
+                                    st.markdown("### Would you like to end the session now?")
+                                    st.caption("You've reached the optimal taste preference with high confidence.")
+
+                                    col_end, col_continue = st.columns(2)
+
+                                    with col_end:
+                                        if st.button("🛑 End Session Now", type="primary", key="end_session_subject", use_container_width=True):
+                                            # Transition to COMPLETE phase
+                                            if ExperimentStateMachine.transition(
+                                                new_phase=ExperimentPhase.COMPLETE,
+                                                session_id=st.session_state.session_id,
+                                            ):
+                                                st.success("✅ Session ended successfully! Thank you for participating.")
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to end session")
+                                                # Proceed normally if ending fails
+                                                ExperimentStateMachine.transition(
+                                                    new_phase=ExperimentPhase.SELECTION,
+                                                    session_id=st.session_state.session_id,
+                                                )
+                                                st.rerun()
+
+                                    with col_continue:
+                                        if st.button("➡️ Continue Exploring", key="continue_session_subject", use_container_width=True):
+                                            # Reset consecutive counter and proceed normally
+                                            st.session_state.consecutive_converged = 0
+                                            ExperimentStateMachine.transition(
+                                                new_phase=ExperimentPhase.SELECTION,
+                                                session_id=st.session_state.session_id,
+                                            )
+                                            st.rerun()
+
+                                    # Don't proceed automatically - wait for user choice
+                                    return
+
+                                # Auto-end mode
+                                elif stopping_mode == "auto_with_minimum":
+                                    st.balloons()
+                                    st.success("🎉 Optimal preference found! Session ending automatically...")
+                                    time.sleep(2)
+                                    if ExperimentStateMachine.transition(
+                                        new_phase=ExperimentPhase.COMPLETE,
+                                        session_id=st.session_state.session_id,
+                                    ):
+                                        st.success("✅ Session ended successfully! Thank you for participating.")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to end session, continuing...")
+
+                except Exception as e:
+                    logger.warning(f"Error checking convergence for stopping dialog: {e}")
+                    # Continue normally if convergence check fails
+
                 # Transition to SELECTION using state machine
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.SELECTION,
@@ -742,6 +847,111 @@ def single_variable_interface():
                 new_cycle = increment_cycle(st.session_state.session_id)
                 st.session_state.cycle_number = new_cycle
 
+                # Check convergence and potentially show stopping dialog
+                try:
+                    from bayesian_optimizer import check_convergence
+                    from sql_handler import get_session
+
+                    session = get_session(st.session_state.session_id)
+                    if session:
+                        experiment_config = session.get("experiment_config", {})
+                        bo_config = experiment_config.get("bayesian_optimization", {})
+                        stopping_criteria = bo_config.get("stopping_criteria", {})
+                        stopping_mode = stopping_criteria.get("stopping_mode", "manual_only")
+
+                        # Only check if convergence detection is enabled and mode is not manual_only
+                        if stopping_criteria.get("enabled", True) and stopping_mode != "manual_only":
+                            convergence = check_convergence(st.session_state.session_id, stopping_criteria)
+
+                            # Track consecutive converged cycles
+                            if "consecutive_converged" not in st.session_state:
+                                st.session_state.consecutive_converged = 0
+
+                            consecutive_required = stopping_criteria.get("consecutive_required", 2)
+
+                            if convergence.get("converged", False):
+                                st.session_state.consecutive_converged += 1
+                            else:
+                                st.session_state.consecutive_converged = 0
+
+                            # Check if we should suggest stopping
+                            if st.session_state.consecutive_converged >= consecutive_required or \
+                               convergence.get("recommendation") == "stop_recommended":
+
+                                # Show stopping dialog (only if in suggest_auto mode)
+                                if stopping_mode == "suggest_auto":
+                                    st.balloons()
+                                    st.success("🎉 Optimal preference found!")
+                                    st.info(f"**{convergence.get('reason', 'Session converged')}**")
+
+                                    # Show metrics
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Cycles Completed", convergence["metrics"].get("current_cycle", 0))
+                                    with col2:
+                                        best_values = convergence["metrics"].get("best_values", [])
+                                        if best_values:
+                                            st.metric("Best Rating", f"{max(best_values):.2f}")
+                                    with col3:
+                                        st.metric("Confidence", f"{convergence.get('confidence', 0)*100:.0f}%")
+
+                                    st.markdown("---")
+                                    st.markdown("### Would you like to end the session now?")
+                                    st.caption("You've reached the optimal taste preference with high confidence.")
+
+                                    col_end, col_continue = st.columns(2)
+
+                                    with col_end:
+                                        if st.button("🛑 End Session Now", type="primary", key="end_session_subject", use_container_width=True):
+                                            # Transition to COMPLETE phase
+                                            if ExperimentStateMachine.transition(
+                                                new_phase=ExperimentPhase.COMPLETE,
+                                                session_id=st.session_state.session_id,
+                                            ):
+                                                st.success("✅ Session ended successfully! Thank you for participating.")
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to end session")
+                                                # Proceed normally if ending fails
+                                                ExperimentStateMachine.transition(
+                                                    new_phase=ExperimentPhase.SELECTION,
+                                                    session_id=st.session_state.session_id,
+                                                )
+                                                st.rerun()
+
+                                    with col_continue:
+                                        if st.button("➡️ Continue Exploring", key="continue_session_subject", use_container_width=True):
+                                            # Reset consecutive counter and proceed normally
+                                            st.session_state.consecutive_converged = 0
+                                            ExperimentStateMachine.transition(
+                                                new_phase=ExperimentPhase.SELECTION,
+                                                session_id=st.session_state.session_id,
+                                            )
+                                            st.rerun()
+
+                                    # Don't proceed automatically - wait for user choice
+                                    return
+
+                                # Auto-end mode
+                                elif stopping_mode == "auto_with_minimum":
+                                    st.balloons()
+                                    st.success("🎉 Optimal preference found! Session ending automatically...")
+                                    time.sleep(2)
+                                    if ExperimentStateMachine.transition(
+                                        new_phase=ExperimentPhase.COMPLETE,
+                                        session_id=st.session_state.session_id,
+                                    ):
+                                        st.success("✅ Session ended successfully! Thank you for participating.")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to end session, continuing...")
+
+                except Exception as e:
+                    logger.warning(f"Error checking convergence for stopping dialog: {e}")
+                    # Continue normally if convergence check fails
+
                 # Transition to SELECTION using state machine
                 ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.SELECTION,
@@ -1116,6 +1326,17 @@ def init_session_state():
 
 def subject_interface():
     init_session_state()
+
+    # Sync phase from database on every load (handles st.rerun() race condition)
+    if st.session_state.get("session_id"):
+        sync_session_state(st.session_state.session_id, "subject")
+
+    # Check for COMPLETE phase and show completion screen
+    if st.session_state.get("phase") == "complete":
+        from completion_screens import show_subject_completion_screen
+        show_subject_completion_screen()
+        return
+
     ingredient_num = st.session_state.get("num_ingredients", None)
     if ingredient_num == 2:
         grid_interface()

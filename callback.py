@@ -1290,6 +1290,40 @@ def get_bo_suggestion_for_session(
 
             result["slider_values"] = slider_values
 
+        # Check convergence and add to result
+        try:
+            from bayesian_optimizer import check_convergence
+
+            stopping_criteria = bo_config.get("stopping_criteria")
+            convergence = check_convergence(session_id, stopping_criteria)
+
+            # Add convergence info to result for subject interface
+            result["convergence"] = {
+                "converged": convergence.get("converged", False),
+                "recommendation": convergence.get("recommendation", "continue"),
+                "reason": convergence.get("reason", ""),
+                "confidence": convergence.get("confidence", 0.0),
+                "status_emoji": convergence.get("status_emoji", "🔴"),
+                "current_cycle": convergence["metrics"].get("current_cycle", current_cycle),
+                "max_cycles": convergence["thresholds"].get("max_cycles", 30),
+            }
+
+            logger.info(
+                f"Convergence check: {convergence.get('recommendation')} - {convergence.get('reason')}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Could not check convergence: {e}")
+            result["convergence"] = {
+                "converged": False,
+                "recommendation": "continue",
+                "reason": "Error checking convergence",
+                "confidence": 0.0,
+                "status_emoji": "🔴",
+                "current_cycle": current_cycle,
+                "max_cycles": 30,
+            }
+
         logger.info(
             f"BO suggestion generated for cycle {current_cycle}: "
             f"predicted={result['predicted_value']:.2f}"
