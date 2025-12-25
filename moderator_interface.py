@@ -65,20 +65,20 @@ def _render_phase_timeline(exploration_budget: float):
     timeline_html = f"""
     <div style="margin: 15px 0;">
         <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 11px; color: #666; min-width: 40px;">Early</span>
-            <div style="display: flex; flex: 1; height: 35px; border-radius: 5px; overflow: hidden; border: 1px solid #ddd;">
-                <div style="flex: {exploration_budget:.2f}; background: linear-gradient(to right, #1f77b4, #7fcdbb);
-                     display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 500;">
+            <span style="font-size: 20px; color: #6B7280; min-width: 50px; font-weight: 500;">Early</span>
+            <div style="display: flex; flex: 1; height: 40px; border-radius: 8px; overflow: hidden; border: 1px solid #E5E7EB;">
+                <div style="flex: {exploration_budget:.2f}; background: linear-gradient(to right, #14B8A6, #5EEAD4);
+                     display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; font-weight: 500;">
                     🔵 Exploration ({exploration_pct:.0f}%)
                 </div>
-                <div style="flex: {1-exploration_budget:.2f}; background: linear-gradient(to right, #7fcdbb, #2ca02c);
-                     display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 500;">
+                <div style="flex: {1-exploration_budget:.2f}; background: linear-gradient(to right, #10B981, #6EE7B7);
+                     display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; font-weight: 500;">
                     🟢 Exploitation ({exploitation_pct:.0f}%)
                 </div>
             </div>
-            <span style="font-size: 11px; color: #666; min-width: 40px; text-align: right;">Late</span>
+            <span style="font-size: 20px; color: #6B7280; min-width: 50px; text-align: right; font-weight: 500;">Late</span>
         </div>
-        <div style="margin-top: 8px; font-size: 10px; color: #888; text-align: center; line-height: 1.4;">
+        <div style="margin-top: 12px; font-size: 18px; color: #6B7280; text-align: center; line-height: 1.5;">
             ← Broad exploration to map taste space | Gradual linear decay | Fine-tuning around optimum →
         </div>
     </div>
@@ -170,7 +170,9 @@ def _render_bo_config(key_prefix: str):
             st.session_state.bo_config["kernel_nu"] = kernel_nu
 
         # Adaptive Exploration Strategy Section
-        with st.expander("🎯 Adaptive Exploration Strategy (Recommended)", expanded=True):
+        with st.expander(
+            "🎯 Adaptive Exploration Strategy (Recommended)", expanded=True
+        ):
             st.markdown(
                 """
                 **Adaptive acquisition automatically adjusts exploration over time.**
@@ -222,19 +224,27 @@ def _render_bo_config(key_prefix: str):
                             key=f"{key_prefix}xi_exploration",
                         )
                         st.session_state.bo_config["xi_exploration"] = xi_exploration
-                        st.caption("Higher values → more exploration of uncertain regions")
+                        st.caption(
+                            "Higher values → more exploration of uncertain regions"
+                        )
                     else:  # UCB
                         kappa_exploration = st.slider(
                             "kappa (Exploration):",
                             min_value=0.1,
                             max_value=5.0,
-                            value=st.session_state.bo_config.get("kappa_exploration", 3.0),
+                            value=st.session_state.bo_config.get(
+                                "kappa_exploration", 3.0
+                            ),
                             step=0.1,
                             help="High exploration during early phase. Higher = more exploration of uncertain regions. Default: 3.0",
                             key=f"{key_prefix}kappa_exploration",
                         )
-                        st.session_state.bo_config["kappa_exploration"] = kappa_exploration
-                        st.caption("Higher values → more exploration of uncertain regions")
+                        st.session_state.bo_config["kappa_exploration"] = (
+                            kappa_exploration
+                        )
+                        st.caption(
+                            "Higher values → more exploration of uncertain regions"
+                        )
 
                 with phase_col2:
                     st.markdown("##### 🟢 Late Phase (Exploitation)")
@@ -243,7 +253,9 @@ def _render_bo_config(key_prefix: str):
                             "xi (Exploitation):",
                             min_value=0.0,
                             max_value=0.1,
-                            value=st.session_state.bo_config.get("xi_exploitation", 0.01),
+                            value=st.session_state.bo_config.get(
+                                "xi_exploitation", 0.01
+                            ),
                             step=0.005,
                             format="%.3f",
                             help="Low exploration during late phase. Lower = focus on fine-tuning optimal region. Default: 0.01",
@@ -256,12 +268,16 @@ def _render_bo_config(key_prefix: str):
                             "kappa (Exploitation):",
                             min_value=0.1,
                             max_value=3.0,
-                            value=st.session_state.bo_config.get("kappa_exploitation", 1.0),
+                            value=st.session_state.bo_config.get(
+                                "kappa_exploitation", 1.0
+                            ),
                             step=0.1,
                             help="Balanced exploration during late phase. Lower = more exploitation. Default: 1.0",
                             key=f"{key_prefix}kappa_exploitation",
                         )
-                        st.session_state.bo_config["kappa_exploitation"] = kappa_exploitation
+                        st.session_state.bo_config["kappa_exploitation"] = (
+                            kappa_exploitation
+                        )
                         st.caption("Lower values → fine-tuning around optimum")
 
                 # Visual timeline
@@ -645,18 +661,10 @@ def show_single_ingredient_setup():
             "max": max_val,
         }
 
-    st.markdown("---")
-
     # ===== STARTING POSITION CONFIGURATION =====
-    st.markdown("**Starting Position**")
-    use_random_start = st.checkbox(
-        "Randomize starting position",
-        value=True,
-        help="Start slider at random position (10-90%) instead of center (50%)",
-    )
-    st.session_state.use_random_start = use_random_start
 
-    st.markdown("---")
+    use_random_start = True  # Default to random start
+    st.session_state.use_random_start = use_random_start
 
     # ===== QUESTIONNAIRE CONFIGURATION =====
     st.markdown("**Questionnaire**")
@@ -711,20 +719,15 @@ def show_single_ingredient_setup():
                 st.caption(f"Variable: {target['variable']}")
                 st.caption(f"Goal: {target['description']}")
 
-    st.markdown("---")
-
     # ===== BAYESIAN OPTIMIZATION CONFIGURATION =====
     with st.expander("Bayesian Optimization", expanded=False):
         _render_bo_config("single_")
-
-    st.markdown("---")
 
     # ===== START TRIAL BUTTON =====
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         # Show current participant
         participant_display = st.session_state.get("participant", "None selected")
-        st.caption(f"**Participant:** {participant_display}")
         if st.button(
             "Start Trial",
             type="primary",
@@ -766,7 +769,7 @@ def show_single_ingredient_setup():
                 # Create/update session in database
                 # Convert questionnaire type name to integer ID
                 questionnaire_name = st.session_state.get(
-                    "selected_questionnaire_type", "hedonic_preference"
+                    "selected_questionnaire_type", "hedonic"
                 )
                 question_type_id = get_questionnaire_type_id(questionnaire_name)
                 if question_type_id is None:
@@ -1133,7 +1136,7 @@ def show_binary_mixture_setup():
                 # Create/update session in database
                 # Convert questionnaire type name to integer ID
                 questionnaire_name = st.session_state.get(
-                    "selected_questionnaire_type", "hedonic_preference"
+                    "selected_questionnaire_type", "hedonic"
                 )
                 question_type_id = get_questionnaire_type_id(questionnaire_name)
                 if question_type_id is None:
@@ -1234,7 +1237,7 @@ def single_bo():
     min_samples_for_bo = bo_config.get("min_samples_for_bo", 3)
 
     # Get questionnaire config for target variable
-    questionnaire_name = session.get("questionnaire_name", "hedonic_preference")
+    questionnaire_name = session.get("questionnaire_name", "hedonic")
     questionnaire_config = get_questionnaire_config(questionnaire_name)
     target_variable = "overall_liking"  # Default
     if questionnaire_config and "bayesian_target" in questionnaire_config:
@@ -1310,15 +1313,16 @@ def single_bo():
 
         # Get current cycle and max cycles for adaptive acquisition
         from sql_handler import get_current_cycle
+
         current_cycle = get_current_cycle(st.session_state.session_id)
         stopping_criteria = bo_config.get("stopping_criteria", {})
-        max_cycles = stopping_criteria.get("max_cycles_1d", 30)  # 1D for single ingredient
+        max_cycles = stopping_criteria.get(
+            "max_cycles_1d", 30
+        )  # 1D for single ingredient
 
         # Get next suggestion
         suggestion = bo_model.suggest_next_sample(
-            X_candidates,
-            current_cycle=current_cycle,
-            max_cycles=max_cycles
+            X_candidates, current_cycle=current_cycle, max_cycles=max_cycles
         )
         next_x = suggestion["best_candidate"][0]
         next_pred = suggestion["predicted_value"]
@@ -1326,14 +1330,14 @@ def single_bo():
         # Create subplot with dual y-axes
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-        # Add GP mean prediction (red line)
+        # Add GP mean prediction (purple line)
         fig.add_trace(
             go.Scatter(
                 x=X_candidates.ravel(),
                 y=pred_mean,
                 mode="lines",
                 name="GP Mean",
-                line=dict(color="red", width=2),
+                line=dict(color="#8B5CF6", width=2),
                 showlegend=True,
             ),
             secondary_y=False,
@@ -1361,7 +1365,7 @@ def single_bo():
                 y=lower_bound,
                 mode="lines",
                 fill="tonexty",
-                fillcolor="rgba(255, 0, 0, 0.2)",
+                fillcolor="rgba(139, 92, 246, 0.2)",
                 line=dict(width=0),
                 name="±2σ Uncertainty",
                 showlegend=True,
@@ -1369,7 +1373,7 @@ def single_bo():
             secondary_y=False,
         )
 
-        # Add observed training data (red scatter)
+        # Add observed training data (purple scatter)
         fig.add_trace(
             go.Scatter(
                 x=X_observed,
@@ -1377,17 +1381,17 @@ def single_bo():
                 mode="markers",
                 name="Observed Data",
                 marker=dict(
-                    color="red",
+                    color="#8B5CF6",
                     size=10,
                     symbol="circle",
-                    line=dict(width=2, color="darkred"),
+                    line=dict(width=2, color="#6D28D9"),
                 ),
                 showlegend=True,
             ),
             secondary_y=False,
         )
 
-        # Add next observation point (red triangle)
+        # Add next observation point (purple triangle)
         fig.add_trace(
             go.Scatter(
                 x=[next_x],
@@ -1395,10 +1399,10 @@ def single_bo():
                 mode="markers",
                 name="Next Observation",
                 marker=dict(
-                    color="red",
+                    color="#8B5CF6",
                     size=15,
                     symbol="triangle-down",
-                    line=dict(width=2, color="darkred"),
+                    line=dict(width=2, color="#6D28D9"),
                 ),
                 showlegend=True,
                 text=[f"Next: {next_x:.2f} mM<br>Predicted: {next_pred:.2f}"],
@@ -1407,14 +1411,14 @@ def single_bo():
             secondary_y=False,
         )
 
-        # Add acquisition function (green dashed line, secondary y-axis)
+        # Add acquisition function (teal dashed line, secondary y-axis)
         fig.add_trace(
             go.Scatter(
                 x=X_candidates.ravel(),
                 y=acq_values,
                 mode="lines",
                 name=acq_label,
-                line=dict(color="green", width=2, dash="dash"),
+                line=dict(color="#14B8A6", width=2, dash="dash"),
                 showlegend=True,
             ),
             secondary_y=True,
@@ -1423,17 +1427,23 @@ def single_bo():
         # Update layout
         fig.update_xaxes(
             title_text=f"{ingredient_name} Concentration (mM)",
+            title_font=dict(size=21),
+            tickfont=dict(size=18),
             showgrid=True,
             gridcolor="lightgray",
         )
         fig.update_yaxes(
             title_text=target_variable.replace("_", " ").title(),
+            title_font=dict(size=21),
+            tickfont=dict(size=18),
             secondary_y=False,
             showgrid=True,
             gridcolor="lightgray",
         )
         fig.update_yaxes(
             title_text=acq_label,
+            title_font=dict(size=21),
+            tickfont=dict(size=18),
             secondary_y=True,
             showgrid=False,
         )
@@ -1441,18 +1451,20 @@ def single_bo():
         fig.update_layout(
             height=500,
             hovermode="x unified",
+            font=dict(size=18),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=-0.3,
                 xanchor="center",
                 x=0.5,
+                font=dict(size=18),
             ),
             margin=dict(l=60, r=60, t=40, b=100),
         )
 
         # Display plot
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
         # Show metrics below plot
         col1, col2, col3, col4 = st.columns(4)
@@ -1508,7 +1520,7 @@ def binary_bo():
     min_samples_for_bo = bo_config.get("min_samples_for_bo", 3)
 
     # Get questionnaire config for target variable
-    questionnaire_name = session.get("questionnaire_name", "hedonic_preference")
+    questionnaire_name = session.get("questionnaire_name", "hedonic")
     questionnaire_config = get_questionnaire_config(questionnaire_name)
     target_variable = "overall_liking"  # Default
     if questionnaire_config and "bayesian_target" in questionnaire_config:
@@ -1591,15 +1603,16 @@ def binary_bo():
 
         # Get current cycle and max cycles for adaptive acquisition
         from sql_handler import get_current_cycle
+
         current_cycle = get_current_cycle(st.session_state.session_id)
         stopping_criteria = bo_config.get("stopping_criteria", {})
-        max_cycles = stopping_criteria.get("max_cycles_2d", 50)  # 2D for two ingredients
+        max_cycles = stopping_criteria.get(
+            "max_cycles_2d", 50
+        )  # 2D for two ingredients
 
         # Get next suggestion
         suggestion = bo_model.suggest_next_sample(
-            candidates,
-            current_cycle=current_cycle,
-            max_cycles=max_cycles
+            candidates, current_cycle=current_cycle, max_cycles=max_cycles
         )
         next_x = suggestion["best_candidate"]
         next_pred = suggestion["predicted_value"]
@@ -1619,10 +1632,10 @@ def binary_bo():
                 x=X_grid_ing1[0, :],
                 y=X_grid_ing2[:, 0],
                 z=Z_mean,
-                colorscale="RdYlGn",
+                colorscale="Purples",
                 showscale=True,
                 colorbar=dict(x=0.28, len=0.8),
-                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                contours=dict(showlabels=True, labelfont=dict(size=12)),
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Predicted: %{{z:.2f}}<extra></extra>",
             ),
             row=1,
@@ -1637,10 +1650,10 @@ def binary_bo():
                 mode="markers",
                 name="Observed",
                 marker=dict(
-                    color="red",
+                    color="#6B7280",
                     size=8,
                     symbol="circle",
-                    line=dict(width=1, color="darkred"),
+                    line=dict(width=1, color="#374151"),
                 ),
                 showlegend=True,
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<extra>Observed</extra>",
@@ -1657,10 +1670,10 @@ def binary_bo():
                 mode="markers",
                 name="Next",
                 marker=dict(
-                    color="blue",
+                    color="#8B5CF6",
                     size=15,
                     symbol="star",
-                    line=dict(width=2, color="darkblue"),
+                    line=dict(width=2, color="#6D28D9"),
                 ),
                 showlegend=True,
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Predicted: {next_pred:.2f}<extra>Next Suggestion</extra>",
@@ -1669,32 +1682,32 @@ def binary_bo():
             col=1,
         )
 
-        # Plot 2: Uncertainty
+        # Plot 2: Uncertainty (Teal colorscale)
         fig.add_trace(
             go.Contour(
                 x=X_grid_ing1[0, :],
                 y=X_grid_ing2[:, 0],
                 z=Z_sigma,
-                colorscale="Reds",
+                colorscale="Teal",
                 showscale=True,
                 colorbar=dict(x=0.63, len=0.8),
-                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                contours=dict(showlabels=True, labelfont=dict(size=12)),
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Uncertainty: %{{z:.2f}}<extra></extra>",
             ),
             row=1,
             col=2,
         )
 
-        # Plot 3: Acquisition Function
+        # Plot 3: Acquisition Function (Coral/Orange colorscale)
         fig.add_trace(
             go.Contour(
                 x=X_grid_ing1[0, :],
                 y=X_grid_ing2[:, 0],
                 z=Z_acq,
-                colorscale="Greens",
+                colorscale="Reds",
                 showscale=True,
                 colorbar=dict(x=0.98, len=0.8),
-                contours=dict(showlabels=True, labelfont=dict(size=8)),
+                contours=dict(showlabels=True, labelfont=dict(size=12)),
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>{acq_label}: %{{z:.3f}}<extra></extra>",
             ),
             row=1,
@@ -1708,10 +1721,10 @@ def binary_bo():
                 y=[next_x[1]],
                 mode="markers",
                 marker=dict(
-                    color="blue",
+                    color="#8B5CF6",
                     size=15,
                     symbol="star",
-                    line=dict(width=2, color="darkblue"),
+                    line=dict(width=2, color="#6D28D9"),
                 ),
                 showlegend=False,
                 hovertemplate=f"Max Acquisition<extra></extra>",
@@ -1722,25 +1735,42 @@ def binary_bo():
 
         # Update axes
         for col in [1, 2, 3]:
-            fig.update_xaxes(title_text=f"{ing1_name} (mM)", row=1, col=col)
-            fig.update_yaxes(title_text=f"{ing2_name} (mM)", row=1, col=col)
+            fig.update_xaxes(
+                title_text=f"{ing1_name} (mM)",
+                title_font=dict(size=21),
+                tickfont=dict(size=18),
+                row=1,
+                col=col,
+            )
+            fig.update_yaxes(
+                title_text=f"{ing2_name} (mM)",
+                title_font=dict(size=21),
+                tickfont=dict(size=18),
+                row=1,
+                col=col,
+            )
 
         # Update layout
         fig.update_layout(
             height=450,
             showlegend=True,
+            font=dict(size=18),
             legend=dict(
                 orientation="v",
                 yanchor="top",
                 y=0.98,
                 xanchor="left",
                 x=0.01,
+                font=dict(size=18),
             ),
             margin=dict(l=50, r=50, t=60, b=50),
         )
 
+        # Update subplot titles font size
+        fig.update_annotations(font_size=21)
+
         # Display plot
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
         # Show metrics below plot
         col1, col2, col3, col4 = st.columns(4)
@@ -1761,120 +1791,252 @@ def binary_bo():
 
 
 def show_moderator_monitoring():
-    """Monitor active trial with tabbed interface."""
-    tab_overview, tab_responses, tab_bo, tab_export = st.tabs(
-        ["Overview", "Responses", "Bayesian Optimization", "Export Data"]
-    )
+    """Monitor active trial with single-page layout."""
 
-    # ========== TAB 1: OVERVIEW ==========
-    with tab_overview:
-        st.markdown("### Session Overview")
+    # Get session info early for header
+    session_info = get_session_info(st.session_state.session_id)
+    if not session_info:
+        st.error("Could not load session information")
+        return
 
-        # Get session info
-        session_info = get_session_info(st.session_state.session_id)
-        if not session_info:
-            st.error("Could not load session information")
-            return
+    session = get_session(st.session_state.session_id)
+    if not session or "experiment_config" not in session:
+        st.error("Could not load session configuration")
+        return
 
-        # Session Info Card
-        st.markdown("#### Session Information")
-        col1, col2, col3, col4 = st.columns(4)
+    # ========== HEADER WITH END SESSION BUTTON ==========
 
-        with col1:
-            st.metric("Session Code", st.session_state.get("session_code", "N/A"))
-        with col2:
-            st.metric("Participant", st.session_state.get("participant", "N/A"))
-        with col3:
-            created_at = session_info.get("created_at", "")
-            created_date = created_at[:10] if created_at else "N/A"
-            st.metric("Created", created_date)
-        with col4:
-            current_phase = session_info.get("current_phase", "unknown")
-            st.metric("Phase", current_phase.replace("_", " ").title())
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
+        st.markdown("## 🧪 Monitoring")
+
+    with header_col2:
+        if st.button("🛑 End Session", type="secondary", key="end_session_header_btn"):
+            st.session_state["show_end_session_modal"] = True
+
+    experiment_config = session["experiment_config"]
+
+    # ========== MAIN VISUALIZATIONS SECTION ==========
+    st.markdown("### Bayesian Optimization Visualizations")
+
+    # Get ingredient count
+    num_ingredients = experiment_config.get("num_ingredients", 2)
+
+    # Route to appropriate visualization
+    if num_ingredients == 1:
+        single_bo()
+    elif num_ingredients == 2:
+        binary_bo()
+    else:
+        st.warning(f"⚠️ Visualizations not available for {num_ingredients} ingredients")
+        st.info("Supported: 1 (single ingredient) or 2 (binary mixture)")
+
+    st.markdown("---")
+
+    # ========== CONVERGENCE PROGRESS BAR & METRICS ==========
+    try:
+        from bayesian_optimizer import check_convergence, get_convergence_metrics
+
+        # Get stopping criteria from session config
+        experiment_config = session.get("experiment_config", {})
+        bo_config_full = experiment_config.get("bayesian_optimization", {})
+        stopping_criteria = bo_config_full.get("stopping_criteria")
+
+        # Check convergence
+        convergence = check_convergence(st.session_state.session_id, stopping_criteria)
+        metrics = convergence["metrics"]
+        thresholds = convergence["thresholds"]
+
+        # Status header
+        status_emoji = convergence["status_emoji"]
+        recommendation = convergence["recommendation"]
+
+        st.markdown("### Convergence Status")
+
+        # Progress bar
+        current_cycle = metrics.get("current_cycle", 0)
+        max_cycles = thresholds.get("max_cycles", 30)
+        progress = min(1.0, current_cycle / max_cycles) if max_cycles > 0 else 0
+        st.progress(progress)
+        st.caption(f"Cycle {current_cycle} of {max_cycles} ({progress*100:.1f}%)")
+
+        st.markdown("")  # Spacer
+
+        # ========== 4-METRIC CARD ROW ==========
+        met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+
+        with met_col1:
+            st.metric(label="Current Cycle", value=current_cycle)
+
+        with met_col2:
+            min_cycles = thresholds.get("min_cycles", 3)
+            st.metric(
+                label="Total Cycles",
+                value=max_cycles,
+                help=f"Range: {min_cycles}-{max_cycles} cycles",
+            )
+
+        with met_col3:
+            best_values = metrics.get("best_values", [])
+            best_value = max(best_values) if best_values else 0
+            st.metric(label="Best Observed", value=f"{best_value:.2f}")
+
+        with met_col4:
+            # Status with colored indicator
+            if "stop" in recommendation.lower():
+                status_color = "#10B981"  # Green
+                status_text = "Converged"
+            elif "consider" in recommendation.lower():
+                status_color = "#F59E0B"  # Yellow
+                status_text = "Nearing"
+            else:
+                status_color = "#6B7280"  # Gray
+                status_text = "Optimizing"
+
+            st.markdown("**Status**")
+            st.markdown(
+                f'<h3 style="color: {status_color}; margin: 0;">{status_emoji} {status_text}</h3>',
+                unsafe_allow_html=True,
+            )
 
         st.markdown("---")
 
-        # Subject Access Section
-        display_subject_access_section(st.session_state.get("session_code", ""))
+        # ========== CONVERGENCE CRITERIA DETAILS EXPANDER ==========
+        with st.expander("📊 Convergence Criteria Details", expanded=False):
+            criteria_met = convergence.get("criteria_met", [])
+            criteria_failed = convergence.get("criteria_failed", [])
+            confidence = convergence.get("confidence", 0.0)
 
-        st.markdown("---")
+            if criteria_met:
+                st.markdown("**✅ Criteria Met:**")
+                for criterion in criteria_met:
+                    st.markdown(f"- {criterion}")
 
-        # Progress Metrics
-        st.markdown("#### Progress Metrics")
+            if criteria_failed:
+                st.markdown("**❌ Criteria Not Met:**")
+                for criterion in criteria_failed:
+                    st.markdown(f"- {criterion}")
+
+            st.markdown(f"**Confidence:** {confidence*100:.1f}%")
+
+    except Exception as e:
+        st.warning(f"Could not load convergence status: {e}")
+        # Fallback metrics if convergence checking fails
         try:
             stats = get_session_stats(st.session_state.session_id)
-            col1, col2, col3 = st.columns(3)
+            met_col1, met_col2, met_col3, met_col4 = st.columns(4)
 
-            with col1:
+            with met_col1:
                 st.metric("Total Cycles", stats.get("total_cycles", 0))
-            with col2:
+            with met_col2:
                 st.metric("Final Samples", stats.get("final_samples", 0))
-            with col3:
+            with met_col3:
                 st.metric("Status", stats.get("state", "unknown").title())
-        except Exception as e:
-            st.warning(f"Could not load session stats: {e}")
+            with met_col4:
+                st.metric(
+                    "Phase",
+                    session_info.get("current_phase", "unknown")
+                    .replace("_", " ")
+                    .title(),
+                )
+        except Exception as fallback_e:
+            st.error(f"Error loading session metrics: {fallback_e}")
 
-        st.markdown("---")
+    # ========== TIME-SERIES CHARTS EXPANDER ==========
+    try:
+        # Get convergence metrics for time-series data
+        convergence_metrics = convergence.get("metrics", {})
 
-        # Current Selection Display
-        st.markdown("#### Current Selection")
-        concentrations = get_latest_sample_concentrations(st.session_state.session_id)
+        if convergence_metrics.get("has_sufficient_data"):
+            with st.expander("📈 Convergence Metrics Over Time", expanded=False):
+                import plotly.graph_objects as go
 
-        if not concentrations:
-            st.info("No samples recorded yet. Waiting for participant to start...")
+                col_chart1, col_chart2 = st.columns(2)
+
+                with col_chart1:
+                    # Acquisition values over time
+                    acq_values = convergence_metrics.get("acquisition_values", [])
+                    if acq_values:
+                        fig_acq = go.Figure()
+                        fig_acq.add_trace(
+                            go.Scatter(
+                                x=list(range(1, len(acq_values) + 1)),
+                                y=acq_values,
+                                mode="lines+markers",
+                                name="Acquisition",
+                                line=dict(color="#14B8A6", width=2),
+                            )
+                        )
+                        # Add threshold line
+                        acq_thresh = thresholds.get("acquisition_threshold", 0.01)
+                        fig_acq.add_hline(
+                            y=acq_thresh,
+                            line_dash="dash",
+                            line_color="#F87171",
+                            annotation_text="Threshold",
+                        )
+                        fig_acq.update_layout(
+                            title="Acquisition Function Over Cycles",
+                            title_font=dict(size=21),
+                            xaxis_title="Cycle",
+                            yaxis_title="Acquisition Value",
+                            xaxis=dict(
+                                title_font=dict(size=21), tickfont=dict(size=18)
+                            ),
+                            yaxis=dict(
+                                title_font=dict(size=21), tickfont=dict(size=18)
+                            ),
+                            font=dict(size=18),
+                            height=300,
+                        )
+                        st.plotly_chart(fig_acq, use_container_width=True)
+
+                with col_chart2:
+                    # Best values over time
+                    best_values = convergence_metrics.get("best_values", [])
+                    if best_values:
+                        fig_best = go.Figure()
+                        fig_best.add_trace(
+                            go.Scatter(
+                                x=list(range(1, len(best_values) + 1)),
+                                y=best_values,
+                                mode="lines+markers",
+                                name="Best Value",
+                                line=dict(color="#10B981", width=2),
+                            )
+                        )
+                        fig_best.update_layout(
+                            title="Best Observed Rating Over Time",
+                            title_font=dict(size=21),
+                            xaxis_title="Cycle",
+                            yaxis_title="Rating",
+                            xaxis=dict(
+                                title_font=dict(size=21), tickfont=dict(size=18)
+                            ),
+                            yaxis=dict(
+                                title_font=dict(size=21), tickfont=dict(size=18)
+                            ),
+                            font=dict(size=18),
+                            height=300,
+                        )
+                        st.plotly_chart(fig_best, use_container_width=True)
         else:
-            # Get ingredient configs from session
-            session = get_session(st.session_state.session_id)
-            if session and "experiment_config" in session:
-                experiment_config = session["experiment_config"]
-                selected_ingredients = experiment_config.get("selected_ingredients", [])
-                ingredient_ranges = experiment_config.get("ingredient_ranges", {})
+            with st.expander("📈 Convergence Metrics Over Time", expanded=False):
+                st.info("Insufficient data for time-series analysis (need 3+ samples)")
+    except Exception as e:
+        pass  # Time-series is optional, don't break if it fails
 
-                # Display each ingredient with progress bar
-                for ingredient_name in selected_ingredients:
-                    if ingredient_name in concentrations:
-                        concentration_mM = concentrations[ingredient_name]
-
-                        # Get min/max from ingredient_ranges
-                        if ingredient_name in ingredient_ranges:
-                            min_mM = ingredient_ranges[ingredient_name].get("min", 0)
-                            max_mM = ingredient_ranges[ingredient_name].get("max", 100)
-                        else:
-                            min_mM, max_mM = 0, 100
-
-                        # Calculate percentage
-                        percentage = (
-                            (concentration_mM - min_mM) / (max_mM - min_mM)
-                        ) * 100
-                        percentage = max(0, min(100, percentage))
-
-                        # Display
-                        st.markdown(f"**{ingredient_name}**")
-                        st.progress(percentage / 100.0)
-
-                        col_conc, col_pct = st.columns(2)
-                        with col_conc:
-                            st.caption(f"{concentration_mM:.3f} mM")
-                        with col_pct:
-                            st.caption(f"{percentage:.1f}% of scale")
-
-                        st.markdown("")  # Spacing
-
-    # ========== TAB 2: RESPONSES ==========
-    with tab_responses:
-        st.markdown("### Participant Responses")
-
+    # ========== RESPONSE DATA TABLE EXPANDER ==========
+    with st.expander("📋 Response Data", expanded=False):
         # Filter controls
-        col1, col2 = st.columns([1, 3])
-        with col1:
+        filter_col1, filter_col2 = st.columns([1, 3])
+        with filter_col1:
             show_only_final = st.checkbox(
-                "Show Final Only", value=False, key="responses_filter"
+                "Show Final Only", value=True, key="filter_final"
             )
-        with col2:
-            if st.button("Refresh Data", key="responses_refresh"):
+        with filter_col2:
+            if st.button("🔄 Refresh Data", key="refresh_responses"):
                 st.rerun()
-
-        st.markdown("---")
 
         # Get samples
         try:
@@ -1884,7 +2046,7 @@ def show_moderator_monitoring():
 
             if not samples:
                 st.info(
-                    "No responses recorded yet"
+                    "No response data available yet"
                     + (" (with final=True)" if show_only_final else "")
                 )
             else:
@@ -1914,441 +2076,248 @@ def show_moderator_monitoring():
                     rows.append(row)
 
                 df = pd.DataFrame(rows)
-
-                # Display table
-                st.dataframe(
-                    df,
-                    width="stretch",
-                    hide_index=True,
-                )
-
+                st.dataframe(df, use_container_width=True, hide_index=True)
                 st.caption(f"Showing {len(df)} response(s)")
 
-                # Detailed view expander
-                with st.expander("View Detailed Response Data", expanded=False):
+                # Detailed JSON view
+                with st.expander("🔍 View Raw JSON", expanded=False):
                     for i, sample in enumerate(samples, 1):
-                        st.markdown(
-                            f"**Response {i} - Cycle {sample.get('cycle_number', '?')}**"
-                        )
+                        st.markdown(f"**Cycle {i}**")
                         st.json(sample)
-                        st.markdown("---")
-
         except Exception as e:
             st.error(f"Error loading responses: {e}")
-            import traceback
 
-            st.code(traceback.format_exc())
+    # ========== SESSION INFORMATION EXPANDER ==========
+    session_code = session_info.get("session_code", "unknown")
+    participant = st.session_state.get("participant", "unknown")
+    with st.expander("ℹ️ Session Information", expanded=False):
+        info_col1, info_col2, info_col3 = st.columns(3)
 
-    # ========== TAB 3: BO VISUALIZATION ==========
-    with tab_bo:
-        st.markdown("### Bayesian Optimization Analysis")
-        # Get session config to determine ingredient count
-        session = get_session(st.session_state.session_id)
-        if session and "experiment_config" in session:
-            num_ingredients = session["experiment_config"].get("num_ingredients", 2)
+        with info_col1:
+            st.metric("Session Code", session_code)
+            st.metric("Participant", participant)
 
-            # Display BO config summary
-            with st.expander("BO Configuration", expanded=False):
-                try:
-                    bo_config_db = get_bo_config(st.session_state.session_id)
-                    if bo_config_db:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric(
-                                "Enabled",
-                                "Yes" if bo_config_db.get("enabled") else "No",
-                            )
-                            st.metric(
-                                "Min Samples", bo_config_db.get("min_samples_for_bo", 3)
-                            )
-                        with col2:
-                            st.metric(
-                                "Acquisition",
-                                bo_config_db.get("acquisition_function", "ei").upper(),
-                            )
-                            st.metric("Kernel ν", bo_config_db.get("kernel_nu", 2.5))
-                        with col3:
-                            st.metric(
-                                "Alpha", f"{bo_config_db.get('alpha', 0.001):.6f}"
-                            )
-                            st.metric(
-                                "Random Seed", bo_config_db.get("random_state", 42)
-                            )
-                    else:
-                        st.info("No BO configuration found")
-                except Exception as e:
-                    st.warning(f"Could not load BO config: {e}")
+        with info_col2:
+            created_at = session_info.get("created_at", "")
+            created_date = created_at[:19] if created_at else "N/A"
+            st.metric("Created", created_date)
+            current_phase = session_info.get("current_phase", "unknown")
+            st.metric("Phase", current_phase.replace("_", " ").title())
 
-            st.markdown("---")
+        with info_col3:
+            st.metric("Ingredients", num_ingredients)
+            questionnaire_type = experiment_config.get("questionnaire_type", "unknown")
+            st.metric("Questionnaire", questionnaire_type.title())
 
-            # ========== CONVERGENCE STATUS PANEL ==========
-            st.markdown("### Convergence Status")
+        st.markdown("---")
 
-            try:
-                from bayesian_optimizer import (
-                    check_convergence,
-                    get_convergence_metrics,
-                )
+        # Subject access section
+        st.markdown("### Subject Access")
+        display_subject_access_section(session_code)
 
-                # Get stopping criteria from session config
-                experiment_config = session.get("experiment_config", {})
-                bo_config_full = experiment_config.get("bayesian_optimization", {})
-                stopping_criteria = bo_config_full.get("stopping_criteria")
+    # ========== BO CONFIGURATION SUMMARY EXPANDER ==========
+    with st.expander("⚙️ BO Configuration Summary", expanded=False):
+        try:
+            bo_config_db = get_bo_config(st.session_state.session_id)
 
-                # Check convergence
-                convergence = check_convergence(
-                    st.session_state.session_id, stopping_criteria
-                )
-                metrics = convergence["metrics"]
+            if bo_config_db and bo_config_db.get("enabled"):
+                cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
 
-                # Status header with emoji
-                status_emoji = convergence["status_emoji"]
-                recommendation = convergence["recommendation"]
+                with cfg_col1:
+                    st.metric("Enabled", "Yes")
+                    st.metric("Min Samples", bo_config_db.get("min_samples_for_bo", 3))
 
-                # Color coding
-                if recommendation == "stop_recommended":
-                    status_color = "🟢"
-                    alert_type = "success"
-                elif recommendation == "consider_stopping":
-                    status_color = "🟡"
-                    alert_type = "warning"
-                else:
-                    status_color = "🔴"
-                    alert_type = "info"
-
-                # Display status
-                st.markdown(f"## {status_emoji} Status: {convergence['reason']}")
-
-                # Metrics display
-                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-                with metric_col1:
-                    st.metric("Current Cycle", metrics.get("current_cycle", 0))
-
-                with metric_col2:
+                with cfg_col2:
+                    acq = bo_config_db.get("acquisition_function", "ei").upper()
+                    st.metric("Acquisition Function", acq)
                     st.metric(
-                        "Cycle Range",
-                        f"{convergence['thresholds']['min_cycles']}-{convergence['thresholds']['max_cycles']}",
+                        "Kernel ν (smoothness)",
+                        f"{bo_config_db.get('kernel_nu', 2.5):.1f}",
                     )
 
-                with metric_col3:
-                    acq_val = metrics.get("max_acquisition")
-                    acq_thresh = convergence["thresholds"]["acquisition_threshold"]
-                    if acq_val is not None:
-                        st.metric(
-                            "Acquisition (EI/UCB)",
-                            f"{acq_val:.4f}",
-                            delta=f"Threshold: {acq_thresh:.4f}",
-                            delta_color="inverse",
+                with cfg_col3:
+                    alpha = bo_config_db.get("alpha", 1e-6)
+                    st.metric("Alpha (regularization)", f"{alpha:.6f}")
+                    seed = bo_config_db.get("random_state")
+                    st.metric("Random Seed", seed if seed else "None")
+
+                # Stopping criteria
+                if stopping_criteria:
+                    st.markdown("---")
+                    st.markdown("**Stopping Criteria:**")
+                    crit_col1, crit_col2 = st.columns(2)
+
+                    with crit_col1:
+                        st.markdown(
+                            f"- Min Cycles: {stopping_criteria.get('min_cycles', 3)}"
                         )
-                    else:
-                        st.metric("Acquisition", "N/A")
-
-                with metric_col4:
-                    stability = metrics.get("recent_stability")
-                    stab_thresh = convergence["thresholds"]["stability_threshold"]
-                    if stability is not None:
-                        st.metric(
-                            "Stability (σ)",
-                            f"{stability:.3f}",
-                            delta=f"Threshold: {stab_thresh:.2f}",
-                            delta_color="inverse",
+                        st.markdown(
+                            f"- Max Cycles: {stopping_criteria.get('max_cycles', 30)}"
                         )
-                    else:
-                        st.metric("Stability", "N/A (< 5 samples)")
+                        st.markdown(
+                            f"- Acquisition Threshold: {stopping_criteria.get('acquisition_threshold', 0.01):.3f}"
+                        )
 
-                # Progress bar
-                current = metrics.get("current_cycle", 0)
-                max_cycles = convergence["thresholds"]["max_cycles"]
-                progress = min(1.0, current / max_cycles) if max_cycles > 0 else 0
-                st.progress(progress)
-                st.caption(
-                    f"Progress: {current}/{max_cycles} cycles ({progress*100:.1f}%)"
-                )
+                    with crit_col2:
+                        st.markdown(
+                            f"- Stability Threshold: {stopping_criteria.get('stability_threshold', 0.05):.3f}"
+                        )
+                        st.markdown(
+                            f"- Confidence Level: {stopping_criteria.get('confidence_level', 0.8):.1%}"
+                        )
+                        st.markdown(
+                            f"- Window Size: {stopping_criteria.get('stability_window', 3)}"
+                        )
+            else:
+                st.info("Bayesian Optimization is not enabled for this session")
+        except Exception as e:
+            st.warning(f"Could not load BO configuration: {e}")
 
-                # Criteria checklist
-                with st.expander("Convergence Criteria Details", expanded=False):
-                    st.markdown("**Criteria Met:**")
-                    for criterion in convergence.get("criteria_met", []):
-                        st.markdown(f"- ✅ {criterion}")
+    # ========== EXPORT DATA BUTTON ==========
+    st.markdown("---")
+    export_col1, export_col2, export_col3 = st.columns([1, 2, 1])
+    with export_col2:
+        if st.button(
+            "💾 Export Session Data", type="primary", use_container_width=True
+        ):
+            st.session_state["show_export_options"] = True
 
-                    if convergence.get("criteria_failed"):
-                        st.markdown("**Criteria Not Met:**")
-                        for criterion in convergence.get("criteria_failed", []):
-                            st.markdown(f"- ❌ {criterion}")
+    # Show export options if button clicked
+    if st.session_state.get("show_export_options", False):
+        with st.expander("📁 Export Options", expanded=True):
+            exp_col1, exp_col2 = st.columns(2)
 
-                    st.markdown(
-                        f"**Confidence:** {convergence.get('confidence', 0)*100:.1f}%"
-                    )
-
-                # Status message based on recommendation
-                if recommendation == "stop_recommended":
-                    st.success(
-                        "✅ Session has converged! Consider ending the session to avoid participant fatigue."
-                    )
-                elif recommendation == "consider_stopping":
-                    st.warning("⚠️ Session is nearing convergence. Monitor closely.")
-                else:
-                    st.info(
-                        "📊 Session is still optimizing. Continue collecting samples."
-                    )
-
-                # End Session button - Always available to moderator
-                st.markdown("---")
-                if st.button(
-                    "🛑 End Session Now", type="primary", key="end_session_manual"
-                ):
-                    # Transition to COMPLETE phase using proper state machine method
+            with exp_col1:
+                st.markdown("**CSV Export**")
+                st.caption("Complete dataset with all responses")
+                if st.button("Generate CSV", key="gen_csv"):
                     try:
-                        # Use transition() which handles validation, DB updates, and session state
+                        csv_data = export_session_csv(session_code)
+                        if csv_data:
+                            st.download_button(
+                                label="⬇️ Download CSV",
+                                data=csv_data,
+                                file_name=f"robotaste_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                mime="text/csv",
+                                key="dl_csv",
+                            )
+                            st.success("CSV ready!")
+                        else:
+                            st.warning("No data to export")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+            with exp_col2:
+                st.markdown("**JSON Export**")
+                st.caption("Raw database dump")
+                if st.button("Generate JSON", key="gen_json"):
+                    try:
+                        import json
+
+                        json_data = {
+                            "session": session,
+                            "samples": get_session_samples(
+                                st.session_state.session_id, only_final=False
+                            ),
+                            "bo_config": get_bo_config(st.session_state.session_id),
+                            "exported_at": datetime.now().isoformat(),
+                        }
+                        st.download_button(
+                            label="⬇️ Download JSON",
+                            data=json.dumps(json_data, indent=2, default=str),
+                            file_name=f"robotaste_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                            mime="application/json",
+                            key="dl_json",
+                        )
+                        st.success("JSON ready!")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+            # Preview table
+            st.markdown("---")
+            st.markdown("**Preview (first 10 rows)**")
+            try:
+                samples = get_session_samples(
+                    st.session_state.session_id, only_final=False
+                )
+                if samples:
+                    preview_rows = []
+                    for sample in samples[:10]:
+                        row = {"Cycle": sample.get("cycle_number", "?")}
+                        for ing_name, conc in sample.get(
+                            "ingredient_concentration", {}
+                        ).items():
+                            row[f"{ing_name}"] = f"{conc:.2f}"
+                        for q_key, q_val in sample.get(
+                            "questionnaire_answer", {}
+                        ).items():
+                            row[q_key] = q_val
+                        preview_rows.append(row)
+                    st.dataframe(
+                        pd.DataFrame(preview_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("No data available")
+            except Exception as e:
+                st.warning(f"Preview error: {e}")
+
+    # ========== END SESSION CONFIRMATION MODAL ==========
+    if st.session_state.get("show_end_session_modal", False):
+
+        @st.dialog("End Session Confirmation")
+        def show_end_session_dialog():
+            st.warning("⚠️ Are you sure you want to end this session?")
+
+            # Show brief summary
+            st.markdown(
+                f"""
+            **Session:** {session_code}
+            **Current Cycle:** {current_cycle if 'current_cycle' in locals() else 'N/A'}
+            **Best Value:** {best_value if 'best_value' in locals() else 'N/A'}
+            """
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(
+                    "✓ Yes, End Session", type="primary", use_container_width=True
+                ):
+                    try:
+                        from state_machine import (
+                            ExperimentStateMachine,
+                            ExperimentPhase,
+                            InvalidTransitionError,
+                        )
+
                         success = ExperimentStateMachine.transition(
                             ExperimentPhase.COMPLETE, st.session_state.session_id
                         )
 
                         if success:
                             st.success("Session ended successfully!")
+                            st.session_state["show_end_session_modal"] = False
                             st.rerun()
                         else:
-                            logger.error(
-                                f"Failed to end session {st.session_state.session_id}: transition returned False"
-                            )
                             st.error("Failed to end session: Invalid state transition")
-
                     except InvalidTransitionError as e:
-                        # Log the specific transition error
-                        logger.error(
-                            f"Invalid transition when ending session {st.session_state.session_id}: {e}"
-                        )
-                        st.error(f"Cannot end session from current phase. Details: {e}")
-
+                        st.error(f"Cannot end session: {e}")
                     except Exception as e:
-                        # Log unexpected errors with full traceback
-                        logger.error(
-                            f"Unexpected error ending session {st.session_state.session_id}: {e}",
-                            exc_info=True,
-                        )
                         st.error(f"Failed to end session: {e}")
 
-                # Real-time metrics chart (if sufficient data)
-                if metrics.get("has_sufficient_data"):
-                    with st.expander("Convergence Metrics Over Time", expanded=False):
-                        import plotly.graph_objects as go
+            with col2:
+                if st.button("← Cancel", use_container_width=True):
+                    st.session_state["show_end_session_modal"] = False
+                    st.rerun()
 
-                        # Acquisition values over time
-                        acq_values = metrics.get("acquisition_values", [])
-                        if acq_values:
-                            fig_acq = go.Figure()
-                            fig_acq.add_trace(
-                                go.Scatter(
-                                    y=acq_values,
-                                    mode="lines+markers",
-                                    name="Acquisition Value",
-                                    line=dict(color="blue", width=2),
-                                )
-                            )
-                            fig_acq.add_hline(
-                                y=acq_thresh,
-                                line_dash="dash",
-                                line_color="red",
-                                annotation_text="Convergence Threshold",
-                            )
-                            fig_acq.update_layout(
-                                title="Acquisition Function Over Cycles",
-                                xaxis_title="BO Suggestion Number",
-                                yaxis_title="Acquisition Value",
-                                height=300,
-                            )
-                            st.plotly_chart(fig_acq, use_container_width=True)
-
-                        # Best values over time
-                        best_values = metrics.get("best_values", [])
-                        if best_values:
-                            fig_best = go.Figure()
-                            fig_best.add_trace(
-                                go.Scatter(
-                                    y=best_values,
-                                    mode="lines+markers",
-                                    name="Best Observed Value",
-                                    line=dict(color="green", width=2),
-                                )
-                            )
-                            fig_best.update_layout(
-                                title="Best Observed Rating Over Time",
-                                xaxis_title="Cycle",
-                                yaxis_title="Rating",
-                                height=300,
-                            )
-                            st.plotly_chart(fig_best, use_container_width=True)
-
-            except Exception as e:
-                st.error(f"Error loading convergence status: {e}")
-                import traceback
-
-                with st.expander("Error Details"):
-                    st.code(traceback.format_exc())
-
-            st.markdown("---")
-
-            # Route to appropriate visualization
-            if num_ingredients == 1:
-                single_bo()
-            elif num_ingredients == 2:
-                binary_bo()
-            else:
-                st.warning(
-                    f"BO visualization not yet implemented for {num_ingredients} ingredients"
-                )
-                st.info("Supported: 1 (single ingredient) or 2 (binary mixture)")
-        else:
-            st.error("Could not load session configuration")
-
-    # ========== TAB 4: EXPORT ==========
-    with tab_export:
-        st.markdown("### Data Export")
-
-        # Export options
-        st.markdown("#### Export Formats")
-
-        export_col1, export_col2 = st.columns(2)
-
-        with export_col1:
-            st.markdown("**CSV Export**")
-            st.caption("Complete dataset with all responses and concentrations")
-
-            if st.button(
-                "Generate CSV Export", key="export_csv_button", width="stretch"
-            ):
-                try:
-                    session_code = st.session_state.get(
-                        "session_code", "default_session"
-                    )
-                    csv_data = export_session_csv(session_code)
-
-                    if csv_data:
-                        st.download_button(
-                            label="Download CSV File",
-                            data=csv_data,
-                            file_name=f"robotaste_session_{session_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            key="download_csv_button",
-                            width="stretch",
-                        )
-                        st.success("CSV export ready!")
-                    else:
-                        st.warning("No data found to export for this session.")
-                except Exception as e:
-                    st.error(f"Error exporting CSV: {e}")
-
-        with export_col2:
-            st.markdown("**JSON Export**")
-            st.caption("Raw database dump in JSON format")
-
-            if st.button(
-                "Generate JSON Export",
-                key="export_json_button",
-                width="stretch",
-            ):
-                try:
-                    import json
-
-                    # Get all session data
-                    session = get_session(st.session_state.session_id)
-                    samples = get_session_samples(
-                        st.session_state.session_id, only_final=False
-                    )
-                    bo_config_db = get_bo_config(st.session_state.session_id)
-
-                    export_data = {
-                        "session": session,
-                        "samples": samples,
-                        "bo_config": bo_config_db,
-                        "exported_at": datetime.now().isoformat(),
-                    }
-
-                    json_data = json.dumps(export_data, indent=2, default=str)
-
-                    st.download_button(
-                        label="Download JSON File",
-                        data=json_data,
-                        file_name=f"robotaste_session_{st.session_state.get('session_code', 'default')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json",
-                        key="download_json_button",
-                        width="stretch",
-                    )
-                    st.success("JSON export ready!")
-                except Exception as e:
-                    st.error(f"Error exporting JSON: {e}")
-
-        st.markdown("---")
-
-        # Preview section
-        st.markdown("#### Export Preview")
-
-        try:
-            samples = get_session_samples(st.session_state.session_id, only_final=False)
-
-            if samples:
-                preview_count = min(10, len(samples))
-                st.caption(f"Showing first {preview_count} of {len(samples)} responses")
-
-                # Build preview DataFrame
-                preview_rows = []
-                for sample in samples[:preview_count]:
-                    row = {
-                        "Cycle": sample.get("cycle_number", "?"),
-                        "Timestamp": (
-                            sample.get("created_at", "")[:19]
-                            if sample.get("created_at")
-                            else ""
-                        ),
-                    }
-
-                    # Add concentrations
-                    for ing_name, conc in sample.get(
-                        "ingredient_concentration", {}
-                    ).items():
-                        row[f"{ing_name}"] = f"{conc:.2f}"
-
-                    # Add questionnaire
-                    for q_key, q_val in sample.get("questionnaire_answer", {}).items():
-                        row[q_key] = q_val
-
-                    row["Final"] = "Yes" if sample.get("is_final") else "No"
-
-                    preview_rows.append(row)
-
-                preview_df = pd.DataFrame(preview_rows)
-                st.dataframe(preview_df, width="stretch", hide_index=True)
-            else:
-                st.info("No data available for preview")
-        except Exception as e:
-            st.warning(f"Could not generate preview: {e}")
-
-        # Export information
-        with st.expander("What data gets exported?", expanded=False):
-            st.markdown(
-                """
-            **CSV Export includes:**
-            - Session ID and session code
-            - Participant information
-            - Cycle numbers and timestamps
-            - Ingredient concentrations (mM values)
-            - Questionnaire responses
-            - Final response indicators
-            - Interface type and mapping method
-
-            **JSON Export includes:**
-            - Complete session configuration
-            - All sample data with metadata
-            - Bayesian optimization configuration
-            - Raw database records
-
-            **Data is organized chronologically** for easy analysis in research tools like R, Python, or Excel.
-            """
-            )
+        show_end_session_dialog()
 
 
 def moderator_interface():
+    from css_style import STYLE
+
+    st.markdown(STYLE, unsafe_allow_html=True)
     if "phase" not in st.session_state:
         from state_machine import recover_phase_from_database
 
@@ -2366,27 +2335,82 @@ def moderator_interface():
             # Normalize to "trial_started" for moderator UI to show monitoring
             st.session_state.phase = "trial_started"
     if ExperimentStateMachine.should_show_setup():
+        # Add scoped CSS for setup buttons BEFORE the conditional
+        st.markdown(
+            """
+            <style>
+            /* Scoped to setup buttons container only */
+            .setup-buttons .stButton > button {
+                width: 100% !important;
+                height: 500px !important;
+                min-height: 500px !important;
+
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+
+                border-radius: 16px !important;
+                border: 1px solid #E5E7EB !important;
+                background-color: #FFFFFF !important;
+
+                transition: all 0.3s ease !important;
+                padding: 2rem !important;
+                font-size: 2rem !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         # Initialize setup type in session state
         if "setup_type" not in st.session_state:
             st.session_state.setup_type = None
 
-        # Buttons to select setup type
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Single Ingredient", width="stretch"):
-                st.session_state.setup_type = "single"
-        with col2:
-            if st.button("Binary Mixture", width="stretch"):
-                st.session_state.setup_type = "binary"
+        # Only show buttons if no selection has been made
+        if st.session_state.setup_type is None:
+            # Create container div with unique class
+            st.markdown('<div class="setup-buttons">', unsafe_allow_html=True)
 
-        # Render setup UI based on selection (unconditionally)
-        if st.session_state.setup_type == "single":
-            show_single_ingredient_setup()
-        elif st.session_state.setup_type == "binary":
-            show_binary_mixture_setup()
+            # Use columns for full-width buttons
+            col1, col2 = st.columns(2, gap="large")
+
+            with col1:
+                if st.button(
+                    "🧪 Single Ingredient",
+                    key="btn_single",
+                    use_container_width=True,
+                    type="secondary",
+                    help="Configure experiment with a single ingredient",
+                ):
+                    st.session_state.setup_type = "single"
+                    st.rerun()
+
+            with col2:
+                if st.button(
+                    "⚗️ Binary Mixture",
+                    key="btn_binary",
+                    use_container_width=True,
+                    type="secondary",
+                    help="Configure experiment with two-ingredient mixture",
+                ):
+                    st.session_state.setup_type = "binary"
+                    st.rerun()
+
+            # Close container div
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Show setup UI only after selection (buttons will be hidden)
+        else:
+            # Render setup UI based on selection
+            if st.session_state.setup_type == "single":
+                show_single_ingredient_setup()
+            elif st.session_state.setup_type == "binary":
+                show_binary_mixture_setup()
     elif ExperimentStateMachine.should_show_monitoring():
         show_moderator_monitoring()
     else:
         # If not setup and not monitoring, must be COMPLETE phase
         from completion_screens import show_moderator_completion_summary
+
         show_moderator_completion_summary()

@@ -723,13 +723,13 @@ def get_questionnaire_type_id(questionnaire_type_name: str) -> Optional[int]:
     Get questionnaire_type_id from questionnaire_types table.
 
     Args:
-        questionnaire_type_name: Name of questionnaire type (e.g., 'hedonic_preference')
+        questionnaire_type_name: Name of questionnaire type (e.g., 'hedonic')
 
     Returns:
         Integer ID from questionnaire_types table, or None if not found
 
     Example:
-        >>> type_id = get_questionnaire_type_id('hedonic_preference')
+        >>> type_id = get_questionnaire_type_id('hedonic')
         >>> print(type_id)
         1
     """
@@ -767,7 +767,7 @@ def extract_target_variable(
 
     Args:
         questionnaire_answer: Questionnaire response dict
-        questionnaire_type: Type name (e.g., "hedonic_preference")
+        questionnaire_type: Type name (e.g., "hedonic")
 
     Returns:
         Target variable value as float, or None if not extractable
@@ -775,7 +775,7 @@ def extract_target_variable(
     Example:
         >>> target = extract_target_variable(
         ...     {"overall_liking": 7, "sweetness": 6},
-        ...     "hedonic_preference"
+        ...     "hedonic"
         ... )
         >>> print(target)
         7.0
@@ -814,7 +814,9 @@ def extract_target_variable(
         target_key = bayesian_config.get("variable")
 
         if not target_key:
-            logger.error(f"No bayesian_target.variable defined for questionnaire type '{questionnaire_type}'")
+            logger.error(
+                f"No bayesian_target.variable defined for questionnaire type '{questionnaire_type}'"
+            )
             logger.error(f"Available config keys: {list(q_def.keys())}")
             logger.error(f"Bayesian config: {bayesian_config}")
             return None
@@ -868,15 +870,23 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
 
         # Get expected ingredient order from experiment config
         experiment_config = session.get("experiment_config", {})
-        expected_ingredients = [ing["name"] for ing in experiment_config.get("ingredients", [])]
+        expected_ingredients = [
+            ing["name"] for ing in experiment_config.get("ingredients", [])
+        ]
 
         if not expected_ingredients:
-            logger.warning(f"No ingredients defined in experiment config for session {session_id}")
+            logger.warning(
+                f"No ingredients defined in experiment config for session {session_id}"
+            )
             # Fallback: try to extract from first sample (backward compatibility)
             samples = get_session_samples(session_id, only_final=only_final)
             if samples and samples[0].get("ingredient_concentration"):
-                expected_ingredients = list(samples[0]["ingredient_concentration"].keys())
-                logger.info(f"Using ingredient order from first sample: {expected_ingredients}")
+                expected_ingredients = list(
+                    samples[0]["ingredient_concentration"].keys()
+                )
+                logger.info(
+                    f"Using ingredient order from first sample: {expected_ingredients}"
+                )
             else:
                 return pd.DataFrame()
 
@@ -890,6 +900,7 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         target_column_name = "target_value"  # Default fallback
         try:
             from questionnaire_config import QUESTIONNAIRE_CONFIGS
+
             questionnaire_type_normalized = questionnaire_type.strip().lower()
             q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
             if not q_def:
@@ -901,7 +912,9 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
                     target_column_name = target_key
                     logger.info(f"Using target column name: '{target_column_name}'")
         except Exception as e:
-            logger.warning(f"Could not get target variable name from config: {e}, using default 'target_value'")
+            logger.warning(
+                f"Could not get target variable name from config: {e}, using default 'target_value'"
+            )
 
         # Get samples
         samples = get_session_samples(session_id, only_final=only_final)
@@ -927,7 +940,9 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
                     if ing_name in concentrations:
                         row[ing_name] = concentrations[ing_name]
                     else:
-                        logger.warning(f"Missing ingredient {ing_name} in sample {sample.get('sample_id', 'unknown')}")
+                        logger.warning(
+                            f"Missing ingredient {ing_name} in sample {sample.get('sample_id', 'unknown')}"
+                        )
                         row[ing_name] = 0.0  # Fallback to zero if missing
 
                 row[target_column_name] = target
@@ -938,11 +953,15 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         # Verify column order matches expected (sanity check)
         expected_cols = expected_ingredients + [target_column_name]
         if not df.empty and list(df.columns) != expected_cols:
-            logger.warning(f"Column order mismatch! Expected {expected_cols}, got {list(df.columns)}")
+            logger.warning(
+                f"Column order mismatch! Expected {expected_cols}, got {list(df.columns)}"
+            )
             # Reorder columns to match expectation
             df = df[expected_cols]
 
-        logger.info(f"Retrieved {len(df)} training samples for session {session_id} with columns: {list(df.columns)}")
+        logger.info(
+            f"Retrieved {len(df)} training samples for session {session_id} with columns: {list(df.columns)}"
+        )
         return df
 
     except Exception as e:
@@ -1193,7 +1212,10 @@ def update_session_with_config(
                 # Generate a unique session code
                 import random
                 import string
-                session_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+                session_code = "".join(
+                    random.choices(string.ascii_uppercase + string.digits, k=6)
+                )
                 cursor.execute(
                     """
                     INSERT INTO sessions (session_id, session_code, state, current_phase)
@@ -1293,6 +1315,7 @@ def update_session_with_config(
     except Exception as e:
         logger.error(f"Failed to update session: {e}")
         import traceback
+
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
 

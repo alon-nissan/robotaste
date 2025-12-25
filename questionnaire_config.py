@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 
 QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
     # ========================================================================
-    # DEFAULT: Continuous Hedonic Preference Scale
+    # DEFAULT: Continuous Hedonic Scale
     # Continuous 1-9 scale for fine-grained preference measurement
     # ========================================================================
-    "hedonic_preference_continuous": {
-        "name": "Hedonic Preference Test (Continuous)",
+    "hedonic_continuous": {
+        "name": "Hedonic Test (Continuous)",
         "description": "Continuous 9-point hedonic scale with 0.01 precision for detailed preference measurement",
         "version": "2.0",
         "citation": "Peryam & Pilgrim (1957) - Hedonic scale method of measuring food preferences",
@@ -70,11 +70,11 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
         },
     },
     # ========================================================================
-    # Discrete Hedonic Preference (9-point scale)
+    # Discrete Hedonic (9-point scale)
     # Standard discrete scale with pillbox/radio button interface
     # ========================================================================
-    "hedonic_preference_discrete": {
-        "name": "Hedonic Preference Test (9-Point Discrete)",
+    "hedonic_discrete": {
+        "name": "Hedonic Test (9-Point Discrete)",
         "description": "Standard 9-point discrete hedonic scale with radio button selection",
         "version": "1.1",
         "citation": "Peryam & Pilgrim (1957) - Hedonic scale method of measuring food preferences",
@@ -309,14 +309,14 @@ def get_questionnaire_config(questionnaire_type: str) -> Optional[Dict[str, Any]
         logger.warning(
             f"Questionnaire type '{questionnaire_type}' not found. Using default."
         )
-        return QUESTIONNAIRE_CONFIGS.get("hedonic_preference_continuous")
+        return QUESTIONNAIRE_CONFIGS.get("hedonic_continuous")
 
     return config
 
 
 def get_default_questionnaire_type() -> str:
     """Return the default questionnaire type."""
-    return "hedonic_preference_continuous"
+    return "hedonic_continuous"
 
 
 def list_available_questionnaires() -> List[tuple]:

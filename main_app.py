@@ -32,71 +32,31 @@ from session_manager import (
     get_session_info,
     sync_session_state,
 )
+from viewport_utils import initialize_viewport_detection, get_responsive_font_scale
 
 # Page configuration
 st.set_page_config(
     page_title="Taste Experiment System",
     page_icon="",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="auto",
 )
 
-# Consolidated minimal CSS: accessible, low-visual-noise styles for experiments
-st.markdown(
-    """
-<style>
-    :root {
-        --primary-color: #4f46e5;
-        --text-primary: #111827;
-        --bg-primary: #ffffff;
-        --border-color: #e5e7eb;
-        --shadow-light: rgba(0,0,0,0.06);
-    }
+# Initialize viewport detection EARLY (before CSS)
+# This must be done before rendering CSS that depends on viewport
+if "viewport_initialized" not in st.session_state:
+    viewport = initialize_viewport_detection()
+    st.session_state.viewport_initialized = True
+else:
+    viewport = st.session_state.viewport_data
 
-    /* Dark-mode variable overrides */
-    [data-theme="dark"], @media (prefers-color-scheme: dark) {
-        :root { --text-primary: #f9fafb; --bg-primary: #1f2937; --border-color: #4b5563; --shadow-light: rgba(255,255,255,0.04); }
-    }
+# Get font scale for responsive typography
+font_scale = get_responsive_font_scale()
 
-    .main-header { padding: 1rem; background: var(--primary-color); color: white; border-radius: 8px; text-align: center; margin-bottom: 1rem; }
-    .main-header h1 { margin: 0; font-weight: 600; font-size: 1.25rem; }
+# Modern card-based CSS with balanced color palette and larger fonts
+from css_style import STYLE
 
-    button:focus, input:focus, select:focus { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-
-    .stButton > button { border-radius: 6px; border: 1px solid var(--border-color); padding: 0.45rem 0.75rem; background: transparent; }
-    .stButton > button:hover { transform: translateY(-1px); box-shadow: 0 2px 6px var(--shadow-light); }
-
-    .stTextInput input, .stTextInput > div > div > input { border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); padding: 0.35rem; }
-
-    .stSelectbox select, .stSelectbox > div > div > select { border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); padding: 0.25rem; }
-
-    .stTabs [data-baseweb="tab"] { padding: 0.5rem 1rem; border-radius: 6px 6px 0 0; }
-
-    [data-testid="metric-container"] { padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); }
-
-    .stDataFrame { border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
-    .stAlert { border-radius: 8px; border: 1px solid var(--border-color); }
-
-    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-    .skip-link { position: absolute; top: -40px; left: 6px; background: var(--primary-color); color: white; padding: 8px; border-radius: 4px; z-index: 1000; }
-
-    @media (max-width: 768px) { .main-header { padding: 0.75rem; } .main-header h1 { font-size: 1rem; } }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# Apply dark mode CSS if enabled by user (minimal override)
-if st.session_state.get("force_dark_mode", False):
-    st.markdown(
-        """
-        <style>
-        /* Minimal dark-mode hint: prefer dark color-scheme */
-        .stApp { color-scheme: dark; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+st.markdown(STYLE, unsafe_allow_html=True)
 
 # Initialize database only once per session
 # TODO: Add database health monitoring and automatic backup
@@ -142,7 +102,7 @@ def add_accessibility_features():
             """
         <style>
             :root {
-                --primary-color: #0066cc !important;
+                --primary-color: #6D28D9 !important;
                 --success-color: #008000 !important;
                 --warning-color: #ff8800 !important;
                 --error-color: #cc0000 !important;
@@ -150,21 +110,16 @@ def add_accessibility_features():
                 --bg-primary: #ffffff !important;
                 --border-color: #333333 !important;
             }
-            
-            [data-theme="dark"] {
-                --text-primary: #ffffff !important;
-                --bg-primary: #000000 !important;
-                --border-color: #cccccc !important;
-            }
-            
-            .main-header, .status-card, .success-card, .warning-card, .metric-card {
+
+            .main-header, .card, [data-testid="metric-container"] {
                 border: 2px solid var(--text-primary) !important;
             }
-            
+
             button, input, select {
                 border: 2px solid var(--text-primary) !important;
                 background: var(--bg-primary) !important;
                 color: var(--text-primary) !important;
+                font-size: 1.25rem !important;
             }
         </style>
         """,
@@ -204,6 +159,7 @@ def main():
         if role == "moderator":
             # Get session by code, then extract session_id for syncing
             from sql_handler import get_session_by_code
+
             session_info = get_session_by_code(session_code)
             if session_info and session_info.get("state") == "active":
                 sync_session_state(session_info["session_id"], "moderator")

@@ -121,7 +121,9 @@ def sync_session_state(session_id: str, role: str) -> bool:
 
         # Store session info in Streamlit session state
         st.session_state.session_id = session_id
-        st.session_state.session_code = session_info.get("session_code", "")  # Get 6-char code from DB
+        st.session_state.session_code = session_info.get(
+            "session_code", ""
+        )  # Get 6-char code from DB
         st.session_state.session_info = session_info
         st.session_state.device_role = role
         st.session_state.last_sync = datetime.now()
@@ -141,7 +143,7 @@ def sync_session_state(session_id: str, role: str) -> bool:
             # Store full experiment_config for fallback checks in subject_interface
             st.session_state.experiment_config = experiment_config
             st.session_state.questionnaire_type = session_info.get(
-                "questionnaire_name", "hedonic_preference"
+                "questionnaire_name", "hedonic"
             )
             st.session_state.moderator_name = experiment_config.get(
                 "moderator_name", "Moderator"
@@ -169,7 +171,7 @@ def sync_session_state(session_id: str, role: str) -> bool:
             st.session_state.num_ingredients = 2
             st.session_state.method = "logarithmic"
             st.session_state.ingredients = []
-            st.session_state.questionnaire_type = "hedonic_preference"
+            st.session_state.questionnaire_type = "hedonic"
             st.session_state.moderator_name = st.session_state.get(
                 "moderator_name", "Moderator"
             )
@@ -205,7 +207,10 @@ def get_base_url() -> str:
         hostname = socket.gethostname()
 
         # Check if running on streamlit.app (cloud deployment)
-        if "streamlit" in hostname.lower() or st.get_option("browser.serverAddress") == "robotaste.streamlit.app":
+        if (
+            "streamlit" in hostname.lower()
+            or st.get_option("browser.serverAddress") == "robotaste.streamlit.app"
+        ):
             return "https://robotaste.streamlit.app"
 
         # For local development, try to get the actual server address and port
@@ -220,7 +225,9 @@ def get_base_url() -> str:
             return f"http://localhost:{server_port}"
 
     except Exception as e:
-        logger.warning(f"Could not detect environment, defaulting to Streamlit Cloud: {e}")
+        logger.warning(
+            f"Could not detect environment, defaulting to Streamlit Cloud: {e}"
+        )
         # Default to production URL if detection fails
         return "https://robotaste.streamlit.app"
 
@@ -324,4 +331,6 @@ def display_subject_access_section(session_code: str, base_url: Optional[str] = 
     with col2:
         st.markdown("**Share this link with participants:**")
         st.markdown(f"[{subject_url}]({subject_url})")
-        st.caption("Scan the QR code or share the link above to allow subjects to join this session.")
+        st.caption(
+            "Scan the QR code or share the link above to allow subjects to join this session."
+        )

@@ -222,7 +222,9 @@ def get_adaptive_kappa(
     decay_progress = (progress - exploration_budget) / (1.0 - exploration_budget)
 
     # Linear interpolation from kappa_exploration to kappa_exploitation
-    kappa = kappa_exploration - (kappa_exploration - kappa_exploitation) * decay_progress
+    kappa = (
+        kappa_exploration - (kappa_exploration - kappa_exploitation) * decay_progress
+    )
 
     return kappa
 
@@ -321,7 +323,7 @@ def get_bo_config_from_experiment(experiment_config: Dict[str, Any]) -> Dict[str
     Example:
         >>> experiment_config = {
         ...     "ingredients": [...],
-        ...     "questionnaire_type": "hedonic_preference",
+        ...     "questionnaire_type": "hedonic",
         ...     "bayesian_optimization": {
         ...         "acquisition_function": "ucb",
         ...         "ucb_kappa": 3.0
@@ -690,7 +692,11 @@ class RoboTasteBO:
                 xi_exploration = self.config.get("xi_exploration", 0.1)
                 xi_exploitation = self.config.get("xi_exploitation", 0.01)
                 acq_kwargs["xi"] = get_adaptive_xi(
-                    current_cycle, max_cycles, exploration_budget, xi_exploration, xi_exploitation
+                    current_cycle,
+                    max_cycles,
+                    exploration_budget,
+                    xi_exploration,
+                    xi_exploitation,
                 )
                 logger.info(
                     f"Adaptive EI: cycle {current_cycle}/{max_cycles}, "
@@ -701,7 +707,11 @@ class RoboTasteBO:
                 kappa_exploration = self.config.get("kappa_exploration", 3.0)
                 kappa_exploitation = self.config.get("kappa_exploitation", 1.0)
                 acq_kwargs["kappa"] = get_adaptive_kappa(
-                    current_cycle, max_cycles, exploration_budget, kappa_exploration, kappa_exploitation
+                    current_cycle,
+                    max_cycles,
+                    exploration_budget,
+                    kappa_exploration,
+                    kappa_exploitation,
                 )
                 logger.info(
                     f"Adaptive UCB: cycle {current_cycle}/{max_cycles}, "
@@ -734,9 +744,13 @@ class RoboTasteBO:
         # Prepare acquisition parameters for result
         acquisition_params = {}
         if acquisition == "ei":
-            acquisition_params["xi"] = acq_kwargs.get("xi", self.config.get("ei_xi", 0.01))
+            acquisition_params["xi"] = acq_kwargs.get(
+                "xi", self.config.get("ei_xi", 0.01)
+            )
         elif acquisition == "ucb":
-            acquisition_params["kappa"] = acq_kwargs.get("kappa", self.config.get("ucb_kappa", 2.0))
+            acquisition_params["kappa"] = acq_kwargs.get(
+                "kappa", self.config.get("ucb_kappa", 2.0)
+            )
 
         result = {
             "best_candidate": best_candidate,

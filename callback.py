@@ -87,8 +87,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-CANVAS_SIZE = 500
+CANVAS_SIZE = 500  # Default fallback size
 GRID_STEP = 50
+
+
+def get_canvas_size() -> int:
+    """
+    Get responsive canvas size based on viewport.
+    Returns dynamic size that fits viewport without scrolling.
+    """
+    try:
+        from viewport_utils import get_responsive_canvas_size
+
+        return get_responsive_canvas_size()
+    except Exception:
+        # Fallback to default if viewport utils not available
+        return CANVAS_SIZE
+
+
 NACL_MW = 58.44  # g/mol
 
 DEFAULT_INGREDIENT_CONFIG = [
@@ -359,7 +375,7 @@ def create_canvas_drawing(
                 "y1": 0,
                 "x2": i,
                 "y2": CANVAS_SIZE,
-                "stroke": "#03060DAB",
+                "stroke": "#E5E7EB",
                 "strokeWidth": 1,
                 "selectable": False,
                 "evented": False,
@@ -374,7 +390,7 @@ def create_canvas_drawing(
                 "y1": i,
                 "x2": CANVAS_SIZE,
                 "y2": i,
-                "stroke": "#03060DAB",
+                "stroke": "#E5E7EB",
                 "strokeWidth": 1,
                 "selectable": False,
                 "evented": False,
@@ -388,7 +404,7 @@ def create_canvas_drawing(
             "left": x,
             "top": y,
             "radius": 8,
-            "fill": "#9CA3AF",  # Gray color for starting position
+            "fill": "#9CA3AF",  # Gray for starting position
             "stroke": "#6B7280",
             "strokeWidth": 2,
             "originX": "center",
@@ -408,8 +424,12 @@ def create_canvas_drawing(
 
             # Determine color based on selection type (BO vs manual)
             is_bo = selection.get("is_bo_suggestion", False)
-            fill_color = "#3B82F6" if is_bo else "#EF4444"  # Blue for BO, red for manual
-            stroke_color = "#1D4ED8" if is_bo else "#DC2626"  # Darker blue/red for stroke
+            fill_color = (
+                "#8B5CF6" if is_bo else "#14B8A6"
+            )  # Purple for BO, teal for manual
+            stroke_color = (
+                "#6D28D9" if is_bo else "#0D9488"
+            )  # Darker purple/teal for stroke
 
             # Add selection circle
             objects.append(
@@ -433,7 +453,7 @@ def create_canvas_drawing(
                     "left": selection["x"],
                     "top": selection["y"],
                     "text": str(selection["order"]),
-                    "fontSize": 12,
+                    "fontSize": 18,
                     "fontWeight": "bold",
                     "fontFamily": "Arial",
                     "fill": "white",
@@ -967,7 +987,7 @@ def render_questionnaire(
     Render a modular questionnaire component using the centralized questionnaire configuration.
 
     Args:
-        questionnaire_type: Type of questionnaire (e.g., 'hedonic_preference', 'unified_feedback')
+        questionnaire_type: Type of questionnaire (e.g., 'hedonic', 'unified_feedback')
         participant_id: Participant identifier
         show_final_response: Whether to show Final Response button instead of Continue
 
@@ -988,8 +1008,6 @@ def render_questionnaire(
 
     # Display questionnaire header
     st.markdown(f"### {config.get('name', 'Questionnaire')}")
-    if config.get("description"):
-        st.info(config["description"])
 
     # Form to collect all responses
     with st.form(key=f"form_{instance_key}"):
@@ -1033,13 +1051,19 @@ def render_questionnaire(
 
                     # Create options list (only works for integer scales)
                     options = list(range(int(min_val), int(max_val) + 1))
-                    default_index = options.index(int(default_val)) if int(default_val) in options else 0
+                    default_index = (
+                        options.index(int(default_val))
+                        if int(default_val) in options
+                        else 0
+                    )
 
                     responses[question_id] = st.radio(
                         label=question["label"],
                         options=options,
                         index=default_index,
-                        format_func=lambda x: scale_labels.get(x, str(x)) if scale_labels else str(x),
+                        format_func=lambda x: (
+                            scale_labels.get(x, str(x)) if scale_labels else str(x)
+                        ),
                         horizontal=True,
                         key=question_key,
                         label_visibility="collapsed",
@@ -1323,7 +1347,9 @@ def get_bo_suggestion_for_session(
             "uncertainty": suggestion.get("uncertainty"),
             "acquisition_value": suggestion.get("acquisition_value"),
             "acquisition_function": suggestion.get("acquisition_function"),  # ei or ucb
-            "acquisition_params": suggestion.get("acquisition_params", {}),  # Store xi/kappa for tracking
+            "acquisition_params": suggestion.get(
+                "acquisition_params", {}
+            ),  # Store xi/kappa for tracking
             "current_cycle": current_cycle,
             "max_cycles": max_cycles,
             "mode": "bayesian_optimization",
@@ -1396,7 +1422,9 @@ def get_bo_suggestion_for_session(
                 "reason": convergence.get("reason", ""),
                 "confidence": convergence.get("confidence", 0.0),
                 "status_emoji": convergence.get("status_emoji", "🔴"),
-                "current_cycle": convergence["metrics"].get("current_cycle", current_cycle),
+                "current_cycle": convergence["metrics"].get(
+                    "current_cycle", current_cycle
+                ),
                 "max_cycles": convergence["thresholds"].get("max_cycles", 30),
             }
 
@@ -1438,7 +1466,7 @@ def cleanup_pending_results():
 
 def render_loading_spinner(message: str = "Loading...", load_time=5):
     """Render a loading spinner with a custom message."""
-    with st.spinner(message):
+    with st.spinner(message, width="stretch"):
         time.sleep(load_time)  # Small delay to ensure spinner is visible
         # Phase transition handled by calling code using state machine
 

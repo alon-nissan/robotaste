@@ -1,5 +1,6 @@
 from callback import (
     CANVAS_SIZE,
+    get_canvas_size,
     INTERFACE_2D_GRID,
     INTERFACE_SINGLE_INGREDIENT,
     MultiComponentMixture,
@@ -39,7 +40,7 @@ def get_questionnaire_type_from_config() -> str:
     Retrieve the questionnaire type from the current experiment configuration.
 
     Returns:
-        Questionnaire type string (defaults to 'hedonic_preference' if not found)
+        Questionnaire type string (defaults to 'hedonic' if not found)
     """
     # Try to get from session state's experiment_config
     if hasattr(st.session_state, "experiment_config") and isinstance(
@@ -60,6 +61,64 @@ def get_questionnaire_type_from_config() -> str:
 
 
 def grid_interface():
+    # Add custom CSS for subject interface
+    st.markdown(
+        """
+        <style>
+        /* Enlarge loading spinner - MUCH LARGER */
+        .stSpinner {
+            text-align: center !important;
+        }
+
+        .stSpinner > div {
+            font-size: 5rem !important;
+            font-weight: 600 !important;
+        }
+
+        .stSpinner > div > div {
+            font-size: 3.5rem !important;
+            margin-top: 2rem !important;
+            font-weight: 500 !important;
+        }
+
+        .stSpinner svg {
+            width: 200px !important;
+            height: 200px !important;
+            display: block !important;
+            margin: 0 auto !important;
+        }
+
+        /* Enlarge questionnaire fonts */
+        div[data-testid="stForm"] {
+            font-size: 1.5rem !important;
+        }
+
+        div[data-testid="stForm"] h3 {
+            font-size: 2.5rem !important;
+        }
+
+        div[data-testid="stForm"] strong {
+            font-size: 2rem !important;
+        }
+
+        div[data-testid="stForm"] .stCaption {
+            font-size: 1.5rem !important;
+        }
+
+        div[data-testid="stForm"] .stSlider label {
+            font-size: 1.8rem !important;
+        }
+
+        div[data-testid="stForm"] button[type="submit"] {
+            font-size: 2rem !important;
+            padding: 1rem 2rem !important;
+            min-height: 60px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # WAITING phase: Poll database for moderator to start trial
     if st.session_state.phase == "waiting":
         st.info("Waiting for moderator to start the experiment...")
@@ -139,17 +198,26 @@ def grid_interface():
                         experiment_config = session.get("experiment_config", {})
                         bo_config = experiment_config.get("bayesian_optimization", {})
                         stopping_criteria = bo_config.get("stopping_criteria", {})
-                        stopping_mode = stopping_criteria.get("stopping_mode", "manual_only")
+                        stopping_mode = stopping_criteria.get(
+                            "stopping_mode", "manual_only"
+                        )
 
                         # Only check if convergence detection is enabled and mode is not manual_only
-                        if stopping_criteria.get("enabled", True) and stopping_mode != "manual_only":
-                            convergence = check_convergence(st.session_state.session_id, stopping_criteria)
+                        if (
+                            stopping_criteria.get("enabled", True)
+                            and stopping_mode != "manual_only"
+                        ):
+                            convergence = check_convergence(
+                                st.session_state.session_id, stopping_criteria
+                            )
 
                             # Track consecutive converged cycles
                             if "consecutive_converged" not in st.session_state:
                                 st.session_state.consecutive_converged = 0
 
-                            consecutive_required = stopping_criteria.get("consecutive_required", 2)
+                            consecutive_required = stopping_criteria.get(
+                                "consecutive_required", 2
+                            )
 
                             if convergence.get("converged", False):
                                 st.session_state.consecutive_converged += 1
@@ -157,40 +225,69 @@ def grid_interface():
                                 st.session_state.consecutive_converged = 0
 
                             # Check if we should suggest stopping
-                            if st.session_state.consecutive_converged >= consecutive_required or \
-                               convergence.get("recommendation") == "stop_recommended":
+                            if (
+                                st.session_state.consecutive_converged
+                                >= consecutive_required
+                                or convergence.get("recommendation")
+                                == "stop_recommended"
+                            ):
 
                                 # Show stopping dialog (only if in suggest_auto mode)
                                 if stopping_mode == "suggest_auto":
                                     st.balloons()
                                     st.success("🎉 Optimal preference found!")
-                                    st.info(f"**{convergence.get('reason', 'Session converged')}**")
+                                    st.info(
+                                        f"**{convergence.get('reason', 'Session converged')}**"
+                                    )
 
                                     # Show metrics
                                     col1, col2, col3 = st.columns(3)
                                     with col1:
-                                        st.metric("Cycles Completed", convergence["metrics"].get("current_cycle", 0))
+                                        st.metric(
+                                            "Cycles Completed",
+                                            convergence["metrics"].get(
+                                                "current_cycle", 0
+                                            ),
+                                        )
                                     with col2:
-                                        best_values = convergence["metrics"].get("best_values", [])
+                                        best_values = convergence["metrics"].get(
+                                            "best_values", []
+                                        )
                                         if best_values:
-                                            st.metric("Best Rating", f"{max(best_values):.2f}")
+                                            st.metric(
+                                                "Best Rating", f"{max(best_values):.2f}"
+                                            )
                                     with col3:
-                                        st.metric("Confidence", f"{convergence.get('confidence', 0)*100:.0f}%")
+                                        st.metric(
+                                            "Confidence",
+                                            f"{convergence.get('confidence', 0)*100:.0f}%",
+                                        )
 
                                     st.markdown("---")
-                                    st.markdown("### Would you like to end the session now?")
-                                    st.caption("You've reached the optimal taste preference with high confidence.")
+                                    st.markdown(
+                                        "### Would you like to end the session now?"
+                                    )
+                                    st.caption(
+                                        "You've reached the optimal taste preference with high confidence."
+                                    )
 
                                     col_end, col_continue = st.columns(2)
 
                                     with col_end:
-                                        if st.button("🛑 End Session Now", type="primary", key="end_session_subject", use_container_width=True):
+                                        if st.button(
+                                            "🛑 End Session Now",
+                                            type="primary",
+                                            key="end_session_subject",
+                                            use_container_width=True,
+                                        ):
                                             # Transition to COMPLETE phase
                                             if ExperimentStateMachine.transition(
                                                 new_phase=ExperimentPhase.COMPLETE,
                                                 session_id=st.session_state.session_id,
                                             ):
-                                                st.success("✅ Session ended successfully! Thank you for participating.")
+                                                st.success(
+                                                    "✅ Session ended successfully! Thank you for participating."
+                                                )
                                                 time.sleep(2)
                                                 st.rerun()
                                             else:
@@ -203,7 +300,11 @@ def grid_interface():
                                                 st.rerun()
 
                                     with col_continue:
-                                        if st.button("➡️ Continue Exploring", key="continue_session_subject", use_container_width=True):
+                                        if st.button(
+                                            "➡️ Continue Exploring",
+                                            key="continue_session_subject",
+                                            use_container_width=True,
+                                        ):
                                             # Reset consecutive counter and proceed normally
                                             st.session_state.consecutive_converged = 0
                                             ExperimentStateMachine.transition(
@@ -218,20 +319,26 @@ def grid_interface():
                                 # Auto-end mode
                                 elif stopping_mode == "auto_with_minimum":
                                     st.balloons()
-                                    st.success("🎉 Optimal preference found! Session ending automatically...")
+                                    st.success(
+                                        "🎉 Optimal preference found! Session ending automatically..."
+                                    )
                                     time.sleep(2)
                                     if ExperimentStateMachine.transition(
                                         new_phase=ExperimentPhase.COMPLETE,
                                         session_id=st.session_state.session_id,
                                     ):
-                                        st.success("✅ Session ended successfully! Thank you for participating.")
+                                        st.success(
+                                            "✅ Session ended successfully! Thank you for participating."
+                                        )
                                         time.sleep(2)
                                         st.rerun()
                                     else:
                                         st.error("Failed to end session, continuing...")
 
                 except Exception as e:
-                    logger.warning(f"Error checking convergence for stopping dialog: {e}")
+                    logger.warning(
+                        f"Error checking convergence for stopping dialog: {e}"
+                    )
                     # Continue normally if convergence check fails
 
                 # Transition to SELECTION using state machine
@@ -377,26 +484,28 @@ def grid_interface():
                                 "type": "circle",
                                 "left": bo_x,
                                 "top": bo_y,
-                                "fill": "#3B82F6",  # Blue for BO marker
-                                "stroke": "#1D4ED8",
+                                "fill": "#8B5CF6",  # Purple for BO marker
+                                "stroke": "#6D28D9",
                                 "radius": 10,
                                 "strokeWidth": 2,
                             }
                         )
 
-                    # Display read-only canvas
+                    # Display read-only canvas with responsive sizing
+                    canvas_size = get_canvas_size()
+
                     st_canvas(
-                        fill_color="#3B82F6",
+                        fill_color="#8B5CF6",
                         stroke_width=2,
-                        stroke_color="#1D4ED8",
+                        stroke_color="#6D28D9",
                         background_color="white",
                         update_streamlit=False,  # Read-only
-                        height=CANVAS_SIZE,
-                        width=CANVAS_SIZE,
+                        height=canvas_size,
+                        width=canvas_size,
                         drawing_mode="transform",  # No drawing allowed
                         display_toolbar=False,
                         initial_drawing=initial_drawing,
-                        key=f"bo_canvas_{st.session_state.participant}_{st.session_state.session_code}",
+                        key=f"bo_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
                     )
 
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -448,8 +557,12 @@ def grid_interface():
                         "predicted_value": bo_suggestion.get("predicted_value"),
                         "uncertainty": bo_suggestion.get("uncertainty"),
                         "acquisition_value": bo_suggestion.get("acquisition_value"),
-                        "acquisition_function": bo_suggestion.get("acquisition_function"),
-                        "acquisition_params": bo_suggestion.get("acquisition_params", {}),
+                        "acquisition_function": bo_suggestion.get(
+                            "acquisition_function"
+                        ),
+                        "acquisition_params": bo_suggestion.get(
+                            "acquisition_params", {}
+                        ),
                         "mode": "bayesian_optimization",
                         "sample_id": sample_id,
                     }
@@ -531,27 +644,32 @@ def grid_interface():
                         selection_history,  # type: ignore
                     )
 
+                    # Get responsive canvas size
+                    canvas_size = get_canvas_size()
+                    # Scale point radius proportionally to canvas size
+                    point_radius = max(5, int(canvas_size / 62.5))
+
                     canvas_result = st_canvas(
                         fill_color=(
-                            "#EF4444"
+                            "#14B8A6"
                             if not st.session_state.get("high_contrast", False)
                             else "#FF0000"
                         ),
                         stroke_width=2,
                         stroke_color=(
-                            "#DC2626"
+                            "#0D9488"
                             if not st.session_state.get("high_contrast", False)
                             else "#000000"
                         ),
                         background_color="white",
                         update_streamlit=True,
-                        height=CANVAS_SIZE,
-                        width=CANVAS_SIZE,
+                        height=canvas_size,
+                        width=canvas_size,
                         drawing_mode="point",
-                        point_display_radius=8,
+                        point_display_radius=point_radius,
                         display_toolbar=False,
                         initial_drawing=initial_drawing,
-                        key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}",
+                        key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
                     )
 
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -754,6 +872,64 @@ def grid_interface():
 
 
 def single_variable_interface():
+    # Add custom CSS for subject interface
+    st.markdown(
+        """
+        <style>
+        /* Enlarge loading spinner - MUCH LARGER */
+        .stSpinner {
+            text-align: center !important;
+        }
+
+        .stSpinner > div {
+            font-size: 5rem !important;
+            font-weight: 600 !important;
+        }
+
+        .stSpinner > div > div {
+            font-size: 3.5rem !important;
+            margin-top: 2rem !important;
+            font-weight: 500 !important;
+        }
+
+        .stSpinner svg {
+            width: 200px !important;
+            height: 200px !important;
+            display: block !important;
+            margin: 0 auto !important;
+        }
+
+        /* Enlarge questionnaire fonts */
+        div[data-testid="stForm"] {
+            font-size: 1.5rem !important;
+        }
+
+        div[data-testid="stForm"] h3 {
+            font-size: 2.5rem !important;
+        }
+
+        div[data-testid="stForm"] strong {
+            font-size: 2rem !important;
+        }
+
+        div[data-testid="stForm"] .stCaption {
+            font-size: 1.5rem !important;
+        }
+
+        div[data-testid="stForm"] .stSlider label {
+            font-size: 1.8rem !important;
+        }
+
+        div[data-testid="stForm"] button[type="submit"] {
+            font-size: 2rem !important;
+            padding: 1rem 2rem !important;
+            min-height: 60px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # WAITING phase: Poll database for moderator to start trial
     if st.session_state.phase == "waiting":
         st.info("Waiting for moderator to start the experiment...")
@@ -786,12 +962,6 @@ def single_variable_interface():
 
     # QUESTIONNAIRE phase: Show questionnaire and transition to SELECTION
     elif st.session_state.phase == "questionnaire":
-        # Show cycle number
-        cycle_num = get_current_cycle(st.session_state.session_id)
-        st.info(
-            f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted"
-        )
-
         questionnaire_type = get_questionnaire_type_from_config()
         responses = render_questionnaire(
             questionnaire_type, st.session_state.participant
@@ -859,17 +1029,26 @@ def single_variable_interface():
                         experiment_config = session.get("experiment_config", {})
                         bo_config = experiment_config.get("bayesian_optimization", {})
                         stopping_criteria = bo_config.get("stopping_criteria", {})
-                        stopping_mode = stopping_criteria.get("stopping_mode", "manual_only")
+                        stopping_mode = stopping_criteria.get(
+                            "stopping_mode", "manual_only"
+                        )
 
                         # Only check if convergence detection is enabled and mode is not manual_only
-                        if stopping_criteria.get("enabled", True) and stopping_mode != "manual_only":
-                            convergence = check_convergence(st.session_state.session_id, stopping_criteria)
+                        if (
+                            stopping_criteria.get("enabled", True)
+                            and stopping_mode != "manual_only"
+                        ):
+                            convergence = check_convergence(
+                                st.session_state.session_id, stopping_criteria
+                            )
 
                             # Track consecutive converged cycles
                             if "consecutive_converged" not in st.session_state:
                                 st.session_state.consecutive_converged = 0
 
-                            consecutive_required = stopping_criteria.get("consecutive_required", 2)
+                            consecutive_required = stopping_criteria.get(
+                                "consecutive_required", 2
+                            )
 
                             if convergence.get("converged", False):
                                 st.session_state.consecutive_converged += 1
@@ -877,40 +1056,69 @@ def single_variable_interface():
                                 st.session_state.consecutive_converged = 0
 
                             # Check if we should suggest stopping
-                            if st.session_state.consecutive_converged >= consecutive_required or \
-                               convergence.get("recommendation") == "stop_recommended":
+                            if (
+                                st.session_state.consecutive_converged
+                                >= consecutive_required
+                                or convergence.get("recommendation")
+                                == "stop_recommended"
+                            ):
 
                                 # Show stopping dialog (only if in suggest_auto mode)
                                 if stopping_mode == "suggest_auto":
                                     st.balloons()
                                     st.success("🎉 Optimal preference found!")
-                                    st.info(f"**{convergence.get('reason', 'Session converged')}**")
+                                    st.info(
+                                        f"**{convergence.get('reason', 'Session converged')}**"
+                                    )
 
                                     # Show metrics
                                     col1, col2, col3 = st.columns(3)
                                     with col1:
-                                        st.metric("Cycles Completed", convergence["metrics"].get("current_cycle", 0))
+                                        st.metric(
+                                            "Cycles Completed",
+                                            convergence["metrics"].get(
+                                                "current_cycle", 0
+                                            ),
+                                        )
                                     with col2:
-                                        best_values = convergence["metrics"].get("best_values", [])
+                                        best_values = convergence["metrics"].get(
+                                            "best_values", []
+                                        )
                                         if best_values:
-                                            st.metric("Best Rating", f"{max(best_values):.2f}")
+                                            st.metric(
+                                                "Best Rating", f"{max(best_values):.2f}"
+                                            )
                                     with col3:
-                                        st.metric("Confidence", f"{convergence.get('confidence', 0)*100:.0f}%")
+                                        st.metric(
+                                            "Confidence",
+                                            f"{convergence.get('confidence', 0)*100:.0f}%",
+                                        )
 
                                     st.markdown("---")
-                                    st.markdown("### Would you like to end the session now?")
-                                    st.caption("You've reached the optimal taste preference with high confidence.")
+                                    st.markdown(
+                                        "### Would you like to end the session now?"
+                                    )
+                                    st.caption(
+                                        "You've reached the optimal taste preference with high confidence."
+                                    )
 
                                     col_end, col_continue = st.columns(2)
 
                                     with col_end:
-                                        if st.button("🛑 End Session Now", type="primary", key="end_session_subject", use_container_width=True):
+                                        if st.button(
+                                            "🛑 End Session Now",
+                                            type="primary",
+                                            key="end_session_subject",
+                                            use_container_width=True,
+                                        ):
                                             # Transition to COMPLETE phase
                                             if ExperimentStateMachine.transition(
                                                 new_phase=ExperimentPhase.COMPLETE,
                                                 session_id=st.session_state.session_id,
                                             ):
-                                                st.success("✅ Session ended successfully! Thank you for participating.")
+                                                st.success(
+                                                    "✅ Session ended successfully! Thank you for participating."
+                                                )
                                                 time.sleep(2)
                                                 st.rerun()
                                             else:
@@ -923,7 +1131,11 @@ def single_variable_interface():
                                                 st.rerun()
 
                                     with col_continue:
-                                        if st.button("➡️ Continue Exploring", key="continue_session_subject", use_container_width=True):
+                                        if st.button(
+                                            "➡️ Continue Exploring",
+                                            key="continue_session_subject",
+                                            use_container_width=True,
+                                        ):
                                             # Reset consecutive counter and proceed normally
                                             st.session_state.consecutive_converged = 0
                                             ExperimentStateMachine.transition(
@@ -938,20 +1150,26 @@ def single_variable_interface():
                                 # Auto-end mode
                                 elif stopping_mode == "auto_with_minimum":
                                     st.balloons()
-                                    st.success("🎉 Optimal preference found! Session ending automatically...")
+                                    st.success(
+                                        "🎉 Optimal preference found! Session ending automatically..."
+                                    )
                                     time.sleep(2)
                                     if ExperimentStateMachine.transition(
                                         new_phase=ExperimentPhase.COMPLETE,
                                         session_id=st.session_state.session_id,
                                     ):
-                                        st.success("✅ Session ended successfully! Thank you for participating.")
+                                        st.success(
+                                            "✅ Session ended successfully! Thank you for participating."
+                                        )
                                         time.sleep(2)
                                         st.rerun()
                                     else:
                                         st.error("Failed to end session, continuing...")
 
                 except Exception as e:
-                    logger.warning(f"Error checking convergence for stopping dialog: {e}")
+                    logger.warning(
+                        f"Error checking convergence for stopping dialog: {e}"
+                    )
                     # Continue normally if convergence check fails
 
                 # Transition to SELECTION using state machine
@@ -1125,7 +1343,6 @@ def single_variable_interface():
         else:
             # MANUAL MODE: Traditional slider interface
             st.markdown("### Adjust Concentration")
-            st.write(f"Use the slider below to adjust the ingredient concentration.")
 
             # Get initial slider value based on cycle
             # ALL Cycles 0-2: Load LAST SAMPLE from database (what they tasted)
@@ -1164,7 +1381,7 @@ def single_variable_interface():
 
             # Create interactive slider
             slider_value = st.slider(
-                label=f"Choose your next sample",
+                label="Use the slider below to adjust the ingredient concentration.",
                 min_value=0,
                 max_value=100,
                 value=int(initial_value),
@@ -1246,65 +1463,6 @@ def single_variable_interface():
                 st.success(f"Selection saved! Starting cycle {current_cycle}")
                 st.rerun()
 
-            # Complete Experiment button
-            st.markdown("---")
-            st.markdown("### Finish Experiment")
-            if st.button(
-                "Complete Experiment",
-                type="secondary",
-                help="Mark this as your final selection and end the experiment",
-                key="slider_complete_experiment_button",
-            ):
-                try:
-                    # Save final selection data
-                    import uuid
-
-                    sample_id = str(uuid.uuid4())
-                    st.session_state.current_sample_id = sample_id
-
-                    # Get current slider value
-                    slider_value = st.session_state.current_slider_values.get(
-                        ingredient_name, 50.0
-                    )
-
-                    # Calculate concentrations for final selection
-                    mixture = MultiComponentMixture(ingredients)
-                    concentrations = mixture.calculate_concentrations_from_sliders(
-                        {ingredient_name: float(slider_value)}
-                    )
-
-                    ingredient_concentrations = {
-                        ingredient_name: round(
-                            concentrations[ingredient_name]["actual_concentration_mM"],
-                            3,
-                        )
-                    }
-
-                    # Prepare final selection data
-                    st.session_state.next_selection_data = {
-                        "interface_type": INTERFACE_SINGLE_INGREDIENT,
-                        "method": "linear",
-                        "slider_values": {ingredient_name: float(slider_value)},
-                        "ingredient_concentrations": ingredient_concentrations,
-                        "sample_id": sample_id,
-                    }
-
-                    # Transition to COMPLETE phase
-                    ExperimentStateMachine.transition(
-                        new_phase=ExperimentPhase.COMPLETE,
-                        session_id=st.session_state.session_id,
-                    )
-
-                    st.success("Experiment completed! Thank you for participating.")
-                    time.sleep(2)
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"Error completing experiment: {e}")
-                    logger.error(
-                        f"Single variable interface - Complete experiment error: {e}"
-                    )
-
 
 def init_session_state():
     # Initialize session from URL parameters if not in session state
@@ -1337,6 +1495,7 @@ def subject_interface():
         if st.session_state.get("session_id"):
             sync_session_state(st.session_state.session_id, "subject")
         from completion_screens import show_subject_completion_screen
+
         show_subject_completion_screen()
         return
 
