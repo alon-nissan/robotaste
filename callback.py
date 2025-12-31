@@ -90,7 +90,6 @@ from robotaste.components.canvas import (
 import logging
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Note: CANVAS_SIZE, GRID_STEP, get_canvas_size(), create_canvas_drawing(), and clear_canvas_state()

@@ -29,14 +29,18 @@ class ExperimentPhase(Enum):
 
     Workflow:
     1. WAITING: Session created, waiting for moderator to start
-    2. ROBOT_PREPARING: Robot is preparing the solution
-    3. LOADING: Loading screen before questionnaire in cycles 1+
-    4. QUESTIONNAIRE: Subject answering questionnaire
-    5. SELECTION: Subject making selection for next cycle
-    6. COMPLETE: Session finished
+    2. REGISTRATION: Subject enters personal information
+    3. INSTRUCTIONS: Subject reads instructions
+    4. ROBOT_PREPARING: Robot is preparing the solution
+    5. LOADING: Loading screen before questionnaire in cycles 1+
+    6. QUESTIONNAIRE: Subject answering questionnaire
+    7. SELECTION: Subject making selection for next cycle
+    8. COMPLETE: Session finished
     """
 
     WAITING = "waiting"
+    REGISTRATION = "registration"
+    INSTRUCTIONS = "instructions"
     ROBOT_PREPARING = "robot_preparing"
     LOADING = "loading"
     QUESTIONNAIRE = "questionnaire"
@@ -95,8 +99,16 @@ class ExperimentStateMachine:
     # Define valid transitions (phase -> list of allowed next phases)
     VALID_TRANSITIONS = {
         ExperimentPhase.WAITING: [
-            ExperimentPhase.LOADING,  # Moderator starts first cycle
+            ExperimentPhase.REGISTRATION,  # Moderator starts -> Subject enters info
             ExperimentPhase.COMPLETE,  # Moderator can force-end
+        ],
+        ExperimentPhase.REGISTRATION: [
+            ExperimentPhase.INSTRUCTIONS,  # Subject finishes info
+            ExperimentPhase.COMPLETE,
+        ],
+        ExperimentPhase.INSTRUCTIONS: [
+            ExperimentPhase.LOADING,  # Subject understands -> Robot prepares first sample
+            ExperimentPhase.COMPLETE,
         ],
         ExperimentPhase.ROBOT_PREPARING: [
             ExperimentPhase.QUESTIONNAIRE,  # Robot finished
@@ -136,7 +148,7 @@ class ExperimentStateMachine:
         Example:
             >>> ExperimentStateMachine.can_transition(
             ...     ExperimentPhase.WAITING,
-            ...     ExperimentPhase.LOADING
+            ...     ExperimentPhase.REGISTRATION
             ... )
             True
             >>> ExperimentStateMachine.can_transition(
@@ -203,7 +215,7 @@ class ExperimentStateMachine:
 
         Example:
             >>> ExperimentStateMachine.get_allowed_transitions(ExperimentPhase.WAITING)
-            [<ExperimentPhase.LOADING: 'loading'>, <ExperimentPhase.COMPLETE: 'complete'>]
+            [<ExperimentPhase.REGISTRATION: 'registration'>, <ExperimentPhase.COMPLETE: 'complete'>]
         """
         return ExperimentStateMachine.VALID_TRANSITIONS.get(current_phase, [])
 
@@ -224,6 +236,8 @@ class ExperimentStateMachine:
         """
         display_names = {
             ExperimentPhase.WAITING: "Waiting to Start",
+            ExperimentPhase.REGISTRATION: "User Registration",
+            ExperimentPhase.INSTRUCTIONS: "Showing Instructions",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
             ExperimentPhase.LOADING: "Preparing Sample",
             ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
@@ -249,6 +263,8 @@ class ExperimentStateMachine:
         """
         colors = {
             ExperimentPhase.WAITING: "gray",
+            ExperimentPhase.REGISTRATION: "orange",
+            ExperimentPhase.INSTRUCTIONS: "orange",
             ExperimentPhase.ROBOT_PREPARING: "blue",
             ExperimentPhase.LOADING: "blue",
             ExperimentPhase.QUESTIONNAIRE: "purple",
@@ -275,6 +291,8 @@ class ExperimentStateMachine:
             False
         """
         return phase in [
+            ExperimentPhase.REGISTRATION,
+            ExperimentPhase.INSTRUCTIONS,
             ExperimentPhase.ROBOT_PREPARING,
             ExperimentPhase.LOADING,
             ExperimentPhase.QUESTIONNAIRE,

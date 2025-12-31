@@ -2409,6 +2409,6 @@ def moderator_interface():
         show_moderator_monitoring()
     else:
         # If not setup and not monitoring, must be COMPLETE phase
-        from completion_screens import show_moderator_completion_summary
+        from robotaste.views.completion import show_moderator_completion_summary
 
         show_moderator_completion_summary()

@@ -671,6 +671,22 @@ def get_user(user_id: str) -> Optional[Dict]:
         return None
 
 
+def update_user_profile(user_id: str, name: str, gender: str, age: int) -> bool:
+    """Updates user profile with demographic data."""
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET name = ?, gender = ?, age = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (name, gender, age, user_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to update profile: {e}")
+        return False
+
+
 # ============================================================================
 # Section 4: Sample/Cycle Operations
 # ============================================================================
@@ -966,7 +982,7 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         DataFrame with columns: [ingredient1, ingredient2, ..., target_value]
     """
     try:
-        from config import extract_target_variable
+        from robotaste.config.questionnaire import extract_target_variable
 
         # Get session to know questionnaire type and ingredient order
         session = get_session(session_id)
@@ -1006,7 +1022,7 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         target_column_name = "target_value"  # Default fallback
         questionnaire_config = None
         try:
-            from config import QUESTIONNAIRE_CONFIGS
+            from robotaste.config.questionnaire import QUESTIONNAIRE_CONFIGS
 
             questionnaire_type_normalized = questionnaire_type.strip().lower()
             q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)

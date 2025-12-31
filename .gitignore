@@ -45,3 +45,4 @@ Thumbs.db
 
 # Logs
 *.logbackup_v0/
+*.txt

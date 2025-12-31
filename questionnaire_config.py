@@ -117,6 +117,44 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
         },
     },
     # ========================================================================
+    # NEW: Continuous Intensity Scale (Sweetness)
+    # Continuous slider with markers at odd integers.
+    # ========================================================================
+    "intensity_continuous": {
+        "name": "Intensity Scale (Continuous)",
+        "description": "Continuous 9-point intensity scale for measuring attribute strength.",
+        "version": "1.0",
+        "questions": [
+            {
+                "id": "sweetness_intensity",
+                "type": "slider",
+                "label": "How sweet is this sample?",
+                "help_text": "Rate the sweetness intensity from 1 (No sweet) to 9 (Very strong).",
+                "scale_labels": {
+                    1: "No sweet",
+                    3: "Light",
+                    5: "Medium",
+                    7: "Strong",
+                    9: "Very strong",
+                },
+                "min": 1.0,
+                "max": 9.0,
+                "default": 5.0,
+                "step": 0.01,  # Continuous scale
+                "required": True,
+                "display_type": "slider_continuous",
+            }
+        ],
+        "bayesian_target": {
+            "variable": "sweetness_intensity",
+            "transform": "identity",
+            "higher_is_better": True,  # For intensity, a target is usually sought
+            "description": "Measure sweetness intensity.",
+            "expected_range": [1.0, 9.0],
+            "optimal_threshold": 5.0,  # Example target intensity
+        },
+    },
+    # ========================================================================
     # Unified Feedback (Multi-dimensional feedback)
     # ========================================================================
     "unified_feedback": {

@@ -24,6 +24,8 @@ Last Updated: 2025-11-19
 """
 
 import streamlit as st
+import logging
+from datetime import datetime
 
 # Import our modules
 from robotaste.data.database import init_database
@@ -41,6 +43,19 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="auto",
 )
+
+def setup_logging():
+    """Sets up logging to a file and the console."""
+    log_filename = f"session_log_{datetime.now().strftime('%d%m%y')}.txt"
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename, mode='a'),
+            logging.StreamHandler()
+        ]
+    )
+    logging.info("Logging configured to file and console.")
 
 # Initialize viewport detection EARLY (before CSS)
 # This must be done before rendering CSS that depends on viewport
@@ -145,6 +160,10 @@ def main():
     Handles session-based routing for moderator and subject devices.
     Supports direct URL access with session codes for seamless multi-device experience.
     """
+    # Configure logging only once per session
+    if "logging_configured" not in st.session_state:
+        setup_logging()
+        st.session_state.logging_configured = True
 
     # Route to appropriate interface based on URL parameter and session state
     role = st.query_params.get("role", "")

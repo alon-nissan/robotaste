@@ -229,14 +229,13 @@ def start_trial(
                 )
                 conn.commit()
 
-            # Use state machine to transition to LOADING phase
-            # In the 5-phase workflow, trial starts in LOADING where robot prepares first sample
-            # This follows the valid transition: WAITING → LOADING
+            # Use state machine to transition to REGISTRATION phase
+            # This follows the valid transition: WAITING → REGISTRATION
             try:
                 current_phase = state_helpers.get_current_phase()
                 state_helpers.transition(
                     current_phase=current_phase,
-                    new_phase=ExperimentPhase.LOADING,
+                    new_phase=ExperimentPhase.REGISTRATION,
                     session_id=session_id,  # Use session_id for DB
                 )
             except Exception as sm_error:
@@ -244,7 +243,7 @@ def start_trial(
                 logger.warning(
                     f"State machine transition failed: {sm_error}. Using direct assignment."
                 )
-                st.session_state.phase = "loading"
+                st.session_state.phase = "registration"
 
         except Exception as e:
             st.warning(f"Could not update session config: {e}")
