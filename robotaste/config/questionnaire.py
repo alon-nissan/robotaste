@@ -149,7 +149,7 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
         "bayesian_target": {
             "variable": "sweetness_intensity",
             "transform": "identity",
-            "higher_is_better": False,  # For intensity, a target is usually sought
+            "higher_is_better": True,  # Maximize intensity (corrected)
             "description": "Measure sweetness intensity.",
             "expected_range": [1.0, 9.0],
             "optimal_threshold": 5.0,  # Example target intensity

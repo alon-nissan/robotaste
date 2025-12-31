@@ -15,7 +15,7 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from bayesian_optimizer import get_default_bo_config
+from robotaste.config.bo_config import get_default_bo_config
 from robotaste.data import database as sql
 from robotaste.core.calculations import (
     ConcentrationMapper,
@@ -174,7 +174,7 @@ def start_trial(
             from robotaste.core import state_helpers
 
             # Get questionnaire type from session state (set by moderator)
-            from questionnaire_config import get_default_questionnaire_type
+            from robotaste.config.questionnaire import get_default_questionnaire_type
 
             questionnaire_type = st.session_state.get(
                 "selected_questionnaire_type", get_default_questionnaire_type()

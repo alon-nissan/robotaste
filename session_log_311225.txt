@@ -2666,3 +2666,127 @@ INFO:subject_interface:Loaded last sample slider value for cycle 4: 13.0%
 2025-12-31 17:03:05,663 - robotaste.data.session_repo - INFO - Synced session 103e929e-14d7-4c45-b893-cb7a33645f4a for subject
 2025-12-31 17:03:05,665 - robotaste.core.bo_integration - INFO - BO disabled for this session
 2025-12-31 17:03:05,668 - robotaste.views.subject - INFO - Loaded last sample slider value for cycle 3: 8.0%
+2025-12-31 17:28:32,250 - root - INFO - Logging configured to file and console.
+2025-12-31 17:28:34,493 - robotaste.data.database - INFO - Created session 8bc28fef-9c44-4aaf-baca-82ad227790f9 with code 1XNUJH
+2025-12-31 17:33:01,488 - root - INFO - Logging configured to file and console.
+2025-12-31 17:33:03,102 - robotaste.data.database - INFO - Created session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with code YEAL63
+2025-12-31 17:33:09,129 - robotaste.data.database - INFO - Updating session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with full configuration
+2025-12-31 17:33:09,134 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with full configuration
+2025-12-31 17:33:09,134 - robotaste.core.trials - INFO - Using custom ingredient configuration: ['Sugar']
+2025-12-31 17:33:09,145 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'registration'
+2025-12-31 17:33:09,146 - robotaste.core.state_helpers - INFO - Phase transition: waiting -> registration (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:10,724 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:33:10,724 - robotaste.data.database - INFO - No samples found for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a
+2025-12-31 17:33:17,283 - robotaste.data.database - INFO - Found schema file at: robotaste/data/schema.sql
+2025-12-31 17:33:17,285 - robotaste.data.database - INFO - Database initialized successfully from schema.sql
+2025-12-31 17:33:17,285 - root - INFO - Logging configured to file and console.
+2025-12-31 17:33:17,286 - robotaste.data.session_repo - INFO - Subject joined session YEAL63 (ID: be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:17,286 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:33:29,069 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'instructions'
+2025-12-31 17:33:29,070 - robotaste.core.state_helpers - INFO - Phase transition: registration -> instructions (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:31,164 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'loading'
+2025-12-31 17:33:31,165 - robotaste.core.state_helpers - INFO - Phase transition: instructions -> loading (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:36,246 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'questionnaire'
+2025-12-31 17:33:36,247 - robotaste.core.state_helpers - INFO - Phase transition: loading -> questionnaire (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:40,096 - robotaste.data.database - INFO - Saved sample da149bf3-b279-44ee-82be-3dc5ab293c81 for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a, cycle 0
+2025-12-31 17:33:40,105 - robotaste.data.database - INFO - Incremented session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a to cycle 1
+2025-12-31 17:33:40,110 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'selection'
+2025-12-31 17:33:40,111 - robotaste.core.state_helpers - INFO - Phase transition: questionnaire -> selection (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:40,206 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:33:40,207 - robotaste.core.bo_integration - INFO - BO not ready: cycle 1 < min 3
+2025-12-31 17:33:40,207 - robotaste.views.subject - WARNING - Could not determine initial slider value. Defaulting to 50.0.
+2025-12-31 17:33:45,527 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:33:45,532 - robotaste.core.bo_integration - INFO - BO not ready: cycle 1 < min 3
+2025-12-31 17:33:45,533 - robotaste.views.subject - INFO - Using current slider value from session: 50.0
+2025-12-31 17:33:48,911 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:33:48,914 - robotaste.core.bo_integration - INFO - BO not ready: cycle 1 < min 3
+2025-12-31 17:33:48,916 - robotaste.views.subject - INFO - Using current slider value from session: 75.0
+2025-12-31 17:33:48,921 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'loading'
+2025-12-31 17:33:48,922 - robotaste.core.state_helpers - INFO - Phase transition: selection -> loading (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:53,986 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'questionnaire'
+2025-12-31 17:33:53,987 - robotaste.core.state_helpers - INFO - Phase transition: loading -> questionnaire (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:56,403 - robotaste.data.database - INFO - Saved sample cd47ea3c-a8c6-458e-9bce-e7531aa7c7ed for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a, cycle 1
+2025-12-31 17:33:56,408 - robotaste.data.database - INFO - Incremented session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a to cycle 2
+2025-12-31 17:33:56,411 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'selection'
+2025-12-31 17:33:56,411 - robotaste.core.state_helpers - INFO - Phase transition: questionnaire -> selection (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:33:56,458 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:33:56,459 - robotaste.core.bo_integration - INFO - BO not ready: cycle 2 < min 3
+2025-12-31 17:33:56,461 - robotaste.views.subject - INFO - Loaded last sample slider value for cycle 2: 75.0%
+2025-12-31 17:33:59,500 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:33:59,506 - robotaste.data.database - INFO - Retrieved 2 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:33:59,519 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:33:59,523 - robotaste.data.database - INFO - Retrieved 2 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:06,150 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:06,153 - robotaste.data.database - INFO - Retrieved 2 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:06,159 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:06,161 - robotaste.data.database - INFO - Retrieved 2 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:17,162 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:34:17,165 - robotaste.core.bo_integration - INFO - BO not ready: cycle 2 < min 3
+2025-12-31 17:34:17,169 - robotaste.views.subject - INFO - Loaded last sample slider value for cycle 2: 75.0%
+2025-12-31 17:34:18,310 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:34:18,312 - robotaste.core.bo_integration - INFO - BO not ready: cycle 2 < min 3
+2025-12-31 17:34:18,314 - robotaste.views.subject - INFO - Loaded last sample slider value for cycle 2: 75.0%
+2025-12-31 17:34:18,318 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'loading'
+2025-12-31 17:34:18,318 - robotaste.core.state_helpers - INFO - Phase transition: selection -> loading (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:34:23,372 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'questionnaire'
+2025-12-31 17:34:23,373 - robotaste.core.state_helpers - INFO - Phase transition: loading -> questionnaire (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:34:25,334 - robotaste.data.database - INFO - Saved sample d0cf28ea-ef89-4e7b-91db-28d19b25a658 for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a, cycle 2
+2025-12-31 17:34:25,337 - robotaste.data.database - INFO - Incremented session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a to cycle 3
+2025-12-31 17:34:25,340 - robotaste.data.database - INFO - Updated session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a current_phase to 'selection'
+2025-12-31 17:34:25,340 - robotaste.core.state_helpers - INFO - Phase transition: questionnaire -> selection (session_id=be0c320b-bc29-4d3a-98c0-6298ddb9aa9a)
+2025-12-31 17:34:25,389 - robotaste.data.session_repo - INFO - Synced session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a for subject
+2025-12-31 17:34:25,391 - robotaste.core.bo_integration - INFO - Training BO model for cycle 3
+2025-12-31 17:34:25,393 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:25,394 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO - BO Training Debug - Session: be0c320b-bc29-4d3a-98c0-6298ddb9aa9a
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO -   DataFrame shape: (3, 2)
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO -   DataFrame columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO -   Min samples required: 3
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO -   Actual samples: 3
+2025-12-31 17:34:25,394 - robotaste.core.bo_utils - INFO - Using target column: 'sweetness_intensity'
+2025-12-31 17:34:25,395 - robotaste.core.bo_utils - INFO - Detected 1 ingredients: ['Sugar']
+2025-12-31 17:34:25,395 - robotaste.core.bo_engine - INFO - Initialized RoboTasteBO with 1 ingredients: ['Sugar'], kernel_nu=2.5, alpha=0.001, acquisition=ei
+2025-12-31 17:34:25,448 - robotaste.core.bo_engine - INFO - GP trained on 3 samples. Best observed: 2.800, Mean: 2.517, Std: 0.301
+2025-12-31 17:34:25,448 - robotaste.core.bo_utils - INFO - Successfully trained BO model for participant_001 with 3 samples
+2025-12-31 17:34:25,451 - robotaste.core.bo_engine - INFO - Adaptive EI: cycle 3/30, xi=0.1000
+2025-12-31 17:34:25,456 - robotaste.core.bo_engine - INFO - BO Suggestion (EI): predicted=2.670, acquisition=0.0254, uncertainty=0.254
+2025-12-31 17:34:25,458 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:25,460 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:25,461 - robotaste.core.bo_integration - INFO - Convergence check: continue - Still exploring (3/10 minimum)
+2025-12-31 17:34:25,461 - robotaste.core.bo_integration - INFO - BO suggestion generated for cycle 3: predicted=2.67
+2025-12-31 17:34:30,333 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,336 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,337 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,340 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,340 - robotaste.core.bo_utils - INFO - BO Training Debug - Session: be0c320b-bc29-4d3a-98c0-6298ddb9aa9a
+2025-12-31 17:34:30,340 - robotaste.core.bo_utils - INFO -   DataFrame shape: (3, 2)
+2025-12-31 17:34:30,340 - robotaste.core.bo_utils - INFO -   DataFrame columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,340 - robotaste.core.bo_utils - INFO -   Min samples required: 3
+2025-12-31 17:34:30,340 - robotaste.core.bo_utils - INFO -   Actual samples: 3
+2025-12-31 17:34:30,341 - robotaste.core.bo_utils - INFO - Using target column: 'sweetness_intensity'
+2025-12-31 17:34:30,341 - robotaste.core.bo_utils - INFO - Detected 1 ingredients: ['Sugar']
+2025-12-31 17:34:30,342 - robotaste.core.bo_engine - INFO - Initialized RoboTasteBO with 1 ingredients: ['Sugar'], kernel_nu=2.5, alpha=0.001, acquisition=ei
+2025-12-31 17:34:30,418 - robotaste.core.bo_engine - INFO - GP trained on 3 samples. Best observed: 2.800, Mean: 2.517, Std: 0.301
+2025-12-31 17:34:30,418 - robotaste.core.bo_utils - INFO - Successfully trained BO model for participant_001 with 3 samples
+2025-12-31 17:34:30,420 - robotaste.core.bo_engine - INFO - Adaptive EI: cycle 3/30, xi=0.1000
+2025-12-31 17:34:30,423 - robotaste.core.bo_engine - INFO - BO Suggestion (EI): predicted=2.670, acquisition=0.0253, uncertainty=0.255
+2025-12-31 17:34:30,480 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,483 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,641 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,650 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,651 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,657 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO - BO Training Debug - Session: be0c320b-bc29-4d3a-98c0-6298ddb9aa9a
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO -   DataFrame shape: (3, 2)
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO -   DataFrame columns: ['Sugar', 'sweetness_intensity']
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO -   Min samples required: 3
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO -   Actual samples: 3
+2025-12-31 17:34:30,657 - robotaste.core.bo_utils - INFO - Using target column: 'sweetness_intensity'
+2025-12-31 17:34:30,658 - robotaste.core.bo_utils - INFO - Detected 1 ingredients: ['Sugar']
+2025-12-31 17:34:30,658 - robotaste.core.bo_engine - INFO - Initialized RoboTasteBO with 1 ingredients: ['Sugar'], kernel_nu=2.5, alpha=0.001, acquisition=ei
+2025-12-31 17:34:30,712 - robotaste.core.bo_engine - INFO - GP trained on 3 samples. Best observed: 2.800, Mean: 2.517, Std: 0.301
+2025-12-31 17:34:30,712 - robotaste.core.bo_utils - INFO - Successfully trained BO model for participant_001 with 3 samples
+2025-12-31 17:34:30,730 - robotaste.core.bo_engine - INFO - Adaptive EI: cycle 3/30, xi=0.1000
+2025-12-31 17:34:30,741 - robotaste.core.bo_engine - INFO - BO Suggestion (EI): predicted=2.670, acquisition=0.0253, uncertainty=0.255
+2025-12-31 17:34:30,847 - robotaste.data.database - INFO - Using target column name: 'sweetness_intensity'
+2025-12-31 17:34:30,849 - robotaste.data.database - INFO - Retrieved 3 training samples for session be0c320b-bc29-4d3a-98c0-6298ddb9aa9a with columns: ['Sugar', 'sweetness_intensity']

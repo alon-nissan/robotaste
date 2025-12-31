@@ -45,8 +45,8 @@ def get_bo_suggestion_for_session(
         }
     """
     try:
-        from bayesian_optimizer import (
-            train_bo_model_for_participant,
+        from robotaste.core.bo_utils import train_bo_model_for_participant
+        from robotaste.core.bo_engine import (
             generate_candidate_grid_2d,
             generate_candidates_latin_hypercube,
         )
@@ -208,7 +208,7 @@ def get_bo_suggestion_for_session(
 
         # Check convergence and add to result
         try:
-            from bayesian_optimizer import check_convergence
+            from robotaste.core.bo_utils import check_convergence
 
             stopping_criteria = bo_config.get("stopping_criteria")
             convergence = check_convergence(session_id, stopping_criteria)

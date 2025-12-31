@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-from questionnaire_config import get_questionnaire_config
+from robotaste.config.questionnaire import get_questionnaire_config
 
 # Setup logging
 logger = logging.getLogger(__name__)

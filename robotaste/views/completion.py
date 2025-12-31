@@ -19,7 +19,7 @@ from robotaste.data.database import (
     get_session_samples,
     get_session_stats,
 )
-from questionnaire_config import get_questionnaire_metadata
+from robotaste.config.questionnaire import get_questionnaire_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +284,7 @@ def show_moderator_completion_summary():
             st.markdown("### Convergence Analysis")
 
             try:
-                from bayesian_optimizer import check_convergence
+                from robotaste.core.bo_utils import check_convergence
 
                 stopping_criteria = bo_config.get("stopping_criteria")
                 convergence = check_convergence(session_id, stopping_criteria)

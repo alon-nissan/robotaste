@@ -30,7 +30,7 @@ from robotaste.data.database import (
 )
 from robotaste.core.state_machine import ExperimentPhase
 from robotaste.core import state_helpers
-from questionnaire_config import get_default_questionnaire_type
+from robotaste.config.questionnaire import get_default_questionnaire_type
 
 
 import streamlit as st

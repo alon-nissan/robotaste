@@ -1,5 +1,5 @@
 import streamlit as st
-from viewport_utils import initialize_viewport_detection, get_responsive_font_scale
+from robotaste.utils.viewport import initialize_viewport_detection, get_responsive_font_scale
 
 # Page configuration
 st.set_page_config(

@@ -171,7 +171,7 @@ class RoboTasteBO:
             config: Optional BO configuration dict (uses defaults if None)
         """
         # Import here to avoid circular dependency
-        from config import DEFAULT_BO_CONFIG
+        from robotaste.config.bo_config import DEFAULT_BO_CONFIG
 
         # IMPORTANT: Do NOT sort - preserve order from experiment config to match training data
         self.ingredient_names = list(ingredient_names)
@@ -549,7 +549,7 @@ def train_bo_model(
         ...     target_column='hedonic_score'
         ... )
     """
-    from config import DEFAULT_BO_CONFIG
+    from robotaste.config.bo_config import DEFAULT_BO_CONFIG
 
     try:
         # Merge with defaults

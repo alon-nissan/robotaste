@@ -32,9 +32,8 @@ from robotaste.core.state_machine import (
     InvalidTransitionError,
 )
 from robotaste.core import state_helpers
-from bayesian_optimizer import get_default_bo_config, validate_bo_config
-
-from questionnaire_config import (
+from robotaste.config.bo_config import get_default_bo_config, validate_bo_config
+from robotaste.config.questionnaire import (
     list_available_questionnaires,
     get_default_questionnaire_type,
     get_questionnaire_config,
@@ -561,7 +560,7 @@ def _render_bo_config(key_prefix: str):
 
 def show_single_ingredient_setup():
     """Single ingredient setup with compact vertical layout."""
-    from questionnaire_config import (
+    from robotaste.config.questionnaire import (
         list_available_questionnaires,
         get_default_questionnaire_type,
         get_questionnaire_config,
@@ -840,7 +839,7 @@ def show_single_ingredient_setup():
 
 def show_binary_mixture_setup():
     """Binary mixture setup with 2-column symmetrical layout."""
-    from questionnaire_config import (
+    from robotaste.config.questionnaire import (
         list_available_questionnaires,
         get_default_questionnaire_type,
         get_questionnaire_config,
@@ -1205,8 +1204,8 @@ def show_binary_mixture_setup():
 
 def single_bo():
     """Single ingredient BO visualization with 1D Gaussian Process plots."""
-    from bayesian_optimizer import train_bo_model_for_participant
-    from questionnaire_config import get_questionnaire_config
+    from robotaste.core.bo_utils import train_bo_model_for_participant
+    from robotaste.config.questionnaire import get_questionnaire_config
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     import numpy as np
@@ -1483,11 +1482,9 @@ def single_bo():
 
 def binary_bo():
     """Binary mixture BO visualization with 2D Gaussian Process heatmaps."""
-    from bayesian_optimizer import (
-        train_bo_model_for_participant,
-        generate_candidate_grid_2d,
-    )
-    from questionnaire_config import get_questionnaire_config
+    from robotaste.core.bo_utils import train_bo_model_for_participant
+    from robotaste.core.bo_engine import generate_candidate_grid_2d
+    from robotaste.config.questionnaire import get_questionnaire_config
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     import numpy as np
@@ -1832,7 +1829,7 @@ def show_moderator_monitoring():
 
     # ========== CONVERGENCE PROGRESS BAR & METRICS ==========
     try:
-        from bayesian_optimizer import check_convergence, get_convergence_metrics
+        from robotaste.core.bo_utils import check_convergence, get_convergence_metrics
 
         # Get stopping criteria from session config
         experiment_config = session.get("experiment_config", {})

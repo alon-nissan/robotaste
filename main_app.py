@@ -34,7 +34,7 @@ from robotaste.data.session_repo import (
     get_session_info,
     sync_session_state_to_streamlit as sync_session_state,
 )
-from viewport_utils import initialize_viewport_detection, get_responsive_font_scale
+from robotaste.utils.viewport import initialize_viewport_detection, get_responsive_font_scale
 
 # Page configuration
 st.set_page_config(
