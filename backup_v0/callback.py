@@ -79,22 +79,30 @@ import math
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional
 from bayesian_optimizer import get_default_bo_config
-from robotaste.data import database as sql
-from robotaste.components.canvas import (
-    create_canvas_drawing,
-    clear_canvas_state,
-    get_canvas_size,
-    CANVAS_SIZE,
-    GRID_STEP,
-)
+import sql_handler as sql
 import logging
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Note: CANVAS_SIZE, GRID_STEP, get_canvas_size(), create_canvas_drawing(), and clear_canvas_state()
-# are now imported from robotaste.components.canvas
+# Constants
+CANVAS_SIZE = 500  # Default fallback size
+GRID_STEP = 50
+
+
+def get_canvas_size() -> int:
+    """
+    Get responsive canvas size based on viewport.
+    Returns dynamic size that fits viewport without scrolling.
+    """
+    try:
+        from viewport_utils import get_responsive_canvas_size
+
+        return get_responsive_canvas_size()
+    except Exception:
+        # Fallback to default if viewport utils not available
+        return CANVAS_SIZE
 
 
 NACL_MW = 58.44  # g/mol
@@ -340,7 +348,123 @@ def generate_random_position(
     return round(x, 1), round(y, 1)
 
 
-# create_canvas_drawing() now imported from robotaste.components.canvas
+def create_canvas_drawing(
+    x: float,
+    y: float,
+    selection_history: list = None,  # pyright: ignore[reportArgumentType]
+) -> Dict[str, Any]:
+    """
+    Create initial canvas drawing with grid, starting dot, and selection history.
+
+    Args:
+        x, y: Initial dot position
+        selection_history: List of previous selections with order tracking
+
+    Returns:
+        Fabric.js compatible drawing object
+    """
+    objects = []
+
+    # Add grid lines
+    for i in range(0, CANVAS_SIZE + 1, GRID_STEP):
+        # Vertical lines
+        objects.append(
+            {
+                "type": "line",
+                "x1": i,
+                "y1": 0,
+                "x2": i,
+                "y2": CANVAS_SIZE,
+                "stroke": "#E5E7EB",
+                "strokeWidth": 1,
+                "selectable": False,
+                "evented": False,
+            }
+        )
+
+        # Horizontal lines
+        objects.append(
+            {
+                "type": "line",
+                "x1": 0,
+                "y1": i,
+                "x2": CANVAS_SIZE,
+                "y2": i,
+                "stroke": "#E5E7EB",
+                "strokeWidth": 1,
+                "selectable": False,
+                "evented": False,
+            }
+        )
+
+    # Add initial starting position as gray dot
+    objects.append(
+        {
+            "type": "circle",
+            "left": x,
+            "top": y,
+            "radius": 8,
+            "fill": "#9CA3AF",  # Gray for starting position
+            "stroke": "#6B7280",
+            "strokeWidth": 2,
+            "originX": "center",
+            "originY": "center",
+        }
+    )
+
+    # Add selection history with visual progression and numbering
+    if selection_history:
+        for i, selection in enumerate(selection_history):
+            # Color progression - darker red for more recent selections
+            opacity = (
+                0.4 + (i * 0.6 / max(len(selection_history) - 1, 1))
+                if len(selection_history) > 1
+                else 1.0
+            )
+
+            # Determine color based on selection type (BO vs manual)
+            is_bo = selection.get("is_bo_suggestion", False)
+            fill_color = (
+                "#8B5CF6" if is_bo else "#14B8A6"
+            )  # Purple for BO, teal for manual
+            stroke_color = (
+                "#6D28D9" if is_bo else "#0D9488"
+            )  # Darker purple/teal for stroke
+
+            # Add selection circle
+            objects.append(
+                {
+                    "type": "circle",
+                    "left": selection["x"],
+                    "top": selection["y"],
+                    "radius": 10,  # Slightly larger than starting position
+                    "fill": fill_color,
+                    "stroke": stroke_color,
+                    "strokeWidth": 3,
+                    "originX": "center",
+                    "originY": "center",
+                }
+            )
+
+            # Add selection order number as text
+            objects.append(
+                {
+                    "type": "text",
+                    "left": selection["x"],
+                    "top": selection["y"],
+                    "text": str(selection["order"]),
+                    "fontSize": 18,
+                    "fontWeight": "bold",
+                    "fontFamily": "Arial",
+                    "fill": "white",
+                    "originX": "center",
+                    "originY": "center",
+                    "selectable": False,
+                    "evented": False,
+                }
+            )
+
+    return {"version": "4.4.0", "objects": objects}
 
 
 class MultiComponentMixture:
@@ -546,7 +670,7 @@ def start_trial(
         Success status
     """
     try:
-        from robotaste.data.database import update_session_state
+        from sql_handler import update_session_state
 
         # Generate random starting position for grid interface
         x, y = generate_random_position()
@@ -664,8 +788,7 @@ def start_trial(
         # Store experiment configuration in session database for subject synchronization
         try:
             import json
-            from robotaste.core.state_machine import ExperimentPhase
-            from robotaste.core import state_helpers
+            from state_machine import ExperimentPhase, ExperimentStateMachine
 
             # Get questionnaire type from session state (set by moderator)
             from questionnaire_config import get_default_questionnaire_type
@@ -727,9 +850,7 @@ def start_trial(
             # In the 5-phase workflow, trial starts in LOADING where robot prepares first sample
             # This follows the valid transition: WAITING → LOADING
             try:
-                current_phase = state_helpers.get_current_phase()
-                state_helpers.transition(
-                    current_phase=current_phase,
+                ExperimentStateMachine.transition(
                     new_phase=ExperimentPhase.LOADING,
                     session_id=session_id,  # Use session_id for DB
                 )
@@ -849,7 +970,14 @@ def get_concentration_display(x: float, y: float, method: str) -> Dict[str, Any]
         }
 
 
-# clear_canvas_state() now imported from robotaste.components.canvas
+def clear_canvas_state():
+    """Clear all canvas-related keys from session state"""
+    keys_to_remove = []
+    for key in st.session_state.keys():
+        if key.startswith("canvas_"):  # type: ignore
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        del st.session_state[key]
 
 
 def render_questionnaire(

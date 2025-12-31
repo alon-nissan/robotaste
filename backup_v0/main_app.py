@@ -26,11 +26,11 @@ Last Updated: 2025-11-19
 import streamlit as st
 
 # Import our modules
-from robotaste.data.database import init_database
-from robotaste.data.session_repo import (
+from sql_handler import init_database
+from session_manager import (
     join_session,
     get_session_info,
-    sync_session_state_to_streamlit as sync_session_state,
+    sync_session_state,
 )
 from viewport_utils import initialize_viewport_detection, get_responsive_font_scale
 
@@ -54,9 +54,9 @@ else:
 font_scale = get_responsive_font_scale()
 
 # Modern card-based CSS with balanced color palette and larger fonts
-from robotaste.components.styles import apply_styles
+from css_style import STYLE
 
-apply_styles()
+st.markdown(STYLE, unsafe_allow_html=True)
 
 # Initialize database only once per session
 # TODO: Add database health monitoring and automatic backup
@@ -73,7 +73,7 @@ def init_session_state():
     """Initialize session state variables."""
     defaults = {
         "participant": "participant_001",
-        "phase": "waiting",  # Changed from "welcome" to match ExperimentPhase enum
+        "phase": "welcome",
         "method": "linear",
         "auto_refresh": True,
         "last_sync": None,
@@ -132,9 +132,9 @@ add_accessibility_features()
 
 
 # Import interface modules after initialization to avoid circular imports
-from robotaste.views.landing import landing_page
-from robotaste.views.moderator import moderator_interface
-from robotaste.views.subject import subject_interface
+from landing_page import landing_page
+from moderator_interface import moderator_interface
+from subject_interface import subject_interface
 
 
 # Main application router
@@ -158,7 +158,7 @@ def main():
     elif role and session_code:
         if role == "moderator":
             # Get session by code, then extract session_id for syncing
-            from robotaste.data.database import get_session_by_code
+            from sql_handler import get_session_by_code
 
             session_info = get_session_by_code(session_code)
             if session_info and session_info.get("state") == "active":
@@ -169,9 +169,8 @@ def main():
                 role = ""
                 session_code = ""
         elif role == "subject":
-            session_id = join_session(session_code)
-            if session_id:
-                sync_session_state(session_id, "subject")
+            if join_session(session_code):
+                sync_session_state(session_code, "subject")
             else:
                 # Invalid session, clear URL params
                 st.query_params.clear()

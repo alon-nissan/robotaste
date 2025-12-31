@@ -818,7 +818,7 @@ def train_bo_model_for_participant(
         ...     candidates = generate_candidate_grid_2d((0.73, 73.0), (0.10, 10.0))
         ...     suggestion = bo_model.suggest_next_sample(candidates)
     """
-    from robotaste.data.database import get_training_data
+    from sql_handler import get_training_data
 
     try:
         # Merge with defaults and validate
@@ -1060,11 +1060,11 @@ def get_bo_status(session_id: str) -> Dict[str, Any]:
         >>> print(status["status_message"])
         "Optimizing (Cycle 5/15)"
     """
-    from robotaste.data.database import get_session, get_current_cycle, get_training_data
+    import sql_handler as sql
 
     try:
         # Get session and config
-        session = get_session(session_id)
+        session = sql.get_session(session_id)
         if not session:
             return {
                 "is_active": False,
@@ -1085,13 +1085,13 @@ def get_bo_status(session_id: str) -> Dict[str, Any]:
         )
 
         # Get cycle information
-        current_cycle = get_current_cycle(session_id)
+        current_cycle = sql.get_current_cycle(session_id)
         min_samples = bo_config.get("min_samples_for_bo", 3)
         is_enabled = bo_config.get("enabled", True)
         is_active = is_enabled and (current_cycle >= min_samples)
 
         # Get training data to count samples
-        training_df = get_training_data(
+        training_df = sql.get_training_data(
             session_id, only_final=bo_config.get("only_final_responses", True)
         )
         samples_collected = len(training_df) if training_df is not None else 0
@@ -1207,11 +1207,11 @@ def get_convergence_metrics(session_id: str) -> Dict[str, Any]:
         >>> if metrics["max_acquisition"] < 0.001:
         ...     print("Low expected improvement - nearing convergence")
     """
-    from robotaste.data.database import get_database_connection, get_training_data, get_current_cycle
+    import sql_handler as sql
 
     try:
         # Get all samples with BO metadata
-        with get_database_connection() as conn:
+        with sql.get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1247,7 +1247,7 @@ def get_convergence_metrics(session_id: str) -> Dict[str, Any]:
         n_bo_samples = 0
 
         # Get training data to calculate best values over time
-        training_df = get_training_data(session_id, only_final=False)
+        training_df = sql.get_training_data(session_id, only_final=False)
         target_col = training_df.columns[-1] if not training_df.empty else None
 
         for i, row in enumerate(rows):
@@ -1272,7 +1272,7 @@ def get_convergence_metrics(session_id: str) -> Dict[str, Any]:
                         best_values.append(float(best_so_far))
 
         # Calculate derived metrics
-        current_cycle = get_current_cycle(session_id)
+        current_cycle = sql.get_current_cycle(session_id)
         n_samples = len(rows)
         has_sufficient_data = n_bo_samples >= 3
 
@@ -1355,7 +1355,7 @@ def check_convergence(
         >>> if result["recommendation"] == "stop_recommended":
         ...     show_stopping_dialog()
     """
-    from robotaste.data.database import get_session
+    import sql_handler as sql
 
     try:
         # Get stopping criteria (use defaults if not provided). Ensure it's a dict.
@@ -1368,7 +1368,7 @@ def check_convergence(
         sc = stopping_criteria
 
         # Get session info to determine dimensionality
-        session = get_session(session_id)
+        session = sql.get_session(session_id)
         if not session:
             return {
                 "converged": False,

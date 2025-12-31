@@ -1,8 +1,18 @@
-from session_manager import (
+"""
+RoboTaste Landing Page - Multi-Device Session Management
+
+Handles session creation and joining for both moderators and subjects.
+
+Author: RoboTaste Team
+Version: 3.0 (Refactored Architecture)
+"""
+
+from robotaste.data.session_repo import (
     get_session_info,
     join_session,
-    sync_session_state,
+    sync_session_state_to_streamlit as sync_session_state,
 )
+from robotaste.data.database import create_session, get_session_by_code
 
 import streamlit as st
 import time
@@ -17,8 +27,9 @@ def landing_page():
     if role and session_code:
         # Direct access via URL with session code
         if role == "subject":
-            if join_session(session_code):
-                sync_session_state(session_code, "subject")
+            session_id = join_session(session_code)
+            if session_id:
+                sync_session_state(session_id, "subject")
                 st.success(f"Joined session {session_code}")
                 time.sleep(1)
                 st.rerun()
@@ -27,9 +38,9 @@ def landing_page():
                 st.query_params.clear()
                 st.rerun()
         elif role == "moderator":
-            session_info = get_session_info(session_code)
-            if session_info and session_info["is_active"]:
-                sync_session_state(session_code, "moderator")
+            session_info = get_session_by_code(session_code)
+            if session_info and session_info.get("state") == "active":
+                sync_session_state(session_info["session_id"], "moderator")
                 st.success(f"Resumed moderator session {session_code}")
                 time.sleep(1)
                 st.rerun()
@@ -60,35 +71,31 @@ def landing_page():
             if st.button(
                 "Create New Session",
                 type="primary",
-                width="stretch",
+                width='stretch',
                 key="landing_create_session_button",
             ):
-                # Create minimal session in database with both UUID and 6-char code
-                # Full config will be added when moderator clicks "Start Trial"
-                import sql_handler as sql
+                if moderator_name:
+                    # Create minimal session in database with both UUID and 6-char code
+                    # Full config will be added when moderator clicks "Start Trial"
+                    new_session_id, new_session_code = create_session(moderator_name)
 
-                # Create session in database (returns both ID and code)
-                new_session_id, new_session_code = sql.create_session(moderator_name)
+                    # Store both identifiers in session state for moderator interface
+                    st.session_state.session_id = new_session_id
+                    st.session_state.session_code = new_session_code
+                    st.session_state.device_role = "moderator"
+                    st.session_state.moderator_name = moderator_name
+                    st.session_state.session_shell_created = True  # Minimal session created (needs full config)
 
-                # Store both identifiers in session state for moderator interface
-                st.session_state.session_id = new_session_id
-                st.session_state.session_code = new_session_code
-                st.session_state.device_role = "moderator"
-                st.session_state.moderator_name = moderator_name
-                st.session_state.session_shell_created = (
-                    True  # Minimal session created (needs full config)
-                )
-
-                st.query_params.update(
-                    {
+                    st.query_params.update({
                         "role": "moderator",
                         "session": new_session_code,
-                    }  # Use 6-char code in URL
-                )
-                st.success(f"Session Code: {new_session_code}")
-                st.info("Please configure your experiment settings on the next screen.")
-                time.sleep(1)
-                st.rerun()
+                    })
+                    st.success(f"Session Code: {new_session_code}")
+                    st.info("Please configure your experiment settings on the next screen.")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Please enter your name")
 
         with tab2:
             st.markdown("### Join Existing Session (Subject)")
@@ -107,11 +114,13 @@ def landing_page():
             if st.button(
                 "Join Session",
                 type="primary",
-                width="stretch",
+                width='stretch',
                 key="landing_join_session_button",
             ):
                 if input_session_code and len(input_session_code) == 6:
-                    if join_session(input_session_code):
+                    session_id = join_session(input_session_code)
+                    if session_id:
+                        st.session_state.session_id = session_id
                         st.session_state.session_code = input_session_code
                         st.session_state.device_role = "subject"
                         st.query_params.update(
@@ -129,22 +138,22 @@ def landing_page():
             st.markdown("### About RoboTaste")
             st.markdown(
                 """
-            **Multi-Device Taste Preference Experiment Platform**
-            
-            **Features:**
-            - **2D Grid Interface**: Binary mixtures with coordinate selection
-            - **Vertical Sliders**: Multi-component concentration control
-            - **Multi-Device**: Moderator dashboard + subject interface
-            - **Real-time Sync**: Live monitoring and data collection
-            - **Cloud Ready**: Deployed on Streamlit Cloud
-            
+            **RoboTaste** is an interactive taste preference experiment platform designed for:
+
+            - **Moderators**: Configure experiments, monitor progress, and collect data
+            - **Subjects**: Participate in taste experiments via an intuitive interface
+
+            **Key Features:**
+            - Multi-device support (moderator on one device, subject on another)
+            - Bayesian optimization for intelligent sampling
+            - Real-time data synchronization
+            - Configurable questionnaires and concentration ranges
+
             **How to Use:**
-            1. **Moderator**: Create a new session from any device
-            2. **Subject**: Join using the 6-digit session code or QR code
-            3. **Experiment**: Real-time synchronized taste preference testing
-            
-            **Device Requirements:**
-            - Moderator: Desktop/laptop with large screen
-            - Subject: Any device (phone, tablet, laptop)
+            1. **Moderator**: Create a new session and share the code/QR with subjects
+            2. **Subject**: Join using the provided session code
+            3. Follow the on-screen instructions to complete the experiment
+
+            For more information, contact your experiment coordinator.
             """
             )

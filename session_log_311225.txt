@@ -1,0 +1,175 @@
+(base) alonnissan@Alons-MacBook-Air Software % streamlit run main_app.py
+2025-12-31 12:03:11.861 Did not auto detect external IP.
+Please go to https://docs.streamlit.io/ for debugging hints.
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://172.24.8.32:8501
+
+INFO:robotaste.data.database:Created session 7c942c72-27b6-4474-8312-826e05631814 with code 15F7YB
+WARNING:robotaste.core.state_helpers:Invalid phase in session state: welcome, defaulting to WAITING
+WARNING:robotaste.core.state_helpers:Invalid phase in session state: welcome, defaulting to WAITING
+WARNING:robotaste.core.state_helpers:Invalid phase in session state: welcome, defaulting to WAITING
+WARNING:robotaste.core.state_helpers:Invalid phase in session state: welcome, defaulting to WAITING
+INFO:robotaste.data.database:Updating session 7c942c72-27b6-4474-8312-826e05631814 with full configuration
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 with full configuration
+INFO:callback:Using custom ingredient configuration: ['Sugar']
+WARNING:robotaste.core.state_helpers:Invalid phase in session state: welcome, defaulting to WAITING
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'loading'
+INFO:robotaste.core.state_helpers:Phase transition: waiting -> loading (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+INFO:robotaste.data.database:No samples found for session 7c942c72-27b6-4474-8312-826e05631814
+INFO:robotaste.data.database:Found schema file at: robotaste/data/schema.sql
+INFO:robotaste.data.database:Database initialized successfully from schema.sql
+INFO:robotaste.data.session_repo:Subject joined session 15F7YB (ID: 7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'questionnaire'
+INFO:robotaste.core.state_helpers:Phase transition: loading -> questionnaire (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Saved sample 9de6703e-7930-4b1b-bfd8-b29b440ae7f0 for session 7c942c72-27b6-4474-8312-826e05631814, cycle 0
+INFO:robotaste.data.database:Incremented session 7c942c72-27b6-4474-8312-826e05631814 to cycle 1
+WARNING:subject_interface:Error checking convergence for stopping dialog: No module named 'sql_handler'
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'selection'
+INFO:robotaste.core.state_helpers:Phase transition: questionnaire -> selection (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 1 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 1: 35.099797816560866%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 1 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 1: 35.099797816560866%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 1 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 1: 35.099797816560866%
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'loading'
+INFO:robotaste.core.state_helpers:Phase transition: selection -> loading (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'questionnaire'
+INFO:robotaste.core.state_helpers:Phase transition: loading -> questionnaire (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Saved sample dff840d5-ca03-452f-a821-f728e8f6ed3e for session 7c942c72-27b6-4474-8312-826e05631814, cycle 1
+INFO:robotaste.data.database:Incremented session 7c942c72-27b6-4474-8312-826e05631814 to cycle 2
+WARNING:subject_interface:Error checking convergence for stopping dialog: No module named 'sql_handler'
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'selection'
+INFO:robotaste.core.state_helpers:Phase transition: questionnaire -> selection (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 2 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 2: 59.0%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 2 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 2: 59.0%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:BO not ready: cycle 2 < min 3
+INFO:subject_interface:Loaded last sample slider value for cycle 2: 59.0%
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'loading'
+INFO:robotaste.core.state_helpers:Phase transition: selection -> loading (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'questionnaire'
+INFO:robotaste.core.state_helpers:Phase transition: loading -> questionnaire (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+2025-12-31 12:04:33.667 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+2025-12-31 12:04:34.389 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:robotaste.data.database:Saved sample b21823a1-87ae-4b97-ab5d-1bfb16829d00 for session 7c942c72-27b6-4474-8312-826e05631814, cycle 2
+INFO:robotaste.data.database:Incremented session 7c942c72-27b6-4474-8312-826e05631814 to cycle 3
+WARNING:subject_interface:Error checking convergence for stopping dialog: No module named 'sql_handler'
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'selection'
+INFO:robotaste.core.state_helpers:Phase transition: questionnaire -> selection (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:Training BO model for cycle 3
+ERROR:callback:Error getting BO suggestion: No module named 'sql_handler'
+Traceback (most recent call last):
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/callback.py", line 1152, in get_bo_suggestion_for_session
+    bo_model = train_bo_model_for_participant(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/bayesian_optimizer.py", line 821, in train_bo_model_for_participant
+    from sql_handler import get_training_data
+ModuleNotFoundError: No module named 'sql_handler'
+INFO:subject_interface:Loaded last sample slider value for cycle 3: 81.0%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:Training BO model for cycle 3
+ERROR:callback:Error getting BO suggestion: No module named 'sql_handler'
+Traceback (most recent call last):
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/callback.py", line 1152, in get_bo_suggestion_for_session
+    bo_model = train_bo_model_for_participant(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/bayesian_optimizer.py", line 821, in train_bo_model_for_participant
+    from sql_handler import get_training_data
+ModuleNotFoundError: No module named 'sql_handler'
+INFO:subject_interface:Loaded last sample slider value for cycle 3: 81.0%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:Training BO model for cycle 3
+ERROR:callback:Error getting BO suggestion: No module named 'sql_handler'
+Traceback (most recent call last):
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/callback.py", line 1152, in get_bo_suggestion_for_session
+    bo_model = train_bo_model_for_participant(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/bayesian_optimizer.py", line 821, in train_bo_model_for_participant
+    from sql_handler import get_training_data
+ModuleNotFoundError: No module named 'sql_handler'
+INFO:subject_interface:Loaded last sample slider value for cycle 3: 81.0%
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:Training BO model for cycle 3
+ERROR:callback:Error getting BO suggestion: No module named 'sql_handler'
+Traceback (most recent call last):
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/callback.py", line 1152, in get_bo_suggestion_for_session
+    bo_model = train_bo_model_for_participant(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/bayesian_optimizer.py", line 821, in train_bo_model_for_participant
+    from sql_handler import get_training_data
+ModuleNotFoundError: No module named 'sql_handler'
+INFO:subject_interface:Loaded last sample slider value for cycle 3: 81.0%
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'loading'
+INFO:robotaste.core.state_helpers:Phase transition: selection -> loading (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+INFO:robotaste.data.database:Using target column name: 'overall_liking'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+ERROR:config:Failed to extract target variable: string indices must be integers, not 'str'
+INFO:robotaste.data.database:Retrieved 0 training samples for session 7c942c72-27b6-4474-8312-826e05631814 with columns: []
+2025-12-31 12:04:52.748 Please replace `use_container_width` with `width`.
+
+`use_container_width` will be removed after 2025-12-31.
+
+For `use_container_width=True`, use `width='stretch'`. For `use_container_width=False`, use `width='content'`.
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'questionnaire'
+INFO:robotaste.core.state_helpers:Phase transition: loading -> questionnaire (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.database:Saved sample 4f32c404-462e-4d1b-83d9-c064de95a649 for session 7c942c72-27b6-4474-8312-826e05631814, cycle 3
+INFO:robotaste.data.database:Incremented session 7c942c72-27b6-4474-8312-826e05631814 to cycle 4
+WARNING:subject_interface:Error checking convergence for stopping dialog: No module named 'sql_handler'
+INFO:robotaste.data.database:Updated session 7c942c72-27b6-4474-8312-826e05631814 current_phase to 'selection'
+INFO:robotaste.core.state_helpers:Phase transition: questionnaire -> selection (session_id=7c942c72-27b6-4474-8312-826e05631814)
+INFO:robotaste.data.session_repo:Synced session 7c942c72-27b6-4474-8312-826e05631814 for subject
+INFO:callback:Training BO model for cycle 4
+ERROR:callback:Error getting BO suggestion: No module named 'sql_handler'
+Traceback (most recent call last):
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/callback.py", line 1152, in get_bo_suggestion_for_session
+    bo_model = train_bo_model_for_participant(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/RoboTaste/Software/bayesian_optimizer.py", line 821, in train_bo_model_for_participant
+    from sql_handler import get_training_data
+ModuleNotFoundError: No module named 'sql_handler'
+INFO:subject_interface:Loaded last sample slider value for cycle 4: 13.0%
+^C  Stopping...

@@ -44,4 +44,4 @@ Thumbs.db
 .streamlit/secrets.toml
 
 # Logs
-*.log
+*.logbackup_v0/
