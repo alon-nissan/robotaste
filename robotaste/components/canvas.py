@@ -25,6 +25,7 @@ def get_canvas_size() -> int:
     """
     try:
         from robotaste.utils.viewport import get_responsive_canvas_size
+
         return get_responsive_canvas_size()
     except Exception:
         # Fallback to default if viewport utils not available
@@ -34,7 +35,7 @@ def get_canvas_size() -> int:
 def create_canvas_drawing(
     x: float,
     y: float,
-    selection_history: List[Dict] = None,
+    selection_history: List[Dict] = None,  # type: ignore
 ) -> Dict[str, Any]:
     """
     Create initial canvas drawing with grid, starting dot, and selection history.
@@ -104,8 +105,12 @@ def create_canvas_drawing(
         for i, selection in enumerate(selection_history):
             # Determine color based on selection type (BO vs manual)
             is_bo = selection.get("is_bo_suggestion", False)
-            fill_color = "#8B5CF6" if is_bo else "#14B8A6"  # Purple for BO, teal for manual
-            stroke_color = "#6D28D9" if is_bo else "#0D9488"  # Darker purple/teal for stroke
+            fill_color = (
+                "#8B5CF6" if is_bo else "#14B8A6"
+            )  # Purple for BO, teal for manual
+            stroke_color = (
+                "#6D28D9" if is_bo else "#0D9488"
+            )  # Darker purple/teal for stroke
 
             # Add selection circle
             objects.append(
@@ -147,7 +152,7 @@ def clear_canvas_state():
     """Clear all canvas-related keys from session state."""
     keys_to_remove = []
     for key in st.session_state.keys():
-        if key.startswith("canvas_"):
+        if key.startswith("canvas_"):  # type: ignore
             keys_to_remove.append(key)
 
     for key in keys_to_remove:

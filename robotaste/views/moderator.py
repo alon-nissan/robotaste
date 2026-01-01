@@ -26,6 +26,7 @@ from robotaste.data.database import (
     get_database_connection,
     get_training_data,
     get_questionnaire_type_id,
+    update_session_with_config,
 )
 from robotaste.core.state_machine import (
     ExperimentPhase,
@@ -37,13 +38,28 @@ from robotaste.config.questionnaire import (
     list_available_questionnaires,
     get_default_questionnaire_type,
     get_questionnaire_config,
+    extract_target_variable,
 )
-
+from robotaste.data import protocol_repo
+from robotaste.views import protocol_manager
+from robotaste.views.completion import show_moderator_completion_summary
+from robotaste.components.styles import STYLE
+from robotaste.core.bo_utils import (
+    train_bo_model_for_participant,
+    check_convergence,
+    get_convergence_metrics,
+)
+from robotaste.core.bo_engine import generate_candidate_grid_2d
 import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime
 import logging
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import numpy as np
+import json
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -560,13 +576,6 @@ def _render_bo_config(key_prefix: str):
 
 def show_single_ingredient_setup():
     """Single ingredient setup with compact vertical layout."""
-    from robotaste.config.questionnaire import (
-        list_available_questionnaires,
-        get_default_questionnaire_type,
-        get_questionnaire_config,
-    )
-    from robotaste.data.database import update_session_with_config
-
     st.markdown("### Single Ingredient Setup")
 
     # ===== INGREDIENT SELECTION =====
@@ -728,7 +737,7 @@ def show_single_ingredient_setup():
         if st.button(
             "Start Trial",
             type="primary",
-            width="stretch",
+            use_container_width=True,
             key="single_start_trial_button",
         ):
             # Validation
@@ -839,13 +848,6 @@ def show_single_ingredient_setup():
 
 def show_binary_mixture_setup():
     """Binary mixture setup with 2-column symmetrical layout."""
-    from robotaste.config.questionnaire import (
-        list_available_questionnaires,
-        get_default_questionnaire_type,
-        get_questionnaire_config,
-    )
-    from robotaste.data.database import update_session_with_config
-
     st.markdown("### Binary Mixture Setup")
 
     # ===== INGREDIENT SELECTION (2-COLUMN LAYOUT) =====
@@ -1083,7 +1085,7 @@ def show_binary_mixture_setup():
         if st.button(
             "Start Trial",
             type="primary",
-            width="stretch",
+            use_container_width=True,
             key="binary_start_trial_button",
         ):
             # Validation
@@ -1204,12 +1206,6 @@ def show_binary_mixture_setup():
 
 def single_bo():
     """Single ingredient BO visualization with 1D Gaussian Process plots."""
-    from robotaste.core.bo_utils import train_bo_model_for_participant
-    from robotaste.config.questionnaire import get_questionnaire_config
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    import numpy as np
-
     # Get session and configuration
     session = get_session(st.session_state.session_id)
     if not session or "experiment_config" not in session:
@@ -1460,7 +1456,7 @@ def single_bo():
         )
 
         # Display plot
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
         # Show metrics below plot
         col1, col2, col3, col4 = st.columns(4)
@@ -1482,13 +1478,6 @@ def single_bo():
 
 def binary_bo():
     """Binary mixture BO visualization with 2D Gaussian Process heatmaps."""
-    from robotaste.core.bo_utils import train_bo_model_for_participant
-    from robotaste.core.bo_engine import generate_candidate_grid_2d
-    from robotaste.config.questionnaire import get_questionnaire_config
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    import numpy as np
-
     # Get session and configuration
     session = get_session(st.session_state.session_id)
     if not session or "experiment_config" not in session:
@@ -1764,7 +1753,7 @@ def binary_bo():
         fig.update_annotations(font_size=21)
 
         # Display plot
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
         # Show metrics below plot
         col1, col2, col3, col4 = st.columns(4)
@@ -1829,8 +1818,6 @@ def show_moderator_monitoring():
 
     # ========== CONVERGENCE PROGRESS BAR & METRICS ==========
     try:
-        from robotaste.core.bo_utils import check_convergence, get_convergence_metrics
-
         # Get stopping criteria from session config
         experiment_config = session.get("experiment_config", {})
         bo_config_full = experiment_config.get("bayesian_optimization", {})
@@ -1983,7 +1970,7 @@ def show_moderator_monitoring():
                             font=dict(size=18),
                             height=300,
                         )
-                        st.plotly_chart(fig_acq, width='stretch')
+                        st.plotly_chart(fig_acq, use_container_width=True)
 
                 with col_chart2:
                     # Best values over time
@@ -2013,7 +2000,7 @@ def show_moderator_monitoring():
                             font=dict(size=18),
                             height=300,
                         )
-                        st.plotly_chart(fig_best, width='stretch')
+                        st.plotly_chart(fig_best, use_container_width=True)
         else:
             with st.expander("📈 Convergence Metrics Over Time", expanded=False):
                 st.info("Insufficient data for time-series analysis (need 3+ samples)")
@@ -2070,7 +2057,7 @@ def show_moderator_monitoring():
                     rows.append(row)
 
                 df = pd.DataFrame(rows)
-                st.dataframe(df, width='stretch', hide_index=True)
+                st.dataframe(df, use_container_width=True, hide_index=True)
                 st.caption(f"Showing {len(df)} response(s)")
 
                 # Detailed JSON view
@@ -2172,7 +2159,7 @@ def show_moderator_monitoring():
     export_col1, export_col2, export_col3 = st.columns([1, 2, 1])
     with export_col2:
         if st.button(
-            "💾 Export Session Data", type="primary", width='stretch'
+            "💾 Export Session Data", type="primary", use_container_width=True
         ):
             st.session_state["show_export_options"] = True
 
@@ -2249,7 +2236,7 @@ def show_moderator_monitoring():
                         preview_rows.append(row)
                     st.dataframe(
                         pd.DataFrame(preview_rows),
-                        width='stretch',
+                        use_container_width=True,
                         hide_index=True,
                     )
                 else:
@@ -2276,12 +2263,14 @@ def show_moderator_monitoring():
             col1, col2 = st.columns(2)
             with col1:
                 if st.button(
-                    "✓ Yes, End Session", type="primary", width='stretch'
+                    "✓ Yes, End Session", type="primary", use_container_width=True
                 ):
                     try:
                         current_phase = state_helpers.get_current_phase()
                         success = state_helpers.transition(
-                            current_phase, ExperimentPhase.COMPLETE, st.session_state.session_id
+                            current_phase,
+                            ExperimentPhase.COMPLETE,
+                            st.session_state.session_id,
                         )
 
                         if success:
@@ -2296,20 +2285,92 @@ def show_moderator_monitoring():
                         st.error(f"Failed to end session: {e}")
 
             with col2:
-                if st.button("← Cancel", width='stretch'):
+                if st.button("← Cancel", use_container_width=True):
                     st.session_state["show_end_session_modal"] = False
                     st.rerun()
 
         show_end_session_dialog()
 
 
-def moderator_interface():
-    from robotaste.components.styles import STYLE
+def render_manual_session_setup():
+    """Renders the UI for manual session setup (single ingredient or binary mixture)."""
+    # Add scoped CSS for setup buttons BEFORE the conditional
+    st.markdown(
+        """
+        <style>
+        /* Scoped to setup buttons container only */
+        .setup-buttons .stButton > button {
+            width: 100% !important;
+            height: 500px !important;
+            min-height: 500px !important;
 
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+
+            border-radius: 16px !important;
+            border: 1px solid #E5E7EB !important;
+            background-color: #FFFFFF !important;
+
+            transition: all 0.3s ease !important;
+            padding: 2rem !important;
+            font-size: 2rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Initialize setup type in session state
+    if "setup_type" not in st.session_state:
+        st.session_state.setup_type = None
+
+    # Only show buttons if no selection has been made
+    if st.session_state.setup_type is None:
+        # Create container div with unique class
+        st.markdown('<div class="setup-buttons">', unsafe_allow_html=True)
+
+        # Use columns for full-width buttons
+        col1, col2 = st.columns(2, gap="large")
+
+        with col1:
+            if st.button(
+                "🧪 Single Ingredient",
+                key="btn_single",
+                use_container_width=True,
+                type="secondary",
+                help="Configure experiment with a single ingredient",
+            ):
+                st.session_state.setup_type = "single"
+                st.rerun()
+
+        with col2:
+            if st.button(
+                "⚗️ Binary Mixture",
+                key="btn_binary",
+                use_container_width=True,
+                type="secondary",
+                help="Configure experiment with two-ingredient mixture",
+            ):
+                st.session_state.setup_type = "binary"
+                st.rerun()
+
+        # Close container div
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Show setup UI only after selection (buttons will be hidden)
+    else:
+        # Render setup UI based on selection
+        if st.session_state.setup_type == "single":
+            show_single_ingredient_setup()
+        elif st.session_state.setup_type == "binary":
+            show_binary_mixture_setup()
+
+
+def moderator_interface():
     st.markdown(STYLE, unsafe_allow_html=True)
     if "phase" not in st.session_state:
-        from robotaste.data.database import get_session
-
         # Recover phase from database on reload
         session = get_session(st.session_state.session_id)
         if session:
@@ -2318,94 +2379,104 @@ def moderator_interface():
         else:
             recovered_phase = "waiting"
 
-        # Moderator UI has only two states:
-        # 1. "waiting" = setup mode (configure trial)
-        # 2. "trial_started" = monitoring mode (watch subject, regardless of exact subject phase)
-
         if recovered_phase == "waiting" or recovered_phase is None:
-            # Fresh session or explicitly waiting - show setup
             st.session_state.phase = "waiting"
         else:
-            # Any other phase (welcome, pre_questionnaire, respond, etc.) means trial is active
-            # Normalize to "trial_started" for moderator UI to show monitoring
             st.session_state.phase = "trial_started"
+
     if state_helpers.should_show_setup():
-        # Add scoped CSS for setup buttons BEFORE the conditional
-        st.markdown(
-            """
-            <style>
-            /* Scoped to setup buttons container only */
-            .setup-buttons .stButton > button {
-                width: 100% !important;
-                height: 500px !important;
-                min-height: 500px !important;
+        st.title("Moderator Dashboard")
+        st.header("Step 1: Session Setup")
 
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                justify-content: center !important;
+        # Initialize protocol_option in session state
+        if "protocol_option" not in st.session_state:
+            st.session_state.protocol_option = "Manual configuration"
 
-                border-radius: 16px !important;
-                border: 1px solid #E5E7EB !important;
-                background-color: #FFFFFF !important;
-
-                transition: all 0.3s ease !important;
-                padding: 2rem !important;
-                font-size: 2rem !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
+        # Show radio buttons to choose setup type
+        protocol_option = st.radio(
+            "Choose a setup method:",
+            ["Manual configuration", "Use a saved protocol", "Create a new protocol"],
+            index=[
+                "Manual configuration",
+                "Use a saved protocol",
+                "Create a new protocol",
+            ].index(st.session_state.protocol_option),
+            key="protocol_option_radio",
+            horizontal=True,
         )
+        st.session_state.protocol_option = protocol_option
 
-        # Initialize setup type in session state
-        if "setup_type" not in st.session_state:
-            st.session_state.setup_type = None
+        st.markdown("---")
 
-        # Only show buttons if no selection has been made
-        if st.session_state.setup_type is None:
-            # Create container div with unique class
-            st.markdown('<div class="setup-buttons">', unsafe_allow_html=True)
+        # Render UI based on the selected option
+        if protocol_option == "Manual configuration":
+            render_manual_session_setup()
 
-            # Use columns for full-width buttons
-            col1, col2 = st.columns(2, gap="large")
+        elif protocol_option == "Use a saved protocol":
+            st.subheader("Use Saved Protocol")
+            try:
+                protocols = protocol_repo.list_protocols()
+            except Exception as e:
+                st.error(f"Could not load protocols: {e}")
+                st.warning(
+                    "Please ensure the backend is running and the database is initialized."
+                )
+                protocols = []
 
-            with col1:
-                if st.button(
-                    "🧪 Single Ingredient",
-                    key="btn_single",
-                    width='stretch',
-                    type="secondary",
-                    help="Configure experiment with a single ingredient",
-                ):
-                    st.session_state.setup_type = "single"
-                    st.rerun()
+            if not protocols:
+                st.warning("No saved protocols found.")
+            else:
+                selected_protocol_id = st.selectbox(
+                    "Select a protocol to run:",
+                    options=[p["protocol_id"] for p in protocols],
+                    format_func=lambda pid: f"{next((p['name'] for p in protocols if p['protocol_id'] == pid), 'Unknown')} (v{next((p['version'] for p in protocols if p['protocol_id'] == pid), '?')})",
+                )
 
-            with col2:
-                if st.button(
-                    "⚗️ Binary Mixture",
-                    key="btn_binary",
-                    width='stretch',
-                    type="secondary",
-                    help="Configure experiment with two-ingredient mixture",
-                ):
-                    st.session_state.setup_type = "binary"
-                    st.rerun()
+                if selected_protocol_id:
+                    protocol = protocol_repo.get_protocol_by_id(selected_protocol_id)
+                    with st.expander("Protocol Summary"):
+                        st.json(protocol.get("protocol_json", {}))
 
-            # Close container div
-            st.markdown("</div>", unsafe_allow_html=True)
+                    if st.button("Start Session with This Protocol", type="primary"):
+                        try:
+                            # Create session with protocol_id
+                            session_id, session_code = create_session(
+                                moderator_name=st.session_state.get(
+                                    "moderator_name", "Moderator"
+                                ),
+                                protocol_id=selected_protocol_id,
+                            )
+                            st.session_state.session_id = session_id
+                            st.session_state.session_code = session_code
 
-        # Show setup UI only after selection (buttons will be hidden)
-        else:
-            # Render setup UI based on selection
-            if st.session_state.setup_type == "single":
-                show_single_ingredient_setup()
-            elif st.session_state.setup_type == "binary":
-                show_binary_mixture_setup()
+                            # Start trial using the protocol
+                            success = start_trial(
+                                user_type="mod",
+                                participant_id=st.session_state.get(
+                                    "participant", "participant_001"
+                                ),
+                                protocol_id=selected_protocol_id,
+                            )
+                            if success:
+                                st.toast(
+                                    f"Trial started for {st.session_state.participant} using protocol."
+                                )
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to start trial with protocol.")
+                        except Exception as e:
+                            st.error(
+                                f"An error occurred while starting the session: {e}"
+                            )
+                            logger.error(
+                                f"Protocol session start failed: {e}", exc_info=True
+                            )
+
+        elif protocol_option == "Create a new protocol":
+            protocol_manager.protocol_manager_view()
+
     elif state_helpers.should_show_monitoring():
         show_moderator_monitoring()
     else:
-        # If not setup and not monitoring, must be COMPLETE phase
-        from robotaste.views.completion import show_moderator_completion_summary
-
         show_moderator_completion_summary()

@@ -18,6 +18,28 @@ from robotaste.components.canvas import CANVAS_SIZE
 logger = logging.getLogger(__name__)
 
 
+def should_use_bo_for_cycle(session_id: str, cycle_number: int) -> bool:
+    """
+    Check if current cycle should use BO mode per protocol.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Current cycle number (1-indexed)
+
+    Returns:
+        True if BO should be used for this cycle, False otherwise
+    """
+    try:
+        from robotaste.core.trials import get_selection_mode_for_cycle_runtime
+
+        mode = get_selection_mode_for_cycle_runtime(session_id, cycle_number)
+        return mode == "bo_selected"
+
+    except Exception as e:
+        logger.error(f"Error checking BO mode for cycle: {e}")
+        return False
+
+
 def get_bo_suggestion_for_session(
     session_id: str, participant_id: str
 ) -> Optional[Dict[str, Any]]:
@@ -41,7 +63,9 @@ def get_bo_suggestion_for_session(
             "acquisition_value": 0.0234,
             "grid_coordinates": {"x": 250, "y": 300},  # For 2D grid only
             "slider_values": {"Sugar": 65, "Salt": 42, ...},  # For sliders only
-            "mode": "bayesian_optimization"
+            "mode": "bayesian_optimization",
+            "is_protocol_driven": bool,  # True if from protocol bo_selected mode
+            "allows_override": bool  # True if user can override (from protocol config)
         }
     """
     try:
@@ -242,9 +266,27 @@ def get_bo_suggestion_for_session(
                 "max_cycles": 30,
             }
 
+        # Add protocol-driven metadata
+        is_protocol_driven = should_use_bo_for_cycle(session_id, current_cycle)
+        result["is_protocol_driven"] = is_protocol_driven
+
+        # Check if override is allowed (from protocol config)
+        allows_override = True  # Default to allowing override
+        if is_protocol_driven:
+            schedule = experiment_config.get("sample_selection_schedule", [])
+            for entry in schedule:
+                cycle_range = entry.get("cycle_range", {})
+                if cycle_range.get("start", 0) <= current_cycle <= cycle_range.get("end", 0):
+                    config = entry.get("config", {})
+                    allows_override = config.get("allow_override", True)
+                    break
+
+        result["allows_override"] = allows_override
+
         logger.info(
             f"BO suggestion generated for cycle {current_cycle}: "
-            f"predicted={result['predicted_value']:.2f}"
+            f"predicted={result['predicted_value']:.2f}, "
+            f"protocol_driven={is_protocol_driven}, allows_override={allows_override}"
         )
         return result
 

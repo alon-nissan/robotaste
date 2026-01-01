@@ -1,0 +1,101 @@
+{
+  "protocol_id": "proto_test_mixed_001",
+  "name": "Test Protocol: Mixed-Mode Sugar-Salt",
+  "description": "Test protocol with predetermined calibration, user exploration, and BO optimization phases",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "created_by": "Developer A",
+  "created_at": "2026-01-01T00:00:00Z",
+  "tags": ["test", "mixed-mode", "binary"],
+  "ingredients": [
+    {
+      "name": "Sugar",
+      "min_concentration": 0.73,
+      "max_concentration": 73.0,
+      "unit": "mM",
+      "molecular_weight": 342.3,
+      "stock_concentration_mM": 1000.0
+    },
+    {
+      "name": "Salt",
+      "min_concentration": 0.10,
+      "max_concentration": 10.0,
+      "unit": "mM",
+      "molecular_weight": 58.44,
+      "stock_concentration_mM": 1000.0
+    }
+  ],
+  "sample_selection_schedule": [
+    {
+      "cycle_range": {"start": 1, "end": 2},
+      "mode": "predetermined",
+      "predetermined_samples": [
+        {"cycle": 1, "concentrations": {"Sugar": 10.0, "Salt": 2.0}},
+        {"cycle": 2, "concentrations": {"Sugar": 40.0, "Salt": 6.0}}
+      ]
+    },
+    {
+      "cycle_range": {"start": 3, "end": 5},
+      "mode": "user_selected",
+      "config": {
+        "interface_type": "grid",
+        "randomize_start": true
+      }
+    },
+    {
+      "cycle_range": {"start": 6, "end": 15},
+      "mode": "bo_selected",
+      "config": {
+        "show_bo_suggestion": true,
+        "allow_override": true,
+        "auto_accept_suggestion": false
+      }
+    }
+  ],
+  "questionnaire_type": "hedonic_continuous",
+  "bayesian_optimization": {
+    "enabled": true,
+    "min_samples_for_bo": 3,
+    "acquisition_function": "ei",
+    "ei_xi": 0.01,
+    "ucb_kappa": 2.0,
+    "adaptive_acquisition": true,
+    "exploration_budget": 0.25,
+    "xi_exploration": 0.1,
+    "xi_exploitation": 0.01,
+    "kappa_exploration": 3.0,
+    "kappa_exploitation": 1.0,
+    "kernel_nu": 2.5,
+    "alpha": 0.001,
+    "n_restarts_optimizer": 10
+  },
+  "phase_sequence": {
+    "phases": [
+      {"phase_id": "waiting", "phase_type": "builtin", "required": true},
+      {"phase_id": "registration", "phase_type": "builtin", "required": false},
+      {"phase_id": "instructions", "phase_type": "builtin", "required": true},
+      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true}
+    ]
+  },
+  "stopping_criteria": {
+    "mode": "suggest_auto",
+    "min_cycles": 15,
+    "max_cycles": 30,
+    "convergence_detection": true,
+    "early_termination_allowed": true,
+    "ei_threshold": 0.001,
+    "stability_threshold": 0.05
+  },
+  "presentation": {
+    "randomize_start": true,
+    "show_cycle_counter": true,
+    "show_convergence_indicator": true,
+    "display_bo_predictions": true
+  },
+  "data_collection": {
+    "track_trajectory": true,
+    "track_interaction_times": true,
+    "collect_demographics": true,
+    "custom_metadata": {}
+  }
+}

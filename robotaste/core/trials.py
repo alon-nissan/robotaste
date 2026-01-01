@@ -25,6 +25,7 @@ from robotaste.core.calculations import (
     INTERFACE_SINGLE_INGREDIENT,
 )
 from robotaste.config.defaults import DEFAULT_INGREDIENT_CONFIG
+from robotaste.config.protocol_schema import get_selection_mode_for_cycle, get_predetermined_sample
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -33,230 +34,124 @@ logger = logging.getLogger(__name__)
 def start_trial(
     user_type: str,
     participant_id: str,
-    method: str,
-    num_ingredients: int = 2,
+    method: Optional[str] = None,
+    num_ingredients: Optional[int] = None,
     selected_ingredients: Optional[list] = None,
     ingredient_configs: Optional[list] = None,
+    protocol_id: Optional[str] = None,
 ) -> bool:
     """
-    Initialize a new trial with random starting position using new database schema.
-
-    Args:
-        user_type: 'mod' or 'sub'
-        participant_id: Unique participant identifier
-        method: Concentration mapping method
-        num_ingredients: Number of ingredients
-        selected_ingredients: List of selected ingredient names (e.g., ['Sugar', 'Salt', 'Citric Acid'])
-        ingredient_configs: List of ingredient configuration dicts with custom ranges
-
-    Returns:
-        Success status
+    Initialize a new trial, either from a protocol or manual configuration.
     """
     try:
-        from robotaste.data.database import update_session_state
+        from robotaste.data import protocol_repo
+        from robotaste.core.state_machine import ExperimentPhase
+        from robotaste.core import state_helpers
+        from robotaste.config.questionnaire import get_default_questionnaire_type
 
-        # Generate random starting position for grid interface
-        x, y = generate_random_position()
-
-        # Determine interface type
-        interface_type = (
-            INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SINGLE_INGREDIENT
-        )
-
-        # Get session identifiers - session_id for DB, session_code for display
         session_id = st.session_state.get("session_id")
-        session_code = st.session_state.get("session_code")
         if not session_id:
             st.error("No session ID found. Please create a session first.")
-        use_random_start = st.session_state.get("use_random_start", False)
+            return False
 
-        # Get ingredient configuration - FIXED: Use moderator's actual ingredient selection
-        if ingredient_configs:
-            # Use moderator's custom configuration with custom concentration ranges
-            ingredients = ingredient_configs
-            logger.info(
-                f"Using custom ingredient configuration: {[ing['name'] for ing in ingredients]}"
-            )
-        elif selected_ingredients:
-            # Build configuration from selected ingredient names
-            ingredients = [
-                ing
-                for ing in DEFAULT_INGREDIENT_CONFIG
-                if ing["name"] in selected_ingredients
-            ]
-            logger.info(
-                f"Using selected ingredients: {[ing['name'] for ing in ingredients]}"
-            )
+        # --- Configuration Loading ---
+        # If a protocol is provided, it is the source of truth.
+        if protocol_id:
+            logger.info(f"Starting trial for participant {participant_id} using protocol {protocol_id}")
+            protocol_config = protocol_repo.get_protocol_by_id(protocol_id)
+            if not protocol_config:
+                st.error(f"Protocol with ID '{protocol_id}' not found.")
+                return False
+            
+            # Extract settings from protocol
+            ingredient_configs = protocol_config.get("ingredients", [])
+            num_ingredients = len(ingredient_configs)
+            selected_ingredients = [ing['name'] for ing in ingredient_configs]
+            # Method is part of the UI config, might be in a sub-dict. Assume linear default.
+            method = protocol_config.get("method", "linear") 
+            questionnaire_type = protocol_config.get("questionnaire_type", get_default_questionnaire_type())
+            bo_config = protocol_config.get("bo_config", get_default_bo_config())
+        
+        # Otherwise, use manual parameters passed to the function.
         else:
-            # Fallback to defaults (for backward compatibility with old code)
-            ingredients = DEFAULT_INGREDIENT_CONFIG[:num_ingredients]
-            logger.warning(
-                f"Using default ingredient configuration (first {num_ingredients} ingredients)"
-            )
+            logger.info(f"Starting trial for participant {participant_id} with manual configuration.")
+            if not all([method, num_ingredients is not None, ingredient_configs]):
+                st.error("Manual configuration requires method, num_ingredients, and ingredient_configs.")
+                return False
+            
+            # Get config from session state for manual mode
+            questionnaire_type = st.session_state.get("selected_questionnaire_type", get_default_questionnaire_type())
+            bo_config = st.session_state.get("bo_config", get_default_bo_config())
+            protocol_config = {
+                "num_ingredients": num_ingredients,
+                "interface_type": INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SINGLE_INGREDIENT,
+                "method": method,
+                "ingredients": ingredient_configs,
+                "questionnaire_type": questionnaire_type,
+                "bayesian_optimization": bo_config,
+            }
 
-        # Validate we have the correct number of ingredients
-        if len(ingredients) != num_ingredients:
-            logger.error(
-                f"Ingredient count mismatch: expected {num_ingredients}, got {len(ingredients)}"
-            )
-            st.error(
-                f"Configuration error: Expected {num_ingredients} ingredients, got {len(ingredients)}"
-            )
+        # --- Universal Trial Setup ---
 
-        # Generate random starting positions if enabled
-        random_slider_values = {}
-        random_concentrations = {}
-        if use_random_start and interface_type == INTERFACE_SINGLE_INGREDIENT:
-            # Generate random starting positions for each ingredient (10-90%)
-            mixture = MultiComponentMixture(ingredients)
-            for ingredient in ingredients:
-                random_percent = random.uniform(10.0, 90.0)
-                random_slider_values[ingredient["name"]] = random_percent
-
-            # Calculate actual concentrations from percentages
-            concentrations = mixture.calculate_concentrations_from_sliders(
-                random_slider_values
-            )
-            for ingredient_name, conc_data in concentrations.items():
-                random_concentrations[ingredient_name] = round(
-                    conc_data["actual_concentration_mM"], 3
-                )
-
-            # Initial random positions are stored in session state
-            # (st.session_state.random_slider_values for single ingredient)
-            # In the new 6-phase workflow, initial positions don't need separate DB storage
-            # They will be included in selection_data when save_sample_cycle() is called
-
-        # Update Streamlit session state
         st.session_state.trial_start_time = time.perf_counter()
         st.session_state.participant = participant_id
         st.session_state.method = method
         st.session_state.num_ingredients = num_ingredients
-        st.session_state.interface_type = interface_type
-        st.session_state.ingredients = (
-            ingredients  # FIXED: Store for subject interface to use
+        st.session_state.ingredients = ingredient_configs
+        st.session_state.interface_type = INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SINGLE_INGREDIENT
+        
+        # The start might not be random in a protocol. This is handled by prepare_cycle_sample.
+        # For now, initialize as empty.
+        st.session_state.current_tasted_sample = {}
+
+        # Update database with the full config
+        question_type_id = sql.get_questionnaire_type_id(questionnaire_type)
+        if question_type_id is None:
+            st.error(f"Questionnaire type '{questionnaire_type}' not found in database.")
+            return False
+
+        # The full config to be saved, whether from protocol or manual
+        experiment_config_to_save = {
+            **protocol_config,
+            "current_cycle": 0,
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # update_session_with_config handles both creation and update logic
+        success_db = sql.update_session_with_config(
+            session_id=session_id,
+            user_id=participant_id,
+            num_ingredients=num_ingredients,
+            interface_type=st.session_state.interface_type,
+            method=method,
+            ingredients=ingredient_configs,
+            question_type_id=question_type_id,
+            bo_config=bo_config,
+            experiment_config=experiment_config_to_save
         )
+        
+        if not success_db:
+            st.error("Failed to save session configuration to the database.")
+            return False
 
-        # Store initial positions in session state for immediate use
-        if random_slider_values:
-            st.session_state.random_slider_values = random_slider_values
-        else:
-            st.session_state.random_slider_values = {}
-
-        # Store initial position in session state (for backward compatibility)
-        st.session_state.x = x
-        st.session_state.y = y
-
-        # Store the initial random concentration as the "current tasted sample" for cycle 1
-        # This will be used when saving the first cycle's data after questionnaire
-        if random_concentrations:
-            # Slider interface - use calculated random concentrations
-            st.session_state.current_tasted_sample = random_concentrations.copy()
-        elif interface_type == INTERFACE_2D_GRID:
-            # Grid interface - calculate concentrations from random x,y position
-            sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(
-                x, y, method=method
-            )
-            st.session_state.current_tasted_sample = {
-                "Sugar": round(sugar_mm, 3),
-                "Salt": round(salt_mm, 3),
-            }
-        else:
-            st.session_state.current_tasted_sample = {}
-
-        # Note: Cycle 0 data is NOT saved here to avoid duplicate sample IDs.
-        # The initial random sample will be saved with the first questionnaire answer,
-        # creating a single sample ID that links the initial concentrations with the first response.
-
-        # Store experiment configuration in session database for subject synchronization
+        # Use state machine to transition to the next phase
         try:
-            from robotaste.core.state_machine import ExperimentPhase
-            from robotaste.core import state_helpers
-
-            # Get questionnaire type from session state (set by moderator)
-            from robotaste.config.questionnaire import get_default_questionnaire_type
-
-            questionnaire_type = st.session_state.get(
-                "selected_questionnaire_type", get_default_questionnaire_type()
+            current_phase = state_helpers.get_current_phase()
+            state_helpers.transition(
+                current_phase=current_phase,
+                new_phase=ExperimentPhase.REGISTRATION,
+                session_id=session_id,
             )
+        except Exception as sm_error:
+            logger.warning(f"State machine transition failed: {sm_error}. Using direct assignment.")
+            st.session_state.phase = "registration" # Fallback
 
-            experiment_config = {
-                "num_ingredients": num_ingredients,
-                "interface_type": interface_type,
-                "method": method,
-                "current_cycle": 0,  # Initialize cycle counter to 0
-                "initial_concentrations": st.session_state.current_tasted_sample,  # Store for subject interface sync
-                "initial_slider_values": random_slider_values,  # Store random slider positions for subject interface
-                "questionnaire_type": questionnaire_type,  # Store selected questionnaire type
-                "bayesian_optimization": st.session_state.get(
-                    "bo_config", get_default_bo_config()
-                ),  # Store BO configuration
-                "ingredients": [
-                    ing for ing in ingredients
-                ],  # Store ingredient configuration
-                "ingredient_metadata": {
-                    "ingredient_names": [ing["name"] for ing in ingredients],
-                    "ingredient_order": list(range(len(ingredients))),
-                    "custom_ranges_used": ingredient_configs is not None,
-                    "selected_by_moderator": selected_ingredients is not None,
-                },
-            }
-
-            # Update experiment config in database
-            # Get questionnaire_type_id from database
-            question_type_id = sql.get_questionnaire_type_id(questionnaire_type)
-
-            # Serialize ingredients to JSON
-            ingredients_json = json.dumps([ing for ing in ingredients])
-
-            with sql.get_database_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE sessions
-                    SET experiment_config = ?,
-                        question_type_id = ?,
-                        ingredients = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE session_id = ?
-                """,
-                    (
-                        json.dumps(experiment_config),
-                        question_type_id,
-                        ingredients_json,
-                        session_id,
-                    ),  # Use session_id for DB
-                )
-                conn.commit()
-
-            # Use state machine to transition to REGISTRATION phase
-            # This follows the valid transition: WAITING → REGISTRATION
-            try:
-                current_phase = state_helpers.get_current_phase()
-                state_helpers.transition(
-                    current_phase=current_phase,
-                    new_phase=ExperimentPhase.REGISTRATION,
-                    session_id=session_id,  # Use session_id for DB
-                )
-            except Exception as sm_error:
-                # Fallback: directly set phase if state machine fails
-                logger.warning(
-                    f"State machine transition failed: {sm_error}. Using direct assignment."
-                )
-                st.session_state.phase = "registration"
-
-        except Exception as e:
-            st.warning(f"Could not update session config: {e}")
-
-        # Success message
         st.success(f"Trial started successfully for {participant_id}")
         return True
 
     except Exception as e:
-        st.error(f"Error starting trial: {e}")
-        import traceback
-
-        st.error(f"Full traceback: {traceback.format_exc()}")
+        st.error(f"An unexpected error occurred while starting the trial: {e}")
+        logger.error("start_trial failed", exc_info=True)
         return False
 
 
@@ -326,3 +221,185 @@ def save_intermediate_click(
     except Exception as e:
         st.error(f"Error saving intermediate click: {e}")
         return False
+
+
+# =============================================================================
+# Mixed-Mode Sample Selection (Protocol-Driven)
+# =============================================================================
+
+
+def get_selection_mode_for_cycle_runtime(session_id: str, cycle_number: int) -> str:
+    """
+    Determine selection mode for current cycle from session's protocol.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Current cycle number (1-indexed)
+
+    Returns:
+        Selection mode: "user_selected", "bo_selected", or "predetermined"
+        Falls back to "user_selected" if no protocol or cycle not in schedule.
+    """
+    try:
+        # Load session to get protocol
+        session = sql.get_session(session_id)
+        if not session:
+            logger.warning(f"Session {session_id} not found, defaulting to user_selected mode")
+            return "user_selected"
+
+        # Check if session has a protocol_id
+        # First check experiment_config for protocol data
+        experiment_config = session.get("experiment_config", {})
+        protocol = None
+
+        # Protocol might be embedded in experiment_config or referenced by protocol_id
+        if "sample_selection_schedule" in experiment_config:
+            # Protocol data is embedded in experiment_config
+            protocol = experiment_config
+        else:
+            # Try to load protocol from database using protocol_id
+            from robotaste.data import protocol_repo
+
+            # Get protocol_id from session (stored during session creation)
+            protocol_id_from_session = experiment_config.get("protocol_id")
+            if protocol_id_from_session:
+                protocol_obj = protocol_repo.get_protocol_by_id(protocol_id_from_session)
+                if protocol_obj:
+                    protocol = protocol_obj.get("protocol_json", {})
+
+        if not protocol or "sample_selection_schedule" not in protocol:
+            logger.info(f"No protocol with sample_selection_schedule found for session {session_id}, using user_selected mode")
+            return "user_selected"
+
+        # Use protocol_schema helper to get mode
+        mode = get_selection_mode_for_cycle(protocol, cycle_number)
+        logger.info(f"Session {session_id}, cycle {cycle_number}: mode = {mode}")
+        return mode
+
+    except Exception as e:
+        logger.error(f"Error determining selection mode: {e}", exc_info=True)
+        return "user_selected"
+
+
+def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
+    """
+    Unified function to prepare sample for any cycle based on protocol.
+
+    This is the main API for Developer B's UI to determine what to show.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Current cycle number (1-indexed)
+
+    Returns:
+        Dictionary with:
+        {
+            "mode": str,  # "user_selected", "bo_selected", "predetermined"
+            "concentrations": Dict[str, float] | None,  # Concentrations if predetermined/BO
+            "metadata": {
+                "is_predetermined": bool,
+                "allows_override": bool,
+                "show_suggestion": bool,
+                "acquisition_function": str | None,  # For BO mode
+                "acquisition_params": dict | None,  # For BO mode
+                "predicted_value": float | None,  # For BO mode
+                "uncertainty": float | None  # For BO mode
+            }
+        }
+    """
+    try:
+        # Determine mode from protocol
+        mode = get_selection_mode_for_cycle_runtime(session_id, cycle_number)
+
+        # Initialize result
+        result = {
+            "mode": mode,
+            "concentrations": None,
+            "metadata": {
+                "is_predetermined": False,
+                "allows_override": False,
+                "show_suggestion": False
+            }
+        }
+
+        # Handle each mode
+        if mode == "predetermined":
+            # Get predetermined concentrations from protocol
+            session = sql.get_session(session_id)
+            if session:
+                experiment_config = session.get("experiment_config", {})
+                protocol = None
+
+                # Get protocol (same logic as get_selection_mode_for_cycle_runtime)
+                if "sample_selection_schedule" in experiment_config:
+                    protocol = experiment_config
+                else:
+                    from robotaste.data import protocol_repo
+                    protocol_id_from_session = experiment_config.get("protocol_id")
+                    if protocol_id_from_session:
+                        protocol_obj = protocol_repo.get_protocol_by_id(protocol_id_from_session)
+                        if protocol_obj:
+                            protocol = protocol_obj.get("protocol_json", {})
+
+                if protocol:
+                    concentrations = get_predetermined_sample(protocol, cycle_number)
+                    if concentrations:
+                        result["concentrations"] = concentrations
+                        result["metadata"]["is_predetermined"] = True
+                        logger.info(f"Predetermined sample for cycle {cycle_number}: {concentrations}")
+                    else:
+                        logger.warning(f"No predetermined sample found for cycle {cycle_number}")
+
+        elif mode == "bo_selected":
+            # Get BO suggestion
+            from robotaste.core.bo_integration import get_bo_suggestion_for_session
+
+            session = sql.get_session(session_id)
+            if session:
+                participant_id = session.get("user_id", "unknown")
+                bo_suggestion = get_bo_suggestion_for_session(session_id, participant_id)
+
+                if bo_suggestion:
+                    result["concentrations"] = bo_suggestion.get("concentrations")
+                    result["metadata"]["show_suggestion"] = True
+
+                    # Check protocol config for allow_override
+                    experiment_config = session.get("experiment_config", {})
+                    schedule = experiment_config.get("sample_selection_schedule", [])
+
+                    for entry in schedule:
+                        cycle_range = entry.get("cycle_range", {})
+                        if cycle_range.get("start", 0) <= cycle_number <= cycle_range.get("end", 0):
+                            config = entry.get("config", {})
+                            result["metadata"]["allows_override"] = config.get("allow_override", True)
+                            break
+
+                    # Include BO metadata
+                    result["metadata"]["acquisition_function"] = bo_suggestion.get("acquisition_function")
+                    result["metadata"]["acquisition_params"] = bo_suggestion.get("acquisition_params", {})
+                    result["metadata"]["predicted_value"] = bo_suggestion.get("predicted_value")
+                    result["metadata"]["uncertainty"] = bo_suggestion.get("uncertainty")
+
+                    logger.info(f"BO suggestion for cycle {cycle_number}: {result['concentrations']}")
+                else:
+                    logger.info(f"BO not ready for cycle {cycle_number}, falling back to user selection")
+                    result["mode"] = "user_selected"
+
+        else:  # user_selected
+            # No concentrations needed, user chooses
+            logger.info(f"User selection mode for cycle {cycle_number}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error preparing cycle sample: {e}", exc_info=True)
+        # Fallback to user selection on error
+        return {
+            "mode": "user_selected",
+            "concentrations": None,
+            "metadata": {
+                "is_predetermined": False,
+                "allows_override": False,
+                "show_suggestion": False
+            }
+        }

@@ -1,0 +1,659 @@
+"""
+Protocol Management for RoboTaste
+
+This module provides core functions for creating, validating, and managing
+experiment protocols. Protocols are comprehensive configuration blueprints
+that define all aspects of an experiment.
+
+Author: RoboTaste Team
+Version: 1.0
+Created: 2026-01-01
+"""
+
+import json
+import hashlib
+import logging
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
+import uuid
+
+from robotaste.config.protocol_schema import (
+    PROTOCOL_JSON_SCHEMA,
+    VALIDATION_RULES,
+    EXAMPLE_PROTOCOL_MIXED_MODE,
+    get_empty_protocol_template,
+    get_selection_mode_for_cycle,
+    get_predetermined_sample,
+    protocol_to_json,
+    protocol_from_json,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Protocol Creation & Manipulation
+# =============================================================================
+
+
+def create_protocol(
+    name: str,
+    description: str = "",
+    created_by: str = "",
+    tags: List[str] = None,  # type: ignore
+    **kwargs,
+) -> Dict[str, Any]:
+    """
+    Create a new protocol with basic metadata.
+
+    Args:
+        name: Protocol name
+        description: Protocol description
+        created_by: Creator name
+        tags: List of tags for categorization
+        **kwargs: Additional protocol fields
+
+    Returns:
+        Protocol dictionary with generated ID and timestamp
+    """
+    protocol = get_empty_protocol_template()
+
+    # Set identity fields
+    protocol["protocol_id"] = f"proto_{uuid.uuid4().hex[:12]}"
+    protocol["name"] = name
+    protocol["description"] = description
+    protocol["created_by"] = created_by
+    protocol["tags"] = tags or []
+    protocol["created_at"] = datetime.utcnow().isoformat() + "Z"
+    protocol["schema_version"] = "1.0"
+    protocol["version"] = "1.0"
+
+    # Merge any additional fields
+    protocol.update(kwargs)
+
+    logger.info(f"Created protocol: {name} (ID: {protocol['protocol_id']})")
+
+    return protocol
+
+
+def clone_protocol(source_protocol: Dict[str, Any], new_name: str) -> Dict[str, Any]:
+    """
+    Create a copy of an existing protocol with a new name and ID.
+
+    Args:
+        source_protocol: Protocol to clone
+        new_name: Name for the cloned protocol
+
+    Returns:
+        Cloned protocol with new ID and timestamp
+    """
+    cloned = source_protocol.copy()
+
+    # Generate new identity
+    cloned["protocol_id"] = f"proto_{uuid.uuid4().hex[:12]}"
+    cloned["name"] = new_name
+    cloned["created_at"] = datetime.utcnow().isoformat() + "Z"
+    cloned["version"] = "1.0"  # Reset version for clone
+
+    logger.info(f"Cloned protocol '{source_protocol['name']}' to '{new_name}'")
+
+    return cloned
+
+
+def compute_protocol_hash(protocol: Dict[str, Any]) -> str:
+    """
+    Compute SHA256 hash of protocol JSON for version control.
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        Hexadecimal hash string
+    """
+    # Create a copy without hash field itself
+    protocol_copy = {k: v for k, v in protocol.items() if k != "protocol_hash"}
+
+    # Convert to canonical JSON (sorted keys)
+    json_str = json.dumps(protocol_copy, sort_keys=True)
+
+    # Compute hash
+    return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
+
+
+# =============================================================================
+# Protocol Validation
+# =============================================================================
+
+
+class ProtocolValidationError(Exception):
+    """Raised when protocol validation fails."""
+
+    pass
+
+
+def validate_protocol(protocol: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    """
+    Validate a protocol against all validation rules.
+
+    Performs three levels of validation:
+    1. Schema validation - JSON structure
+    2. Semantic validation - Logical consistency
+    3. Compatibility validation - Version compatibility
+
+    Args:
+        protocol: Protocol dictionary to validate
+
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+
+    # Level 1: Schema Validation
+    schema_errors = _validate_schema(protocol)
+    errors.extend(schema_errors)
+
+    # Level 2: Semantic Validation
+    semantic_errors = _validate_semantics(protocol)
+    errors.extend(semantic_errors)
+
+    # Level 3: Compatibility Validation (warnings only)
+    compatibility_warnings = _validate_compatibility(protocol)
+    # Don't add warnings to errors, just log them
+    for warning in compatibility_warnings:
+        logger.warning(f"Protocol compatibility: {warning}")
+
+    is_valid = len(errors) == 0
+
+    if is_valid:
+        logger.info(f"Protocol '{protocol.get('name')}' passed validation")
+    else:
+        logger.error(f"Protocol validation failed with {len(errors)} errors")
+
+    return is_valid, errors
+
+
+def _validate_schema(protocol: Dict[str, Any]) -> List[str]:
+    """Validate protocol against JSON schema structure."""
+    errors = []
+
+    # Check required fields
+    required_fields = [
+        "protocol_id",
+        "name",
+        "version",
+        "ingredients",
+        "sample_selection_schedule",
+        "questionnaire_type",
+    ]
+    for field in required_fields:
+        if field not in protocol:
+            errors.append(f"Missing required field: {field}")
+
+    # Validate name length
+    if "name" in protocol:
+        name_len = len(protocol["name"])
+        if name_len == 0:
+            errors.append("Protocol name cannot be empty")
+        elif name_len > VALIDATION_RULES["max_name_length"]:
+            errors.append(
+                f"Protocol name too long (max {VALIDATION_RULES['max_name_length']} chars)"
+            )
+
+    # Validate description length
+    if (
+        "description" in protocol
+        and len(protocol["description"]) > VALIDATION_RULES["max_description_length"]
+    ):
+        errors.append(
+            f"Description too long (max {VALIDATION_RULES['max_description_length']} chars)"
+        )
+
+    # Validate ingredients count
+    if "ingredients" in protocol:
+        num_ingredients = len(protocol["ingredients"])
+        if num_ingredients < VALIDATION_RULES["min_ingredients"]:
+            errors.append(
+                f"Must have at least {VALIDATION_RULES['min_ingredients']} ingredient"
+            )
+        elif num_ingredients > VALIDATION_RULES["max_ingredients"]:
+            errors.append(
+                f"Too many ingredients (max {VALIDATION_RULES['max_ingredients']})"
+            )
+
+    return errors
+
+
+def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
+    """Validate logical consistency of protocol configuration."""
+    errors = []
+
+    # Validate sample selection schedule
+    schedule_errors = _validate_sample_selection_schedule(protocol)
+    errors.extend(schedule_errors)
+
+    # Validate ingredients
+    ingredient_errors = _validate_ingredients(protocol)
+    errors.extend(ingredient_errors)
+
+    # Validate questionnaire type
+    if "questionnaire_type" in protocol:
+        q_type = protocol["questionnaire_type"]
+        if q_type not in VALIDATION_RULES["valid_questionnaire_types"]:
+            errors.append(f"Invalid questionnaire type: {q_type}")
+
+    # Validate BO configuration
+    bo_errors = _validate_bo_config(protocol)
+    errors.extend(bo_errors)
+
+    # Validate stopping criteria
+    criteria_errors = _validate_stopping_criteria(protocol)
+    errors.extend(criteria_errors)
+
+    return errors
+
+
+def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
+    """Validate sample selection schedule is logically consistent."""
+    errors = []
+
+    schedule = protocol.get("sample_selection_schedule", [])
+
+    if not schedule:
+        errors.append("Sample selection schedule cannot be empty")
+        return errors
+
+    # Track cycle coverage to detect gaps/overlaps
+    covered_cycles = set()
+
+    for i, entry in enumerate(schedule):
+        # Validate required fields
+        if "cycle_range" not in entry:
+            errors.append(f"Schedule entry {i+1}: missing cycle_range")
+            continue
+
+        if "mode" not in entry:
+            errors.append(f"Schedule entry {i+1}: missing mode")
+            continue
+
+        cycle_range = entry["cycle_range"]
+        mode = entry["mode"]
+
+        # Validate cycle range
+        if "start" not in cycle_range or "end" not in cycle_range:
+            errors.append(
+                f"Schedule entry {i+1}: cycle_range must have 'start' and 'end'"
+            )
+            continue
+
+        start = cycle_range["start"]
+        end = cycle_range["end"]
+
+        if start < 1:
+            errors.append(f"Schedule entry {i+1}: cycle start must be >= 1")
+
+        if end < start:
+            errors.append(f"Schedule entry {i+1}: cycle end ({end}) < start ({start})")
+
+        # Check for overlaps
+        for cycle in range(start, end + 1):
+            if cycle in covered_cycles:
+                errors.append(
+                    f"Schedule entry {i+1}: cycle {cycle} already covered by another entry"
+                )
+            covered_cycles.add(cycle)
+
+        # Validate mode
+        if mode not in VALIDATION_RULES["valid_modes"]:
+            errors.append(f"Schedule entry {i+1}: invalid mode '{mode}'")
+
+        # Validate mode-specific requirements
+        if mode == "predetermined":
+            if "predetermined_samples" not in entry:
+                errors.append(
+                    f"Schedule entry {i+1}: predetermined mode requires 'predetermined_samples'"
+                )
+            else:
+                samples = entry["predetermined_samples"]
+                expected_cycles = set(range(start, end + 1))
+                provided_cycles = {s["cycle"] for s in samples if "cycle" in s}
+
+                missing = expected_cycles - provided_cycles
+                if missing:
+                    errors.append(
+                        f"Schedule entry {i+1}: missing predetermined samples for cycles {sorted(missing)}"
+                    )
+
+                # Validate concentration data
+                for sample in samples:
+                    if "concentrations" not in sample:
+                        errors.append(
+                            f"Schedule entry {i+1}, cycle {sample.get('cycle')}: missing concentrations"
+                        )
+
+    # Check for gaps in cycle coverage (warn only)
+    if covered_cycles:
+        max_cycle = max(covered_cycles)
+        all_cycles = set(range(1, max_cycle + 1))
+        gaps = all_cycles - covered_cycles
+        if gaps:
+            logger.warning(
+                f"Cycle coverage has gaps: {sorted(gaps)} (will default to user_selected)"
+            )
+
+    return errors
+
+
+def _validate_ingredients(protocol: Dict[str, Any]) -> List[str]:
+    """Validate ingredient configurations."""
+    errors = []
+
+    ingredients = protocol.get("ingredients", [])
+
+    for i, ingredient in enumerate(ingredients):
+        if "name" not in ingredient:
+            errors.append(f"Ingredient {i+1}: missing name")
+
+        if (
+            "min_concentration" not in ingredient
+            or "max_concentration" not in ingredient
+        ):
+            errors.append(f"Ingredient {i+1}: missing concentration range")
+            continue
+
+        min_conc = ingredient["min_concentration"]
+        max_conc = ingredient["max_concentration"]
+
+        if min_conc < 0:
+            errors.append(f"Ingredient {i+1}: min_concentration cannot be negative")
+
+        if max_conc <= min_conc:
+            errors.append(
+                f"Ingredient {i+1}: max_concentration must be > min_concentration"
+            )
+
+    return errors
+
+
+def _validate_bo_config(protocol: Dict[str, Any]) -> List[str]:
+    """Validate Bayesian Optimization configuration."""
+    errors = []
+
+    # Check if any schedule entry uses BO
+    schedule = protocol.get("sample_selection_schedule", [])
+    uses_bo = any(entry.get("mode") == "bo_selected" for entry in schedule)
+
+    if not uses_bo:
+        return errors  # BO config not required if not using BO mode
+
+    bo_config = protocol.get("bayesian_optimization", {})
+
+    if not bo_config:
+        errors.append(
+            "Bayesian optimization config required when using bo_selected mode"
+        )
+        return errors
+
+    # Validate acquisition function
+    acq_func = bo_config.get("acquisition_function", "ei")
+    if acq_func not in VALIDATION_RULES["valid_acquisition_functions"]:
+        errors.append(f"Invalid acquisition function: {acq_func}")
+
+    # Validate kernel nu
+    kernel_nu = bo_config.get("kernel_nu", 2.5)
+    if kernel_nu not in VALIDATION_RULES["valid_kernel_nu"]:
+        errors.append(f"Invalid kernel_nu: {kernel_nu} (must be 0.5, 1.5, 2.5, or inf)")
+
+    # Validate min_samples_for_bo
+    min_samples = bo_config.get("min_samples_for_bo", 3)
+    if min_samples < 2:
+        errors.append("min_samples_for_bo must be >= 2")
+
+    # Validate alpha (noise parameter)
+    alpha = bo_config.get("alpha", 1e-3)
+    if alpha <= 0 or alpha > 1:
+        errors.append(f"alpha must be in range (0, 1], got {alpha}")
+
+    return errors
+
+
+def _validate_stopping_criteria(protocol: Dict[str, Any]) -> List[str]:
+    """Validate stopping criteria configuration."""
+    errors = []
+
+    criteria = protocol.get("stopping_criteria", {})
+
+    if not criteria:
+        return errors  # Stopping criteria is optional
+
+    # Validate min/max cycles
+    min_cycles = criteria.get("min_cycles")
+    max_cycles = criteria.get("max_cycles")
+
+    if min_cycles is not None and min_cycles < VALIDATION_RULES["min_cycles"]:
+        errors.append(f"min_cycles must be >= {VALIDATION_RULES['min_cycles']}")
+
+    if max_cycles is not None and max_cycles > VALIDATION_RULES["max_cycles"]:
+        errors.append(f"max_cycles must be <= {VALIDATION_RULES['max_cycles']}")
+
+    if min_cycles is not None and max_cycles is not None and min_cycles > max_cycles:
+        errors.append(
+            f"min_cycles ({min_cycles}) cannot be > max_cycles ({max_cycles})"
+        )
+
+    return errors
+
+
+def _validate_compatibility(protocol: Dict[str, Any]) -> List[str]:
+    """Check protocol version compatibility (warnings only)."""
+    warnings = []
+
+    protocol_schema_version = protocol.get("schema_version", "1.0")
+    current_schema_version = "1.0"
+
+    if protocol_schema_version != current_schema_version:
+        warnings.append(
+            f"Protocol uses schema version {protocol_schema_version}, current is {current_schema_version}"
+        )
+
+    return warnings
+
+
+# =============================================================================
+# Protocol Import/Export
+# =============================================================================
+
+
+def export_protocol_to_file(protocol: Dict[str, Any], file_path: str) -> bool:
+    """
+    Export protocol to JSON file.
+
+    Args:
+        protocol: Protocol dictionary
+        file_path: Path to save JSON file
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Validate before export
+        is_valid, errors = validate_protocol(protocol)
+        if not is_valid:
+            logger.error(f"Cannot export invalid protocol: {errors}")
+            return False
+
+        # Write to file
+        with open(file_path, "w") as f:
+            json.dump(protocol, f, indent=2, sort_keys=False)
+
+        logger.info(f"Exported protocol '{protocol['name']}' to {file_path}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to export protocol: {e}")
+        return False
+
+
+def import_protocol_from_file(file_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Import protocol from JSON file.
+
+    Args:
+        file_path: Path to JSON file
+
+    Returns:
+        Protocol dictionary if valid, None otherwise
+    """
+    try:
+        # Read file
+        with open(file_path, "r") as f:
+            protocol = json.load(f)
+
+        # Validate
+        is_valid, errors = validate_protocol(protocol)
+        if not is_valid:
+            logger.error(f"Invalid protocol file: {errors}")
+            return None
+
+        # Generate new ID and timestamp for imported protocol
+        protocol["protocol_id"] = f"proto_{uuid.uuid4().hex[:12]}"
+        protocol["created_at"] = datetime.utcnow().isoformat() + "Z"
+
+        logger.info(f"Imported protocol '{protocol['name']}' from {file_path}")
+        return protocol
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in protocol file: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to import protocol: {e}")
+        return None
+
+
+def export_protocol_to_json_string(protocol: Dict[str, Any]) -> Optional[str]:
+    """
+    Export protocol to JSON string for database storage.
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        JSON string if valid, None otherwise
+    """
+    try:
+        # Validate before export
+        is_valid, errors = validate_protocol(protocol)
+        if not is_valid:
+            logger.error(f"Cannot export invalid protocol: {errors}")
+            return None
+
+        # Compute hash
+        protocol["protocol_hash"] = compute_protocol_hash(protocol)
+
+        return protocol_to_json(protocol)
+
+    except Exception as e:
+        logger.error(f"Failed to convert protocol to JSON: {e}")
+        return None
+
+
+def import_protocol_from_json_string(json_str: str) -> Optional[Dict[str, Any]]:
+    """
+    Import protocol from JSON string.
+
+    Args:
+        json_str: JSON string
+
+    Returns:
+        Protocol dictionary if valid, None otherwise
+    """
+    try:
+        protocol = protocol_from_json(json_str)
+
+        # Validate
+        is_valid, errors = validate_protocol(protocol)
+        if not is_valid:
+            logger.error(f"Invalid protocol JSON: {errors}")
+            return None
+
+        return protocol
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to parse protocol JSON: {e}")
+        return None
+
+
+# =============================================================================
+# Protocol Queries & Utilities
+# =============================================================================
+
+
+def get_protocol_summary(protocol: Dict[str, Any]) -> str:
+    """
+    Generate a human-readable summary of a protocol.
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        Multi-line summary string
+    """
+    lines = []
+
+    lines.append(f"Protocol: {protocol.get('name', 'Unnamed')}")
+    lines.append(f"Version: {protocol.get('version', 'Unknown')}")
+
+    if protocol.get("description"):
+        lines.append(f"Description: {protocol['description']}")
+
+    # Ingredients
+    ingredients = protocol.get("ingredients", [])
+    lines.append(f"\nIngredients ({len(ingredients)}):")
+    for ing in ingredients:
+        name = ing.get("name", "Unknown")
+        min_c = ing.get("min_concentration", 0)
+        max_c = ing.get("max_concentration", 0)
+        unit = ing.get("unit", "mM")
+        lines.append(f"  - {name}: {min_c}-{max_c} {unit}")
+
+    # Sample selection schedule
+    schedule = protocol.get("sample_selection_schedule", [])
+    lines.append(f"\nSample Selection Schedule ({len(schedule)} phases):")
+    for entry in schedule:
+        cycle_range = entry.get("cycle_range", {})
+        start = cycle_range.get("start", "?")
+        end = cycle_range.get("end", "?")
+        mode = entry.get("mode", "unknown")
+        lines.append(f"  - Cycles {start}-{end}: {mode}")
+
+    # Questionnaire
+    q_type = protocol.get("questionnaire_type", "Unknown")
+    lines.append(f"\nQuestionnaire: {q_type}")
+
+    # Stopping criteria
+    criteria = protocol.get("stopping_criteria", {})
+    if criteria:
+        min_c = criteria.get("min_cycles", "?")
+        max_c = criteria.get("max_cycles", "?")
+        lines.append(f"\nStopping: {min_c}-{max_c} cycles")
+
+    return "\n".join(lines)
+
+
+# Export key functions for easier imports
+__all__ = [
+    "create_protocol",
+    "clone_protocol",
+    "validate_protocol",
+    "export_protocol_to_file",
+    "import_protocol_from_file",
+    "export_protocol_to_json_string",
+    "import_protocol_from_json_string",
+    "compute_protocol_hash",
+    "get_protocol_summary",
+    "get_selection_mode_for_cycle",
+    "get_predetermined_sample",
+    "ProtocolValidationError",
+]

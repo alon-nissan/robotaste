@@ -146,12 +146,15 @@ def generate_session_code() -> str:
     )
 
 
-def create_session(moderator_name: str) -> Tuple[str, str]:
+def create_session(
+    moderator_name: str, protocol_id: Optional[str] = None
+) -> Tuple[str, str]:
     """
-    Create new session with minimal info.
+    Create new session with optional protocol.
 
     Args:
         moderator_name: Name of the moderator (not stored in DB)
+        protocol_id: Optional protocol ID to link to the session.
 
     Returns:
         Tuple of (session_id (UUID string), session_code (6-char string))
@@ -161,17 +164,20 @@ def create_session(moderator_name: str) -> Tuple[str, str]:
 
     with get_database_connection() as conn:
         cursor = conn.cursor()
-        # Insert session with both identifiers
+        # Insert session with both identifiers and optional protocol_id
         cursor.execute(
             """
             INSERT INTO sessions (
-                session_id, session_code, state
-            ) VALUES (?, ?, 'active')
+                session_id, session_code, protocol_id, state
+            ) VALUES (?, ?, ?, 'active')
         """,
-            (session_id, session_code),
+            (session_id, session_code, protocol_id),
         )
         conn.commit()
-        logger.info(f"Created session {session_id} with code {session_code}")
+        if protocol_id:
+            logger.info(f"Created session {session_id} with code {session_code} using protocol {protocol_id}")
+        else:
+            logger.info(f"Created session {session_id} with code {session_code}")
         return session_id, session_code
 
 
@@ -461,6 +467,71 @@ def create_minimal_session(session_id: str) -> bool:
         return False
 
 
+def get_sessions_by_protocol(protocol_id: str) -> List[Dict]:
+    """
+    Get all sessions using a specific protocol.
+
+    Args:
+        protocol_id: Protocol UUID
+
+    Returns:
+        List of session dictionaries
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.state, s.current_phase, s.current_cycle, s.experiment_config,
+                    s.created_at, s.updated_at,
+                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                FROM sessions s
+                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
+                WHERE s.protocol_id = ?
+                ORDER BY s.created_at DESC
+            """,
+                (protocol_id,),
+            )
+
+            sessions = []
+            for row in cursor.fetchall():
+                sessions.append(
+                    {
+                        "session_id": row["session_id"],
+                        "session_code": row["session_code"],
+                        "user_id": row["user_id"],
+                        "ingredients": (
+                            json.loads(row["ingredients"]) if row["ingredients"] else []
+                        ),
+                        "question_type_id": row["question_type_id"],
+                        "questionnaire_name": row["questionnaire_name"],
+                        "questionnaire_data": (
+                            json.loads(row["questionnaire_data"])
+                            if row["questionnaire_data"]
+                            else None
+                        ),
+                        "state": row["state"],
+                        "current_phase": row["current_phase"],
+                        "experiment_config": (
+                            json.loads(row["experiment_config"])
+                            if row["experiment_config"]
+                            else {}
+                        ),
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                )
+
+            logger.info(f"Retrieved {len(sessions)} sessions for protocol {protocol_id}")
+            return sessions
+
+    except Exception as e:
+        logger.error(f"Failed to get sessions by protocol: {e}")
+        return []
+
+
 def update_session_with_config(
     session_id: str,
     user_id: str,
@@ -699,6 +770,8 @@ def save_sample_cycle(
     selection_data: Dict,
     questionnaire_answer: Dict,
     is_final: bool = False,
+    selection_mode: str = "user_selected",
+    was_bo_overridden: bool = False,
 ) -> str:
     """
     Save complete cycle data in ONE row.
@@ -712,6 +785,8 @@ def save_sample_cycle(
         selection_data: Their selection for next cycle
         questionnaire_answer: Their questionnaire responses
         is_final: True if last cycle in session
+        selection_mode: Mode used for this sample ("user_selected", "bo_selected", "predetermined")
+        was_bo_overridden: True if user overrode BO suggestion in bo_selected mode
 
     Returns:
         sample_id (UUID)
@@ -748,9 +823,10 @@ def save_sample_cycle(
                     sample_id, session_id, cycle_number,
                     ingredient_concentration, selection_data,
                     questionnaire_answer, is_final,
+                    selection_mode, was_bo_overridden,
                     acquisition_function, acquisition_xi, acquisition_kappa,
                     acquisition_value, predicted_value, uncertainty
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     sample_id,
@@ -760,6 +836,8 @@ def save_sample_cycle(
                     json.dumps(selection_data) if selection_data else None,
                     json.dumps(questionnaire_answer),
                     1 if is_final else 0,
+                    selection_mode,
+                    1 if was_bo_overridden else 0,
                     acquisition_function,
                     acquisition_xi,
                     acquisition_kappa,
@@ -771,7 +849,7 @@ def save_sample_cycle(
 
             conn.commit()
             logger.info(
-                f"Saved sample {sample_id} for session {session_id}, cycle {cycle_number}"
+                f"Saved sample {sample_id} for session {session_id}, cycle {cycle_number}, mode={selection_mode}"
             )
             if acquisition_function:
                 logger.info(
@@ -779,6 +857,8 @@ def save_sample_cycle(
                     f"xi={acquisition_xi}, kappa={acquisition_kappa}, "
                     f"predicted={predicted_value}, uncertainty={uncertainty}"
                 )
+            if was_bo_overridden:
+                logger.info(f"  User overrode BO suggestion")
             return sample_id
 
     except Exception as e:

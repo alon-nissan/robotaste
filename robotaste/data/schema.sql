@@ -1,7 +1,7 @@
 -- RoboTaste Database Schema
--- Simplified Architecture with 5 tables
--- Version: 3.0
--- Last Updated: November 2025
+-- Architecture with Protocol System
+-- Version: 4.0
+-- Last Updated: January 2026
 
 -- Table 1: Users (Taste Testers/Subjects)
 CREATE TABLE IF NOT EXISTS users (
@@ -24,13 +24,30 @@ CREATE TABLE IF NOT EXISTS questionnaire_types (
     deleted_at TIMESTAMP DEFAULT NULL
 );
 
--- Table 3: Sessions (Experiment Sessions)
+-- Table 3: Protocol Library (Reusable Experiment Protocols)
+CREATE TABLE IF NOT EXISTS protocol_library (
+    protocol_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    protocol_json TEXT NOT NULL,  -- Complete protocol stored as JSON
+    protocol_hash TEXT,  -- SHA256 for version control
+    version TEXT DEFAULT '1.0',
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_archived INTEGER DEFAULT 0,
+    tags TEXT,  -- JSON array
+    deleted_at TIMESTAMP DEFAULT NULL
+);
+
+-- Table 4: Sessions (Experiment Sessions)
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     session_code TEXT UNIQUE NOT NULL,
     user_id TEXT,
     ingredients TEXT,
     question_type_id INTEGER,
+    protocol_id TEXT,  -- Link to protocol_library (optional)
     state TEXT NOT NULL DEFAULT 'active',
     current_phase TEXT DEFAULT 'waiting',
     current_cycle INTEGER DEFAULT 0,
@@ -39,10 +56,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (question_type_id) REFERENCES questionnaire_types(id)
+    FOREIGN KEY (question_type_id) REFERENCES questionnaire_types(id),
+    FOREIGN KEY (protocol_id) REFERENCES protocol_library(protocol_id)
 );
 
--- Table 4: Samples (Complete Cycle Data - ONE ROW PER CYCLE)
+-- Table 5: Samples (Complete Cycle Data - ONE ROW PER CYCLE)
 CREATE TABLE IF NOT EXISTS samples (
     sample_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -50,6 +68,9 @@ CREATE TABLE IF NOT EXISTS samples (
     ingredient_concentration TEXT NOT NULL,
     questionnaire_answer TEXT,
     selection_data TEXT,
+    -- Sample selection mode tracking (for mixed-mode protocols)
+    selection_mode TEXT DEFAULT 'user_selected',  -- "user_selected", "bo_selected", "predetermined"
+    was_bo_overridden INTEGER DEFAULT 0,  -- 1 if user overrode BO suggestion
     -- Bayesian Optimization prediction data (extracted from selection_data for easy querying)
     acquisition_function TEXT DEFAULT NULL,
     acquisition_xi REAL DEFAULT NULL,
@@ -64,7 +85,7 @@ CREATE TABLE IF NOT EXISTS samples (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
--- Table 5: Bayesian Optimization Configuration (Per Session)
+-- Table 6: Bayesian Optimization Configuration (Per Session)
 CREATE TABLE IF NOT EXISTS bo_configuration (
     session_id TEXT PRIMARY KEY,
     enabled INTEGER DEFAULT 0,
@@ -107,13 +128,24 @@ CREATE TABLE IF NOT EXISTS bo_configuration (
 );
 
 -- Create indexes for performance
+-- Protocol Library indexes
+CREATE INDEX IF NOT EXISTS idx_protocol_library_name ON protocol_library(name);
+CREATE INDEX IF NOT EXISTS idx_protocol_library_tags ON protocol_library(tags);
+CREATE INDEX IF NOT EXISTS idx_protocol_library_created_by ON protocol_library(created_by);
+CREATE INDEX IF NOT EXISTS idx_protocol_library_archived ON protocol_library(is_archived);
+
+-- Sessions indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
 CREATE INDEX IF NOT EXISTS idx_sessions_code ON sessions(session_code);
+CREATE INDEX IF NOT EXISTS idx_sessions_protocol_id ON sessions(protocol_id);
+
+-- Samples indexes
 CREATE INDEX IF NOT EXISTS idx_samples_session_id ON samples(session_id);
 CREATE INDEX IF NOT EXISTS idx_samples_is_final ON samples(is_final);
 CREATE INDEX IF NOT EXISTS idx_samples_cycle_number ON samples(cycle_number);
 CREATE INDEX IF NOT EXISTS idx_samples_acquisition_function ON samples(acquisition_function);
+CREATE INDEX IF NOT EXISTS idx_samples_selection_mode ON samples(selection_mode);
 
 -- Create view for Bayesian Optimization cycle analysis
 CREATE VIEW IF NOT EXISTS bo_cycle_analysis AS

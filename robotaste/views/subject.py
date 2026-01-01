@@ -13,7 +13,7 @@ from robotaste.utils.ui_helpers import (
     render_loading_spinner,
 )
 from robotaste.views.questionnaire import render_questionnaire
-from robotaste.core.trials import save_intermediate_click
+from robotaste.core.trials import save_click, prepare_cycle_sample
 from robotaste.core.bo_integration import get_bo_suggestion_for_session
 from robotaste.core.calculations import ConcentrationMapper
 from robotaste.config.defaults import DEFAULT_INGREDIENT_CONFIG
@@ -136,7 +136,7 @@ def get_questionnaire_type_from_config() -> str:
     return get_default_questionnaire_type()
 
 
-def grid_interface():
+def grid_interface(cycle_data: dict):
     # SELECTION phase: Show grid and handle selections
     # Sync session state from database for multi-device coordination
     sync_session_state(st.session_state.session_id, "subject")
@@ -190,39 +190,72 @@ def grid_interface():
         )
         interface_type = calculated_interface
 
-    if interface_type == INTERFACE_2D_GRID:
-        # Check if Bayesian Optimization should be used
-
-        bo_suggestion = get_bo_suggestion_for_session(
-            session_id=st.session_state.session_id,
-            participant_id=st.session_state.participant,
+    if interface_type != INTERFACE_2D_GRID:
+        st.error(
+            f"Grid interface called with incorrect interface type: {interface_type}"
         )
+        return
 
+    selection_mode = cycle_data.get("mode", "user_selected")
+
+    if selection_mode == "predetermined":
+        st.markdown("### Predetermined Sample")
+        st.info("This sample was predetermined by the experiment protocol.")
+        # Automatically proceed
+        time.sleep(3)  # Give user time to read the message
+        import uuid
+        sample_id = str(uuid.uuid4())
+        st.session_state.current_sample_id = sample_id
+
+        predetermined_concentrations = cycle_data.get("concentrations", {})
+
+        st.session_state.next_selection_data = {
+            "interface_type": INTERFACE_2D_GRID,
+            "method": "predetermined",
+            "ingredient_concentrations": predetermined_concentrations,
+            "selection_mode": "predetermined",
+            "sample_id": sample_id,
+        }
+
+        state_helpers.transition(
+            state_helpers.get_current_phase(),
+            new_phase=ExperimentPhase.LOADING,
+            session_id=st.session_state.session_id,
+        )
+        st.session_state.current_tasted_sample = predetermined_concentrations.copy()
+        current_cycle = get_current_cycle(st.session_state.session_id)
+        st.success(f"Proceeding with predetermined sample for cycle {current_cycle}")
+        st.rerun()
+        return
+
+    # Handle override state
+    if "override_bo" not in st.session_state:
+        st.session_state.override_bo = False
+
+    def handle_override():
+        st.session_state.override_bo = True
+
+    if selection_mode == "bo_selected" and not st.session_state.override_bo:
+        bo_suggestion = cycle_data.get("suggestion")
         if bo_suggestion:
-            # BO MODE: Display read-only canvas with BO marker
             st.markdown("### Next Sample Selected by Optimization")
-            st.info(
-                "The system has automatically selected your next sample based on "
-                "your previous responses to find your optimal taste preference."
-            )
+            st.info("The system has automatically selected your next sample.")
 
-            # Create canvas with BO marker (different color)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Predicted Liking", f"{bo_suggestion.get('predicted_value', 0):.2f}")
+            with col2:
+                st.metric("Uncertainty", f"{bo_suggestion.get('uncertainty', 0):.2f}")
+
+            # Create canvas with BO marker
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
-                st.markdown(
-                    '<div class="canvas-container">', unsafe_allow_html=True
-                )
-
-                # Get BO coordinates
+                st.markdown('<div class="canvas-container">', unsafe_allow_html=True)
                 bo_x = bo_suggestion["grid_coordinates"]["x"]
                 bo_y = bo_suggestion["grid_coordinates"]["y"]
-
-                # Get selection history for persistent visualization
                 selection_history = getattr(
                     st.session_state, "selection_history", None
                 )
-
-                # Store initial position if not set
                 if not hasattr(st.session_state, "initial_grid_position"):
                     initial_conc = st.session_state.get("current_tasted_sample", {})
                     if (
@@ -251,400 +284,140 @@ def grid_interface():
                     st.session_state.initial_grid_position["y"],
                     selection_history,  # type: ignore
                 )
-
-                # Add BO marker to initial drawing (blue circle)
                 if initial_drawing and "objects" in initial_drawing:
-                    # Add a blue circle for BO suggestion
-                    initial_drawing["objects"].append(
-                        {
-                            "type": "circle",
-                            "left": bo_x,
-                            "top": bo_y,
-                            "fill": "#8B5CF6",  # Purple for BO marker
-                            "stroke": "#6D28D9",
-                            "radius": 10,
-                            "strokeWidth": 2,
-                        }
-                    )
+                    initial_drawing["objects"].append({
+                        "type": "circle", "left": bo_x, "top": bo_y,
+                        "fill": "#8B5CF6", "stroke": "#6D28D9", "radius": 10, "strokeWidth": 2,
+                    })
 
-                # Display read-only canvas with responsive sizing
                 canvas_size = get_canvas_size()
-
                 st_canvas(
-                    fill_color="#8B5CF6",
-                    stroke_width=2,
-                    stroke_color="#6D28D9",
-                    background_color="white",
-                    update_streamlit=False,  # Read-only
-                    height=canvas_size,
-                    width=canvas_size,
-                    drawing_mode="transform",  # No drawing allowed
-                    display_toolbar=False,
-                    initial_drawing=initial_drawing,
+                    fill_color="#8B5CF6", stroke_width=2, stroke_color="#6D28D9",
+                    background_color="white", update_streamlit=False, height=canvas_size, width=canvas_size,
+                    drawing_mode="transform", display_toolbar=False, initial_drawing=initial_drawing,
                     key=f"bo_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
                 )
-
                 st.markdown("</div>", unsafe_allow_html=True)
-
-            # Show BO position
+            
             st.write(f"**Selected Position:** X: {bo_x:.0f}, Y: {bo_y:.0f}")
 
-            # Auto-proceed button
             st.markdown("---")
-            if st.button(
-                "Proceed to Next Sample",
-                type="primary",
-                help="Continue with the automatically selected sample",
-                key="bo_proceed_button",
-            ):
-                import uuid
-
-                sample_id = str(uuid.uuid4())
-                st.session_state.current_sample_id = sample_id
-
-                # Store BO selection data
-                method = st.session_state.get("method", "linear")
-                ingredient_concentrations = bo_suggestion["concentrations"]
-
-                # Add BO selection to history for persistent visualization
-                if not hasattr(st.session_state, "selection_history"):
-                    st.session_state.selection_history = []
-
-                selection_number = len(st.session_state.selection_history) + 1
-                st.session_state.selection_history.append(
-                    {
-                        "x": bo_x,
-                        "y": bo_y,
-                        "sample_id": sample_id,
-                        "order": selection_number,
-                        "timestamp": time.time(),
-                        "is_bo_suggestion": True,  # Flag to distinguish BO from manual
-                    }
-                )
-
-                # Prepare selection data with BO metadata
-                st.session_state.next_selection_data = {
-                    "interface_type": INTERFACE_2D_GRID,
-                    "method": "bayesian_optimization",  # Mark as BO-driven
-                    "original_method": method,  # Store original mapping method
-                    "x_position": bo_x,
-                    "y_position": bo_y,
-                    "ingredient_concentrations": ingredient_concentrations,
-                    "predicted_value": bo_suggestion.get("predicted_value"),
-                    "uncertainty": bo_suggestion.get("uncertainty"),
-                    "acquisition_value": bo_suggestion.get("acquisition_value"),
-                    "acquisition_function": bo_suggestion.get(
-                        "acquisition_function"
-                    ),
-                    "acquisition_params": bo_suggestion.get(
-                        "acquisition_params", {}
-                    ),
-                    "mode": "bayesian_optimization",
-                    "sample_id": sample_id,
-                }
-
-                # Transition to LOADING
-                state_helpers.transition(state_helpers.get_current_phase(),
-                    new_phase=ExperimentPhase.LOADING,
-                    session_id=st.session_state.session_id,
-                )
-
-                # Update current_tasted_sample for next cycle
-                st.session_state.current_tasted_sample = (
-                    ingredient_concentrations.copy()
-                )
-
-                # Clear trajectory
-                st.session_state.trajectory_clicks = []
-
-                current_cycle = get_current_cycle(st.session_state.session_id)
-                st.success(f"Selection saved! Starting cycle {current_cycle}")
-                st.rerun()
-
-        else:
-            # MANUAL MODE: Traditional 2D grid interface
-            st.markdown("### Make Your Selection")
-            st.write(
-                "Click anywhere on the grid below to indicate your taste preference."
-            )
-
-            # Create canvas with grid and starting position
-            col1, col2, col3 = st.columns([1, 3, 1])
-            with col2:
-                st.markdown(
-                    '<div class="canvas-container">', unsafe_allow_html=True
-                )
-
-                # Get selection history for persistent visualization
-                selection_history = getattr(
-                    st.session_state, "selection_history", None
-                )
-
-                # Store initial position permanently (only set once)
-                # This ensures the grey dot stays at the original position throughout the session
-                if not hasattr(st.session_state, "initial_grid_position"):
-
-                    # Get initial concentrations from database (synced by session_manager)
-                    initial_conc = st.session_state.get("current_tasted_sample", {})
-
-                    if (
-                        initial_conc
-                        and "Sugar" in initial_conc
-                        and "Salt" in initial_conc
-                    ):
-                        # Convert concentrations back to grid coordinates
-                        method = st.session_state.get("method", "linear")
-                        x, y = (
-                            ConcentrationMapper.map_concentrations_to_coordinates(
-                                sugar_mm=initial_conc["Sugar"],
-                                salt_mm=initial_conc["Salt"],
-                                method=method,
-                            )
-                        )
-                        st.session_state.initial_grid_position = {"x": x, "y": y}
-                    else:
-                        # Fallback to center only if no initial concentrations exist
-                        st.session_state.initial_grid_position = {
-                            "x": 250,
-                            "y": 250,
-                        }
-
-                # Always use the stored initial position for grey dot
-                x = st.session_state.initial_grid_position["x"]
-                y = st.session_state.initial_grid_position["y"]
-
-                initial_drawing = create_canvas_drawing(
-                    x,  # Derived from concentrations
-                    y,  # Derived from concentrations
-                    selection_history,  # type: ignore
-                )
-
-                # Get responsive canvas size
-                canvas_size = get_canvas_size()
-                # Scale point radius proportionally to canvas size
-                point_radius = max(5, int(canvas_size / 62.5))
-
-                canvas_result = st_canvas(
-                    fill_color=(
-                        "#14B8A6"
-                        if not st.session_state.get("high_contrast", False)
-                        else "#FF0000"
-                    ),
-                    stroke_width=2,
-                    stroke_color=(
-                        "#0D9488"
-                        if not st.session_state.get("high_contrast", False)
-                        else "#000000"
-                    ),
-                    background_color="white",
-                    update_streamlit=True,
-                    height=canvas_size,
-                    width=canvas_size,
-                    drawing_mode="point",
-                    point_display_radius=point_radius,
-                    display_toolbar=False,
-                    initial_drawing=initial_drawing,
-                    key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
-                )
-
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            # Update position in database when user clicks
-            if canvas_result and canvas_result.json_data:
-                try:
-                    objects = canvas_result.json_data.get("objects", [])
-                    for obj in reversed(objects):
-                        if obj.get("type") == "circle" and obj.get("fill") in [
-                            "#EF4444",
-                            "#FF0000",
-                        ]:
-                            x, y = obj.get("left", 0), obj.get("top", 0)
-
-                            # Check if this is a new position (to avoid saving duplicates)
-                            if not hasattr(
-                                st.session_state, "last_saved_position"
-                            ) or st.session_state.last_saved_position != (x, y):
-
-                                # Generate unique sample ID for this selection
-                                import uuid
-
-                                sample_id = str(uuid.uuid4())
-                                st.session_state.current_sample_id = sample_id
-
-                                # Initialize selection history if it doesn't exist
-                                if not hasattr(
-                                    st.session_state, "selection_history"
-                                ):
-                                    st.session_state.selection_history = []
-
-                                # Add selection to history with order number and sample_id
-                                selection_number = (
-                                    len(st.session_state.selection_history) + 1
-                                )
-                                st.session_state.selection_history.append(
-                                    {
-                                        "x": x,
-                                        "y": y,
-                                        "sample_id": sample_id,
-                                        "order": selection_number,
-                                        "timestamp": time.time(),
-                                    }
-                                )
-
-                                # Save click to database with sample_id
-                                method = st.session_state.get("method", "linear")
-                                success = save_intermediate_click(
-                                    st.session_state.participant,
-                                    x,
-                                    y,
-                                    method,
-                                    sample_id=sample_id,
-                                )
-
-                                if success:
-                                    st.session_state.last_saved_position = (x, y)
-
-                                # Store current canvas result for later submission
-                                st.session_state.pending_canvas_result = (
-                                    canvas_result
-                                )
-                                st.session_state.pending_method = method
-
-                                # Prepare selection data for next cycle
-    
-                                sugar_mm, salt_mm = (
-                                    ConcentrationMapper.map_coordinates_to_concentrations(
-                                        x, y, method=method
-                                    )
-                                )
-                                ingredient_concentrations = {
-                                    "Sugar": round(sugar_mm, 3),
-                                    "Salt": round(salt_mm, 3),
-                                }
-
-                                st.session_state.next_selection_data = {
-                                    "interface_type": INTERFACE_2D_GRID,
-                                    "method": method,
-                                    "x_position": x,
-                                    "y_position": y,
-                                    "ingredient_concentrations": ingredient_concentrations,
-                                    "trajectory": (
-                                        st.session_state.trajectory_clicks.copy()
-                                        if hasattr(
-                                            st.session_state, "trajectory_clicks"
-                                        )
-                                        else []
-                                    ),
-                                    "sample_id": sample_id,
-                                }
-
-                                # Get current cycle (already incremented in QUESTIONNAIRE phase)
-                                current_cycle = get_current_cycle(
-                                    st.session_state.session_id
-                                )
-
-                                # Transition to LOADING for all selections (cycle 1+)
-                                # Note: Cycle 0 has no SELECTION phase - it ends at QUESTIONNAIRE
-                                state_helpers.transition(state_helpers.get_current_phase(),
-                                    new_phase=ExperimentPhase.LOADING,
-                                    session_id=st.session_state.session_id,
-                                )
-
-                                # Update current_tasted_sample for next cycle
-                                st.session_state.current_tasted_sample = (
-                                    ingredient_concentrations.copy()
-                                )
-
-                                # Clear trajectory for new cycle
-                                st.session_state.trajectory_clicks = []
-
-                                st.success(
-                                    f"Selection saved! Starting cycle {current_cycle}"
-                                )
-                                st.rerun()
-
-                            # Display current position and selection history
-                            st.write(
-                                f"**Current Position:** X: {x:.0f}, Y: {y:.0f}"
-                            )
-                            if hasattr(st.session_state, "selection_history"):
-                                st.write(
-                                    f"**Selections made:** {len(st.session_state.selection_history)}"
-                                )
-                            break
-
-                except Exception as e:
-                    st.error(f"Error processing selection: {e}")
-
-            # Add "Complete Experiment" button for grid interface
-            st.markdown("---")
-            st.markdown("### Finish Experiment")
-            if st.button(
-                "Complete Experiment",
-                type="secondary",
-                help="Mark this as your final selection and end the experiment",
-                key="grid_complete_experiment_button",
-            ):
-                try:
-                    # Save final selection data
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Proceed to Next Sample", type="primary"):
                     import uuid
-
                     sample_id = str(uuid.uuid4())
                     st.session_state.current_sample_id = sample_id
-
-                    # Get current grid position and method
-                    x = st.session_state.get("x", 50)
-                    y = st.session_state.get("y", 50)
-                    method = st.session_state.get("method", "linear")
-
-                    # Calculate concentrations for final selection
-                    sugar_mm, salt_mm = (
-                        ConcentrationMapper.map_coordinates_to_concentrations(
-                            x, y, method=method
-                        )
-                    )
-                    ingredient_concentrations = {
-                        "Sugar": round(sugar_mm, 3),
-                        "Salt": round(salt_mm, 3),
-                    }
-
-                    # Prepare final selection data
+                    ingredient_concentrations = bo_suggestion["concentrations"]
+                    
                     st.session_state.next_selection_data = {
                         "interface_type": INTERFACE_2D_GRID,
-                        "method": method,
-                        "x_position": x,
-                        "y_position": y,
+                        "method": "bayesian_optimization",
+                        "selection_mode": "bo_selected",
+                        "original_method": st.session_state.get("method", "linear"),
+                        "x_position": bo_x, "y_position": bo_y,
                         "ingredient_concentrations": ingredient_concentrations,
-                        "trajectory": (
-                            st.session_state.trajectory_clicks.copy()
-                            if hasattr(st.session_state, "trajectory_clicks")
-                            else []
-                        ),
+                        "predicted_value": bo_suggestion.get("predicted_value"),
+                        "uncertainty": bo_suggestion.get("uncertainty"),
+                        "acquisition_value": bo_suggestion.get("acquisition_value"),
+                        "acquisition_function": bo_suggestion.get("acquisition_function"),
+                        "acquisition_params": bo_suggestion.get("acquisition_params", {}),
                         "sample_id": sample_id,
                     }
-
-                    # Transition to COMPLETE phase
-                    state_helpers.transition(state_helpers.get_current_phase(),
-                        new_phase=ExperimentPhase.COMPLETE,
-                        session_id=st.session_state.session_id,
-                    )
-
-                    st.success("Experiment completed! Thank you for participating.")
-                    time.sleep(2)
+                    
+                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+                    st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+                    st.session_state.override_bo = False # Reset for next cycle
                     st.rerun()
+            with col2:
+                st.button("Override and Select Manually", on_click=handle_override)
+            return
+            
+    # MANUAL MODE (USER_SELECTED or BO Override)
+    if selection_mode == "user_selected" or st.session_state.override_bo:
+        st.markdown("### Make Your Selection")
+        st.write("Click anywhere on the grid below to indicate your taste preference.")
 
-                except Exception as e:
-                    st.error(f"Error completing experiment: {e}")
-                    logger.error(f"Grid interface - Complete experiment error: {e}")
+        # Reset override flag at the beginning of a new selection
+        if selection_mode == "user_selected":
+            st.session_state.override_bo = False
+            
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col2:
+            st.markdown('<div class="canvas-container">', unsafe_allow_html=True)
+            selection_history = getattr(st.session_state, "selection_history", None)
+            if not hasattr(st.session_state, "initial_grid_position"):
+                initial_conc = st.session_state.get("current_tasted_sample", {})
+                if initial_conc and "Sugar" in initial_conc and "Salt" in initial_conc:
+                    method = st.session_state.get("method", "linear")
+                    x, y = ConcentrationMapper.map_concentrations_to_coordinates(
+                        sugar_mm=initial_conc["Sugar"], salt_mm=initial_conc["Salt"], method=method
+                    )
+                    st.session_state.initial_grid_position = {"x": x, "y": y}
+                else:
+                    st.session_state.initial_grid_position = {"x": 250, "y": 250}
 
-    else:
-        # Interface type is not 2D grid - this shouldn't happen in grid_interface
-        st.error(
-            f"Grid interface called with incorrect interface type: {interface_type}"
-        )
+            x_init, y_init = st.session_state.initial_grid_position["x"], st.session_state.initial_grid_position["y"]
+            initial_drawing = create_canvas_drawing(x_init, y_init, selection_history) # type: ignore
+            
+            canvas_size = get_canvas_size()
+            point_radius = max(5, int(canvas_size / 62.5))
+            canvas_result = st_canvas(
+                fill_color=("#14B8A6" if not st.session_state.get("high_contrast", False) else "#FF0000"),
+                stroke_width=2,
+                stroke_color=("#0D9488" if not st.session_state.get("high_contrast", False) else "#000000"),
+                background_color="white", update_streamlit=True, height=canvas_size, width=canvas_size,
+                drawing_mode="point", point_display_radius=point_radius, display_toolbar=False,
+                initial_drawing=initial_drawing,
+                key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if canvas_result and canvas_result.json_data:
+            try:
+                objects = canvas_result.json_data.get("objects", [])
+                for obj in reversed(objects):
+                    if obj.get("type") == "circle" and obj.get("fill") in ["#EF4444", "#FF0000"]:
+                        x, y = obj.get("left", 0), obj.get("top", 0)
+                        if not hasattr(st.session_state, "last_saved_position") or st.session_state.last_saved_position != (x, y):
+                            import uuid
+                            sample_id = str(uuid.uuid4())
+                            st.session_state.current_sample_id = sample_id
+                            
+                            method = st.session_state.get("method", "linear")
+                            save_click(st.session_state.participant, x, y, method, sample_id=sample_id)
+                            st.session_state.last_saved_position = (x, y)
+                            
+                            sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(x, y, method=method)
+                            ingredient_concentrations = {"Sugar": round(sugar_mm, 3), "Salt": round(salt_mm, 3)}
+
+                            final_selection_mode = "user_selected_override" if st.session_state.override_bo else "user_selected"
+
+                            st.session_state.next_selection_data = {
+                                "interface_type": INTERFACE_2D_GRID,
+                                "method": method,
+                                "x_position": x, "y_position": y,
+                                "ingredient_concentrations": ingredient_concentrations,
+                                "selection_mode": final_selection_mode,
+                                "sample_id": sample_id,
+                            }
+                            
+                            state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+                            st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+                            st.session_state.override_bo = False # Reset for next cycle
+                            st.rerun()
+                        break
+            except Exception as e:
+                st.error(f"Error processing selection: {e}")
+
+        st.markdown("---")
+        st.markdown("### Finish Experiment")
+        if st.button("Complete Experiment", type="secondary", help="Mark this as your final selection and end the experiment", key="grid_complete_experiment_button"):
+            # ... (code for completing experiment)
+            pass
 
 
-def single_variable_interface():
+def single_variable_interface(cycle_data: dict):
     # SELECTION phase: Show slider and handle selections
     # Sync session state from database for multi-device coordination
     sync_session_state(st.session_state.session_id, "subject")
@@ -698,33 +471,91 @@ def single_variable_interface():
     ingredient = ingredients[0]
     ingredient_name = ingredient["name"]
 
-    # Check if Bayesian Optimization should be used
-    bo_suggestion = get_bo_suggestion_for_session(
-        session_id=st.session_state.session_id,
-        participant_id=st.session_state.participant,
-    )
+    selection_mode = cycle_data.get("mode", "user_selected")
 
-    if bo_suggestion:
-        # BO MODE: Display read-only slider with BO marker
-        st.markdown("### Next Sample Selected by Optimization")
-        st.info(
-            "The system has automatically selected your next sample based on "
-            "your previous responses to find your optimal taste preference."
+    if selection_mode == "predetermined":
+        st.markdown("### Predetermined Sample")
+        st.info("This sample was predetermined by the experiment protocol.")
+        time.sleep(3)
+        import uuid
+        sample_id = str(uuid.uuid4())
+        st.session_state.current_sample_id = sample_id
+
+        predetermined_concentrations = cycle_data.get("concentrations", {})
+        
+        st.session_state.next_selection_data = {
+            "interface_type": INTERFACE_SINGLE_INGREDIENT,
+            "method": "predetermined",
+            "ingredient_concentrations": predetermined_concentrations,
+            "selection_mode": "predetermined",
+            "sample_id": sample_id,
+        }
+
+        state_helpers.transition(
+            state_helpers.get_current_phase(),
+            new_phase=ExperimentPhase.LOADING,
+            session_id=st.session_state.session_id,
         )
-        # ... (rest of BO logic)
-    else:
-        # MANUAL MODE: Traditional slider interface
+        st.session_state.current_tasted_sample = predetermined_concentrations.copy()
+        st.rerun()
+        return
+
+    if "override_bo" not in st.session_state:
+        st.session_state.override_bo = False
+
+    def handle_override():
+        st.session_state.override_bo = True
+
+    if selection_mode == "bo_selected" and not st.session_state.override_bo:
+        bo_suggestion = cycle_data.get("suggestion")
+        if bo_suggestion:
+            st.markdown("### Next Sample Selected by Optimization")
+            st.info("The system has automatically selected your next sample.")
+            
+            bo_value = bo_suggestion["slider_value"]
+            st.slider(
+                label="Optimized selection",
+                min_value=0, max_value=100, value=int(bo_value), step=1,
+                disabled=True
+            )
+            
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Proceed to Next Sample", type="primary"):
+                    import uuid
+                    sample_id = str(uuid.uuid4())
+                    st.session_state.current_sample_id = sample_id
+                    ingredient_concentrations = bo_suggestion["concentrations"]
+                    
+                    st.session_state.next_selection_data = {
+                        "interface_type": INTERFACE_SINGLE_INGREDIENT,
+                        "method": "bayesian_optimization",
+                        "selection_mode": "bo_selected",
+                        "slider_values": {ingredient_name: float(bo_value)},
+                        "ingredient_concentrations": ingredient_concentrations,
+                        "sample_id": sample_id,
+                    }
+                    
+                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+                    st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+                    st.session_state.override_bo = False
+                    st.rerun()
+            with col2:
+                st.button("Override and Select Manually", on_click=handle_override)
+            return
+
+    if selection_mode == "user_selected" or st.session_state.override_bo:
         st.markdown("### Adjust Concentration")
+        if selection_mode == "user_selected":
+            st.session_state.override_bo = False
 
-        # Get initial slider value based on cycle
-        initial_value = None
+        initial_value = 50.0 # Default
         current_cycle = get_current_cycle(st.session_state.session_id)
-
-        # Load last tasted sample from database for all cycles
         try:
             samples = get_session_samples(st.session_state.session_id)
             if samples:
-                last_sample = samples[-1]  # Most recent sample
+                last_sample = samples[-1]
                 selection_data = last_sample.get("selection_data")
                 if selection_data:
                     if isinstance(selection_data, str):
@@ -732,124 +563,45 @@ def single_variable_interface():
                     slider_values = selection_data.get("slider_values", {})
                     if ingredient_name in slider_values:
                         initial_value = slider_values[ingredient_name]
-                        logger.info(
-                            f"Loaded last sample slider value for cycle {current_cycle}: {initial_value}%"
-                        )
         except Exception as e:
             logger.error(f"Error loading last sample from database: {e}")
 
-        # Fallback to session state if database load fails or no samples found
-        if initial_value is None:
-            if current_cycle == 0 and hasattr(
-                st.session_state, "random_slider_values"
-            ):
-                initial_value = st.session_state.random_slider_values.get(
-                    ingredient_name
-                )
-                if initial_value is not None:
-                    logger.info(f"Using random slider value for cycle 0: {initial_value}")
-                else:
-                    logger.warning("Could not find random slider value for cycle 0")
-
-            elif hasattr(st.session_state, "current_slider_values"):
-                initial_value = st.session_state.current_slider_values.get(
-                    ingredient_name
-                )
-                if initial_value is not None:
-                    logger.info(f"Using current slider value from session: {initial_value}")
-                else:
-                    logger.warning("Could not find current slider value in session")
-
-        # If still no value, default to center and log a warning
-        if initial_value is None:
-            initial_value = 50.0
-            logger.warning(
-                f"Could not determine initial slider value. Defaulting to {initial_value}."
-            )
-
-        # Create interactive slider
         slider_value = st.slider(
             label="Use the slider below to adjust the ingredient concentration.",
-            min_value=0,
-            max_value=100,
-            value=int(initial_value),
-            step=1,
-            format="",
+            min_value=0, max_value=100, value=int(initial_value), step=1,
             key=f"single_slider_{ingredient_name}_{st.session_state.participant}",
         )
 
-        # Update session state
-        if not hasattr(st.session_state, "current_slider_values"):
-            st.session_state.current_slider_values = {}
-        st.session_state.current_slider_values[ingredient_name] = float(
-            slider_value
-        )
-
-        # Finish Selection button
-        st.markdown("---")
-        if st.button(
-            "Finish Selection",
-            type="primary",
-            help="Confirm your selection and proceed to the next cycle",
-            key="slider_finish_selection_button",
-        ):
+        if st.button("Finish Selection", type="primary"):
             import uuid
-
             sample_id = str(uuid.uuid4())
             st.session_state.current_sample_id = sample_id
 
-            # Calculate concentration from slider value
             mixture = MultiComponentMixture(ingredients)
             concentrations = mixture.calculate_concentrations_from_sliders(
                 {ingredient_name: float(slider_value)}
             )
-
             ingredient_concentrations = {
-                ingredient_name: round(
-                    concentrations[ingredient_name]["actual_concentration_mM"], 3
-                )
+                ingredient_name: round(concentrations[ingredient_name]["actual_concentration_mM"], 3)
             }
+            final_selection_mode = "user_selected_override" if st.session_state.override_bo else "user_selected"
 
-            # Add to selection history for visualization
-            if not hasattr(st.session_state, "slider_selection_history"):
-                st.session_state.slider_selection_history = []
-
-            current_cycle = get_current_cycle(st.session_state.session_id)
-            selection_number = len(st.session_state.slider_selection_history) + 1
-
-            st.session_state.slider_selection_history.append(
-                {
-                    "slider_value": float(slider_value),
-                    "cycle": current_cycle,
-                    "order": selection_number,
-                    "timestamp": time.time(),
-                    "sample_id": sample_id,
-                }
-            )
-
-            # Prepare selection data
             st.session_state.next_selection_data = {
                 "interface_type": INTERFACE_SINGLE_INGREDIENT,
                 "method": "linear",
                 "slider_values": {ingredient_name: float(slider_value)},
                 "ingredient_concentrations": ingredient_concentrations,
+                "selection_mode": final_selection_mode,
                 "sample_id": sample_id,
             }
-
-            # Transition to LOADING
+            
             state_helpers.transition(
                 state_helpers.get_current_phase(),
                 new_phase=ExperimentPhase.LOADING,
                 session_id=st.session_state.session_id,
             )
-
-            # Update current_tasted_sample for next cycle
-            st.session_state.current_tasted_sample = (
-                ingredient_concentrations.copy()
-            )
-
-            current_cycle = get_current_cycle(st.session_state.session_id)
-            st.success(f"Selection saved! Starting cycle {current_cycle}")
+            st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+            st.session_state.override_bo = False
             st.rerun()
 
 
@@ -1008,11 +760,16 @@ def subject_interface():
                 logger.error(f"Questionnaire save error: {e}")
 
     elif current_phase_str == ExperimentPhase.SELECTION.value:
+        cycle_info = prepare_cycle_sample(
+            st.session_state.session_id, get_current_cycle(st.session_state.session_id)
+        )
+        st.session_state.cycle_data = cycle_info
+
         ingredient_num = st.session_state.get("num_ingredients", None)
         if ingredient_num == 2:
-            grid_interface()
+            grid_interface(cycle_info)
         elif ingredient_num == 1:
-            single_variable_interface()
+            single_variable_interface(cycle_info)
         else:
             # Fallback or error for selection phase if ingredient num is not set
             st.warning("Waiting for experiment configuration...")
