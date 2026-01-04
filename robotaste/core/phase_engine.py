@@ -21,7 +21,7 @@ DEFAULT_PHASES = [
     {"phase_id": "registration", "phase_type": "builtin", "required": False},
     {"phase_id": "instructions", "phase_type": "builtin", "required": True},
     {"phase_id": "experiment_loop", "phase_type": "loop", "required": True},
-    {"phase_id": "completion", "phase_type": "builtin", "required": True}
+    {"phase_id": "completion", "phase_type": "builtin", "required": True},
 ]
 
 
@@ -38,6 +38,7 @@ class PhaseDefinition:
         content: Custom phase content (for custom phases)
         loop_config: Configuration for loop phases
     """
+
     phase_id: str
     phase_type: str
     required: bool = True
@@ -54,9 +55,7 @@ class PhaseDefinition:
             )
 
         if self.duration_ms is not None and self.duration_ms <= 0:
-            raise ValueError(
-                f"Phase {self.phase_id}: duration_ms must be positive"
-            )
+            raise ValueError(f"Phase {self.phase_id}: duration_ms must be positive")
 
 
 class PhaseEngine:
@@ -137,15 +136,15 @@ class PhaseEngine:
             ValueError: If phase_sequence structure is invalid
         """
         # If no phase_sequence in protocol, use DEFAULT_PHASES
-        if 'phase_sequence' not in self.protocol:
+        if "phase_sequence" not in self.protocol:
             logger.info("No phase_sequence in protocol, using DEFAULT_PHASES")
             return self._parse_default_phases()
 
-        phase_sequence_config = self.protocol['phase_sequence']
+        phase_sequence_config = self.protocol["phase_sequence"]
 
         # Handle both dict with 'phases' key and direct list
         if isinstance(phase_sequence_config, dict):
-            phases_list = phase_sequence_config.get('phases', [])
+            phases_list = phase_sequence_config.get("phases", [])
         elif isinstance(phase_sequence_config, list):
             phases_list = phase_sequence_config
         else:
@@ -161,13 +160,13 @@ class PhaseEngine:
         for idx, phase_dict in enumerate(phases_list):
             try:
                 phase_def = PhaseDefinition(
-                    phase_id=phase_dict.get('phase_id', f'phase_{idx}'),
-                    phase_type=phase_dict.get('phase_type', 'builtin'),
-                    required=phase_dict.get('required', True),
-                    duration_ms=phase_dict.get('duration_ms'),
-                    auto_advance=phase_dict.get('auto_advance', False),
-                    content=phase_dict.get('content'),
-                    loop_config=phase_dict.get('loop_config')
+                    phase_id=phase_dict.get("phase_id", f"phase_{idx}"),
+                    phase_type=phase_dict.get("phase_type", "builtin"),
+                    required=phase_dict.get("required", True),
+                    duration_ms=phase_dict.get("duration_ms"),
+                    auto_advance=phase_dict.get("auto_advance", False),
+                    content=phase_dict.get("content"),
+                    loop_config=phase_dict.get("loop_config"),
                 )
                 phases.append(phase_def)
             except ValueError as e:
@@ -218,14 +217,12 @@ class PhaseEngine:
             True if experiment should stop
         """
         # Check stopping criteria from protocol
-        stopping_criteria = self.protocol.get('stopping_criteria', {})
+        stopping_criteria = self.protocol.get("stopping_criteria", {})
 
         # Max cycles check
-        max_cycles = stopping_criteria.get('max_cycles')
+        max_cycles = stopping_criteria.get("max_cycles")
         if max_cycles and current_cycle >= max_cycles:
-            logger.info(
-                f"Stopping experiment: reached max_cycles ({max_cycles})"
-            )
+            logger.info(f"Stopping experiment: reached max_cycles ({max_cycles})")
             return True
 
         # Additional stopping criteria can be added here
@@ -264,17 +261,14 @@ class PhaseEngine:
             Next phase ID in loop
         """
         # Standard loop progression
-        if current_phase == "loading" or current_phase == "robot_preparing":
+        # NOTE: Stopping check is now handled in subject.py after QUESTIONNAIRE
+        if current_phase == "selection":
+            return "loading"
+        elif current_phase == "loading" or current_phase == "robot_preparing":
             return "questionnaire"
         elif current_phase == "questionnaire":
+            # Always return to selection - stopping is handled before transition
             return "selection"
-        elif current_phase == "selection":
-            # Check if should exit loop
-            if self._should_stop_experiment(current_cycle):
-                return self._get_phase_after_loop()
-            else:
-                # Continue loop - go back to loading
-                return "loading"
 
         # Unknown loop phase, exit loop
         logger.warning(f"Unknown loop phase: {current_phase}, exiting loop")
@@ -284,7 +278,7 @@ class PhaseEngine:
         self,
         current_phase: str,
         skip_optional: bool = False,
-        current_cycle: Optional[int] = None
+        current_cycle: Optional[int] = None,
     ) -> str:
         """Determine next phase based on protocol sequence.
 
@@ -313,10 +307,7 @@ class PhaseEngine:
 
         # Check if we're in experiment loop
         if self._is_in_loop(current_phase):
-            next_phase = self._get_next_loop_phase(
-                current_phase,
-                current_cycle or 0
-            )
+            next_phase = self._get_next_loop_phase(current_phase, current_cycle or 0)
             logger.info(
                 f"Session {self.session_id}: Loop phase transition "
                 f"{current_phase} → {next_phase} (cycle {current_cycle})"
@@ -345,11 +336,9 @@ class PhaseEngine:
 
             # Check if this phase is the experiment loop
             if next_phase_def.phase_type == "loop":
-                # Enter the loop - start with loading
-                logger.info(
-                    f"Session {self.session_id}: Entering experiment loop"
-                )
-                return "loading"
+                # Enter the loop - start with selection (prepare sample first)
+                logger.info(f"Session {self.session_id}: Entering experiment loop")
+                return "selection"
 
             # If skipping optional phases and this phase is optional, skip it
             if skip_optional and not next_phase_def.required:
@@ -368,7 +357,9 @@ class PhaseEngine:
             return next_phase_def.phase_id
 
         # No more phases, go to completion
-        logger.info(f"Session {self.session_id}: Reached end of sequence, going to completion")
+        logger.info(
+            f"Session {self.session_id}: Reached end of sequence, going to completion"
+        )
         return "completion"
 
     def should_auto_advance(self, current_phase: str) -> Tuple[bool, int]:

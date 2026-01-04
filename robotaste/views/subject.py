@@ -24,6 +24,7 @@ from robotaste.data.session_repo import (
 )
 from robotaste.data.database import (
     get_current_cycle,
+    get_session,
     get_session_samples,
     increment_cycle,
     save_sample_cycle,
@@ -837,7 +838,16 @@ def subject_interface():
             ingredient_concentrations = st.session_state.get("current_tasted_sample", {})
             selection_data = st.session_state.get("next_selection_data", {})
 
+            # GUARD: Don't save if sample is empty (not yet prepared)
+            if not ingredient_concentrations:
+                logger.warning(f"Cycle {current_cycle}: Sample not prepared yet, skipping save")
+                st.warning("Please wait for sample to be prepared...")
+                time.sleep(1)
+                st.rerun()
+                return
+
             try:
+                # Save the questionnaire data for current cycle
                 save_sample_cycle(
                     session_id=st.session_state.session_id,
                     cycle_number=current_cycle,
@@ -846,6 +856,26 @@ def subject_interface():
                     questionnaire_answer=responses,
                     is_final=False,
                 )
+
+                # Check if we should stop BEFORE incrementing
+                session = get_session(st.session_state.session_id)
+                if session:
+                    protocol = session.get("experiment_config", {})
+                    max_cycles = protocol.get('stopping_criteria', {}).get('max_cycles')
+
+                    if max_cycles and current_cycle >= max_cycles:
+                        # We've completed all required cycles - go to completion
+                        logger.info(f"Completed all {max_cycles} cycles. Transitioning to completion.")
+                        state_helpers.transition(
+                            state_helpers.get_current_phase(),
+                            new_phase=ExperimentPhase.COMPLETE,
+                            session_id=st.session_state.session_id,
+                        )
+                        st.success(f"Experiment complete! You have finished all {max_cycles} cycles.")
+                        st.rerun()
+                        return
+
+                # Not stopping - increment to next cycle
                 increment_cycle(st.session_state.session_id)
 
                 # Transition to next phase
@@ -853,7 +883,7 @@ def subject_interface():
                     current_phase_str=current_phase_str,
                     default_next_phase=ExperimentPhase.SELECTION,
                     session_id=st.session_state.session_id,
-                    current_cycle=current_cycle
+                    current_cycle=current_cycle + 1  # Pass the NEW cycle number
                 )
                 st.success("Questionnaire saved! Now make your selection for the next cycle.")
                 st.rerun()
@@ -867,6 +897,24 @@ def subject_interface():
         )
         st.session_state.cycle_data = cycle_info
 
+        # For predetermined/BO samples, populate current_tasted_sample and auto-advance
+        if cycle_info.get('concentrations') and cycle_info['mode'] in ['predetermined', 'bo_selected']:
+            st.session_state.current_tasted_sample = cycle_info['concentrations'].copy()
+            st.session_state.next_selection_data = {
+                "mode": cycle_info['mode'],
+                "timestamp": datetime.now().isoformat()
+            }
+            # Auto-transition to LOADING (skip user selection UI)
+            logger.info(f"Auto-advancing to LOADING for {cycle_info['mode']} sample")
+            state_helpers.transition(
+                state_helpers.get_current_phase(),
+                new_phase=ExperimentPhase.LOADING,
+                session_id=st.session_state.session_id
+            )
+            st.rerun()
+            return
+
+        # Otherwise show selection UI for user-selected mode
         ingredient_num = st.session_state.get("num_ingredients", None)
         if ingredient_num == 2:
             grid_interface(cycle_info)

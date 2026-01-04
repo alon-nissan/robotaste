@@ -113,7 +113,7 @@ def start_trial(
         # The full config to be saved, whether from protocol or manual
         experiment_config_to_save = {
             **protocol_config,
-            "current_cycle": 0,
+            "current_cycle": 1,  # Start at cycle 1 (1-indexed)
             "created_at": datetime.now().isoformat(),
         }
 

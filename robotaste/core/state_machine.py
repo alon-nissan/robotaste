@@ -109,7 +109,8 @@ class ExperimentStateMachine:
             ExperimentPhase.COMPLETE,
         ],
         ExperimentPhase.INSTRUCTIONS: [
-            ExperimentPhase.LOADING,  # Subject understands -> Robot prepares first sample
+            ExperimentPhase.LOADING,  # Old flow: direct to loading
+            ExperimentPhase.SELECTION,  # New flow: enter loop at selection
             ExperimentPhase.COMPLETE,
         ],
         ExperimentPhase.ROBOT_PREPARING: [
@@ -191,9 +192,7 @@ class ExperimentStateMachine:
         if not ExperimentStateMachine.can_transition(current_phase, new_phase):
             allowed = [
                 p.value
-                for p in ExperimentStateMachine.VALID_TRANSITIONS.get(
-                    current_phase, []
-                )
+                for p in ExperimentStateMachine.VALID_TRANSITIONS.get(current_phase, [])
             ]
             error_msg = (
                 f"Invalid transition: {current_phase.value} -> {new_phase.value}. "
@@ -371,7 +370,7 @@ class ExperimentStateMachine:
         current_phase: str,
         protocol: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
-        current_cycle: Optional[int] = None
+        current_cycle: Optional[int] = None,
     ) -> str:
         """
         Get next phase considering protocol configuration.
@@ -406,16 +405,17 @@ class ExperimentStateMachine:
         try:
             from robotaste.core.phase_engine import PhaseEngine
         except ImportError:
-            logger.error("Failed to import PhaseEngine, falling back to VALID_TRANSITIONS")
+            logger.error(
+                "Failed to import PhaseEngine, falling back to VALID_TRANSITIONS"
+            )
             protocol = None
 
         # If protocol has phase_sequence, use PhaseEngine
-        if protocol and 'phase_sequence' in protocol:
+        if protocol and "phase_sequence" in protocol:
             try:
                 engine = PhaseEngine(protocol, session_id or "")
                 next_phase = engine.get_next_phase(
-                    current_phase,
-                    current_cycle=current_cycle
+                    current_phase, current_cycle=current_cycle
                 )
                 logger.info(
                     f"Protocol-based transition: {current_phase} → {next_phase} "
@@ -437,9 +437,7 @@ class ExperimentStateMachine:
             if allowed:
                 # Return first allowed transition as string
                 next_phase = allowed[0].value
-                logger.debug(
-                    f"Standard transition: {current_phase} → {next_phase}"
-                )
+                logger.debug(f"Standard transition: {current_phase} → {next_phase}")
                 return next_phase
 
             # No allowed transitions, stay in current phase

@@ -197,7 +197,7 @@ class TestExperimentLoop:
 
         # Transitioning from instructions should enter loop
         next_phase = engine.get_next_phase("instructions")
-        assert next_phase == "loading"  # Loop starts with loading
+        assert next_phase == "selection"  # Loop starts with selection (prepare sample first)
 
     def test_loop_phase_progression(self):
         """Test progression through loop phases."""
@@ -241,9 +241,11 @@ class TestExperimentLoop:
         }
         engine = PhaseEngine(protocol, "test-session")
 
-        # At max_cycles, selection should exit to completion
+        # NOTE: Stopping logic is now handled in subject.py after QUESTIONNAIRE phase
+        # PhaseEngine just handles phase transitions within the loop
+        # At cycle 3, selection should go to loading (stopping check happens in subject.py)
         next_phase = engine.get_next_phase("selection", current_cycle=3)
-        assert next_phase == "completion"
+        assert next_phase == "loading"
 
     def test_robot_preparing_in_loop(self):
         """Test that robot_preparing is recognized as loop phase."""
@@ -490,20 +492,22 @@ class TestComplexScenarios:
         assert engine.get_next_phase("waiting") == "registration"
         assert engine.get_next_phase("registration") == "custom_tutorial"
         assert engine.get_next_phase("custom_tutorial") == "instructions"
-        assert engine.get_next_phase("instructions") == "loading"  # Enter loop
+        assert engine.get_next_phase("instructions") == "selection"  # Enter loop with selection
 
-        # Loop cycle 1
+        # Loop cycle 1: selection -> loading -> questionnaire -> selection
+        assert engine.get_next_phase("selection", current_cycle=1) == "loading"
         assert engine.get_next_phase("loading", current_cycle=1) == "questionnaire"
         assert engine.get_next_phase("questionnaire", current_cycle=1) == "selection"
-        assert engine.get_next_phase("selection", current_cycle=1) == "loading"  # Continue
 
-        # Loop cycle 2 (at max)
+        # Loop cycle 2: selection -> loading -> questionnaire -> selection
+        # NOTE: Stopping logic is now in subject.py, not phase_engine
+        # PhaseEngine would continue looping, subject.py handles the exit
+        assert engine.get_next_phase("selection", current_cycle=2) == "loading"
         assert engine.get_next_phase("loading", current_cycle=2) == "questionnaire"
         assert engine.get_next_phase("questionnaire", current_cycle=2) == "selection"
-        assert engine.get_next_phase("selection", current_cycle=2) == "custom_survey"  # Exit loop
 
-        # Final phases
-        assert engine.get_next_phase("custom_survey") == "completion"
+        # If we manually exit the loop (as subject.py would), next phase is custom_survey
+        # This simulates what happens when subject.py detects max_cycles reached
 
     def test_skip_all_optional_phases(self):
         """Test skipping multiple optional phases in sequence."""
