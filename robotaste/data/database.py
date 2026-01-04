@@ -1336,3 +1336,47 @@ def get_session_stats(session_id: str) -> Dict:
     except Exception as e:
         logger.error(f"Failed to get session stats: {e}")
         return {}
+
+
+def get_session_protocol(session_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get protocol assigned to session.
+
+    Loads the protocol from the database if the session has a protocol_id.
+    This is used by the PhaseEngine and subject view to determine custom phase sequences.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Protocol dict if session has protocol_id, None otherwise
+
+    Example:
+        >>> protocol = get_session_protocol("session-123")
+        >>> if protocol and 'phase_sequence' in protocol:
+        ...     # Use custom phase sequence
+        ...     pass
+    """
+    try:
+        # Import protocol_repo here to avoid circular imports
+        from robotaste.data.protocol_repo import get_protocol_by_id
+
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT protocol_id FROM sessions WHERE session_id = ?",
+                (session_id,)
+            )
+            row = cursor.fetchone()
+
+            if row and row['protocol_id']:
+                protocol_id = row['protocol_id']
+                logger.info(f"Loading protocol {protocol_id} for session {session_id}")
+                return get_protocol_by_id(protocol_id)
+
+            logger.debug(f"No protocol assigned to session {session_id}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Failed to get protocol for session {session_id}: {e}")
+        return None

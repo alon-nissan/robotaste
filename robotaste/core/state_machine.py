@@ -36,6 +36,7 @@ class ExperimentPhase(Enum):
     6. QUESTIONNAIRE: Subject answering questionnaire
     7. SELECTION: Subject making selection for next cycle
     8. COMPLETE: Session finished
+    9. CUSTOM: Custom phase defined in protocol (catch-all for custom phases)
     """
 
     WAITING = "waiting"
@@ -46,6 +47,7 @@ class ExperimentPhase(Enum):
     QUESTIONNAIRE = "questionnaire"
     SELECTION = "selection"
     COMPLETE = "complete"
+    CUSTOM = "custom"
 
     @classmethod
     def from_string(cls, phase_str: str) -> Optional["ExperimentPhase"]:
@@ -363,6 +365,96 @@ class ExperimentStateMachine:
             True if phase is SELECTION
         """
         return phase == ExperimentPhase.SELECTION
+
+    @staticmethod
+    def get_next_phase_with_protocol(
+        current_phase: str,
+        protocol: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        current_cycle: Optional[int] = None
+    ) -> str:
+        """
+        Get next phase considering protocol configuration.
+
+        This method provides protocol-aware phase transitions using PhaseEngine
+        when a protocol with phase_sequence is provided. Otherwise, falls back
+        to standard VALID_TRANSITIONS logic for backward compatibility.
+
+        Args:
+            current_phase: Current phase as string (e.g., "waiting", "custom")
+            protocol: Optional protocol dict with phase_sequence
+            session_id: Optional session ID for PhaseEngine initialization
+            current_cycle: Optional current cycle number (for loop logic)
+
+        Returns:
+            Next phase ID as string
+
+        Example:
+            >>> # With protocol
+            >>> protocol = {"phase_sequence": {"phases": [...]}}
+            >>> next_phase = ExperimentStateMachine.get_next_phase_with_protocol(
+            ...     "waiting",
+            ...     protocol=protocol,
+            ...     session_id="session-123"
+            ... )
+
+            >>> # Without protocol (uses VALID_TRANSITIONS)
+            >>> next_phase = ExperimentStateMachine.get_next_phase_with_protocol("waiting")
+            'registration'
+        """
+        # Import PhaseEngine here to avoid circular imports
+        try:
+            from robotaste.core.phase_engine import PhaseEngine
+        except ImportError:
+            logger.error("Failed to import PhaseEngine, falling back to VALID_TRANSITIONS")
+            protocol = None
+
+        # If protocol has phase_sequence, use PhaseEngine
+        if protocol and 'phase_sequence' in protocol:
+            try:
+                engine = PhaseEngine(protocol, session_id or "")
+                next_phase = engine.get_next_phase(
+                    current_phase,
+                    current_cycle=current_cycle
+                )
+                logger.info(
+                    f"Protocol-based transition: {current_phase} → {next_phase} "
+                    f"(session: {session_id})"
+                )
+                return next_phase
+            except Exception as e:
+                logger.error(
+                    f"PhaseEngine failed for session {session_id}: {e}. "
+                    f"Falling back to VALID_TRANSITIONS"
+                )
+                # Fall through to default logic
+
+        # Use existing VALID_TRANSITIONS logic (backward compatible)
+        try:
+            current_phase_enum = ExperimentPhase(current_phase)
+            allowed = ExperimentStateMachine.get_allowed_transitions(current_phase_enum)
+
+            if allowed:
+                # Return first allowed transition as string
+                next_phase = allowed[0].value
+                logger.debug(
+                    f"Standard transition: {current_phase} → {next_phase}"
+                )
+                return next_phase
+
+            # No allowed transitions, stay in current phase
+            logger.warning(
+                f"No allowed transitions from {current_phase}, staying in current phase"
+            )
+            return current_phase
+
+        except ValueError:
+            # Unknown phase (e.g., custom phase not in enum)
+            logger.warning(
+                f"Unknown phase '{current_phase}', cannot determine next phase. "
+                f"Staying in current phase."
+            )
+            return current_phase
 
 
 # ============================================================================

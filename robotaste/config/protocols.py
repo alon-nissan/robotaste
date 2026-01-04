@@ -176,9 +176,8 @@ def _validate_schema(protocol: Dict[str, Any]) -> List[str]:
     """Validate protocol against JSON schema structure."""
     errors = []
 
-    # Check required fields
+    # Check required fields (protocol_id is optional during creation)
     required_fields = [
-        "protocol_id",
         "name",
         "version",
         "ingredients",
@@ -248,6 +247,10 @@ def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
     # Validate stopping criteria
     criteria_errors = _validate_stopping_criteria(protocol)
     errors.extend(criteria_errors)
+
+    # Validate phase sequence (NEW for Week 5)
+    phase_errors = _validate_phase_sequence(protocol)
+    errors.extend(phase_errors)
 
     return errors
 
@@ -438,6 +441,138 @@ def _validate_stopping_criteria(protocol: Dict[str, Any]) -> List[str]:
     if min_cycles is not None and max_cycles is not None and min_cycles > max_cycles:
         errors.append(
             f"min_cycles ({min_cycles}) cannot be > max_cycles ({max_cycles})"
+        )
+
+    return errors
+
+
+def _validate_phase_sequence(protocol: Dict[str, Any]) -> List[str]:
+    """
+    Validate phase sequence configuration.
+
+    Checks:
+    - All phase_ids are valid
+    - Required fields are present
+    - Auto-advance has duration_ms
+    - Duration values are positive
+    - Phase types are valid
+    - Completion phase is present
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+
+    # Extract phase_sequence (optional field)
+    phase_sequence_config = protocol.get("phase_sequence")
+
+    if not phase_sequence_config:
+        return []  # No custom sequence = valid (uses default)
+
+    # Handle both dict with 'phases' key and direct list
+    if isinstance(phase_sequence_config, dict):
+        phases_list = phase_sequence_config.get("phases", [])
+    elif isinstance(phase_sequence_config, list):
+        phases_list = phase_sequence_config
+    else:
+        errors.append("phase_sequence must be a dict or list")
+        return errors
+
+    if not phases_list:
+        return []  # Empty sequence = valid (uses default)
+
+    # Valid phase IDs for builtin phases
+    valid_builtin_ids = {
+        "waiting",
+        "registration",
+        "instructions",
+        "robot_preparing",
+        "loading",
+        "questionnaire",
+        "selection",
+        "completion",
+        "complete",  # Alternative name
+        "experiment_loop",
+    }
+
+    # Valid phase types
+    valid_phase_types = {"builtin", "custom", "loop"}
+
+    # Track phase_ids for uniqueness check
+    phase_ids = []
+
+    # Validate each phase
+    for idx, phase in enumerate(phases_list):
+        if not isinstance(phase, dict):
+            errors.append(f"Phase {idx}: must be a dictionary")
+            continue
+
+        phase_id = phase.get("phase_id")
+        phase_type = phase.get("phase_type")
+
+        # Required fields
+        if not phase_id:
+            errors.append(f"Phase {idx}: Missing phase_id")
+        else:
+            phase_ids.append(phase_id)
+
+        if not phase_type:
+            errors.append(f"Phase {idx}: Missing phase_type")
+
+        # Valid phase_type
+        if phase_type and phase_type not in valid_phase_types:
+            errors.append(
+                f"Phase {phase_id or idx}: Invalid phase_type '{phase_type}' "
+                f"(must be one of: {', '.join(valid_phase_types)})"
+            )
+
+        # Builtin phase validation
+        if phase_type == "builtin" and phase_id:
+            if phase_id not in valid_builtin_ids:
+                errors.append(
+                    f"Phase {idx}: Invalid builtin phase_id '{phase_id}' "
+                    f"(must be one of: {', '.join(sorted(valid_builtin_ids))})"
+                )
+
+        # Auto-advance validation
+        if phase.get("auto_advance"):
+            duration_ms = phase.get("duration_ms")
+            if not duration_ms:
+                errors.append(
+                    f"Phase {phase_id or idx}: auto_advance=True requires duration_ms"
+                )
+            elif duration_ms <= 0:
+                errors.append(
+                    f"Phase {phase_id or idx}: duration_ms must be positive, got {duration_ms}"
+                )
+
+        # Duration validation (even without auto_advance)
+        duration_ms = phase.get("duration_ms")
+        if duration_ms is not None and duration_ms <= 0:
+            errors.append(
+                f"Phase {phase_id or idx}: duration_ms must be positive, got {duration_ms}"
+            )
+
+        # Loop phase validation
+        if phase_type == "loop" and not phase.get("loop_config"):
+            logger.warning(
+                f"Phase {phase_id or idx}: loop type typically has loop_config"
+            )
+
+    # Check for duplicate phase_ids
+    duplicates = [pid for pid in set(phase_ids) if phase_ids.count(pid) > 1]
+    if duplicates:
+        errors.append(f"Duplicate phase_ids found: {', '.join(duplicates)}")
+
+    # Required completion phase
+    completion_aliases = {"completion", "complete"}
+    has_completion = any(pid in completion_aliases for pid in phase_ids)
+    if not has_completion:
+        errors.append(
+            "Phase sequence must include a 'completion' or 'complete' phase"
         )
 
     return errors

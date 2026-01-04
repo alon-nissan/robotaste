@@ -95,131 +95,539 @@ def render_timeline(schedule: list):
     st.markdown(legend_html, unsafe_allow_html=True)
 
 
-def sample_sequence_editor(schedule: list, on_change):
+def sample_sequence_editor(schedule: list, ingredients: list, on_change):
+
+
     """
+
+
     Main function to render the sample sequence editor UI.
+
+
     
+
+
     Args:
+
+
         schedule: The sample_selection_schedule list from a protocol.
+
+
+        ingredients: The list of ingredients from the protocol.
+
+
         on_change: A callback function to be called when the schedule changes.
+
+
     """
+
+
     if 'editor_schedule' not in st.session_state:
+
+
         st.session_state.editor_schedule = [dict(s, id=str(uuid.uuid4())) for s in schedule]
 
+
+
+
+
     render_timeline(st.session_state.editor_schedule)
+
+
     st.markdown("---")
+
+
     st.markdown("#### Edit Schedule")
 
+
+
+
+
     for i, block in enumerate(st.session_state.editor_schedule):
+
+
         with st.container():
+
+
             st.markdown(f"**Block {i+1}**")
+
+
             col1, col2, col3, col4 = st.columns([2, 2, 3, 1])
+
+
             
+
+
             with col1:
+
+
                 start = st.number_input("Start Cycle", min_value=1, value=block["cycle_range"]["start"], key=f"start_{block['id']}")
+
+
             with col2:
+
+
                 end = st.number_input("End Cycle", min_value=start, value=block["cycle_range"]["end"], key=f"end_{block['id']}")
+
+
             
+
+
             with col3:
+
+
                 mode = st.selectbox("Mode", options=list(MODE_NAMES.keys()), format_func=lambda x: MODE_NAMES[x], index=list(MODE_NAMES.keys()).index(block["mode"]), key=f"mode_{block['id']}")
 
+
+
+
+
             with col4:
+
+
                 st.write("") # for alignment
+
+
                 if st.button("Delete", key=f"delete_{block['id']}"):
+
+
                     st.session_state.editor_schedule.pop(i)
+
+
                     on_change([s for s in st.session_state.editor_schedule])
+
+
                     st.rerun()
 
+
+
+
+
             st.session_state.editor_schedule[i]["cycle_range"]["start"] = start
+
+
             st.session_state.editor_schedule[i]["cycle_range"]["end"] = end
+
+
             st.session_state.editor_schedule[i]["mode"] = mode
 
+
+
+
+
             if mode == "predetermined":
+
+
                 st.markdown("##### Predetermined Samples")
-                if "predetermined_samples" not in st.session_state.editor_schedule[i]:
-                    st.session_state.editor_schedule[i]["predetermined_samples"] = []
 
-                # Use data editor for samples
-                samples_df = pd.DataFrame(st.session_state.editor_schedule[i]["predetermined_samples"])
-                edited_df = st.data_editor(samples_df, num_rows="dynamic", key=f"samples_{block['id']}")
 
-                if isinstance(edited_df, pd.DataFrame):
-                    st.session_state.editor_schedule[i]["predetermined_samples"] = edited_df.to_dict('records')
+
+
+
+                ingredient_names = [ing['name'] for ing in ingredients]
+
+
+                if not ingredient_names:
+
+
+                    st.warning("Please add ingredients to the protocol to define predetermined samples.")
+
+
+                else:
+
+
+                    # --- FLATTEN DATA for data_editor ---
+
+
+                    flat_samples = []
+
+
+                    for sample in block.get("predetermined_samples", []):
+
+
+                        record = {'cycle': sample.get('cycle')}
+
+
+                        concentrations = sample.get('concentrations', {})
+
+
+                        for name in ingredient_names:
+
+
+                            record[name] = concentrations.get(name, 0.0)
+
+
+                        flat_samples.append(record)
+
+
+                    
+
+
+                    all_columns = ['cycle'] + ingredient_names
+
+
+                    samples_df = pd.DataFrame(flat_samples, columns=all_columns)
+
+
+
+
+
+                    column_config = {
+
+
+                        name: st.column_config.NumberColumn(f"{name} (mM)", format="%.4f", default=0.0) 
+
+
+                        for name in ingredient_names
+
+
+                    }
+
+
+                    column_config['cycle'] = st.column_config.NumberColumn("Cycle #", format="%d", required=True, min_value=1)
+
+
+
+
+
+                    edited_df = st.data_editor(
+
+
+                        samples_df,
+
+
+                        num_rows="dynamic",
+
+
+                        key=f"samples_{block['id']}",
+
+
+                        column_config=column_config,
+
+
+                        use_container_width=True
+
+
+                    )
+
+
+
+
+
+                    # --- RE-PIVOT DATA from data_editor ---
+
+
+                    if isinstance(edited_df, pd.DataFrame):
+
+
+                        new_samples = []
+
+
+                        edited_df.dropna(subset=['cycle'], inplace=True)
+
+
+                        edited_df.dropna(subset=ingredient_names, how='all', inplace=True)
+
+
+
+
+
+                        for _, row in edited_df.iterrows():
+
+
+                            cycle = int(row['cycle'])
+
+
+                            concentrations = {name: float(row[name]) if pd.notna(row[name]) else 0.0 for name in ingredient_names}
+
+
+                            
+
+
+                            new_samples.append({
+
+
+                                "cycle": cycle,
+
+
+                                "concentrations": concentrations
+
+
+                            })
+
+
+                        
+
+
+                        new_samples.sort(key=lambda x: x['cycle'])
+
+
+                        st.session_state.editor_schedule[i]["predetermined_samples"] = new_samples
+
+
+
+
 
             elif mode == "bo_selected":
+
+
                 st.markdown("##### Bayesian Optimization Config")
+
+
                 if "bo_config" not in st.session_state.editor_schedule[i]:
+
+
                     st.session_state.editor_schedule[i]["bo_config"] = {}
+
+
                 
+
+
                 acq_func = st.text_input("Acquisition Function", value=st.session_state.editor_schedule[i]["bo_config"].get("acquisition_function", "ucb"), key=f"acq_func_{block['id']}")
+
+
                 st.session_state.editor_schedule[i]["bo_config"]["acquisition_function"] = acq_func
+
+
+
+
 
             st.markdown("---")
 
 
+
+
+
+
+
+
     if st.button("Add Block"):
+
+
         new_start = 1
+
+
         if st.session_state.editor_schedule:
+
+
             new_start = st.session_state.editor_schedule[-1]["cycle_range"]["end"] + 1
+
+
         
+
+
         st.session_state.editor_schedule.append({
+
+
             "cycle_range": {"start": new_start, "end": new_start},
+
+
             "mode": "user_selected",
+
+
             "id": str(uuid.uuid4()) # unique id for block
+
+
         })
-        on_change([s for s in st.session_state.editor_schedule])
+
+
         st.rerun()
 
+
+
+
+
     if st.button("Apply Changes"):
+
+
         # Basic validation for overlapping ranges
+
+
         sorted_schedule = sorted(st.session_state.editor_schedule, key=lambda x: x['cycle_range']['start'])
+
+
         is_overlapping = False
+
+
         for j in range(len(sorted_schedule) - 1):
+
+
             if sorted_schedule[j]['cycle_range']['end'] >= sorted_schedule[j+1]['cycle_range']['start']:
+
+
                 is_overlapping = True
+
+
                 st.error(f"Error: Cycle ranges are overlapping between block starting at {sorted_schedule[j]['cycle_range']['start']} and {sorted_schedule[j+1]['cycle_range']['start']}.")
+
+
                 break
+
+
         
+
+
         if not is_overlapping:
+
+
             # remove id from schedule
+
+
             clean_schedule = [{k: v for k, v in s.items() if k != 'id'} for s in st.session_state.editor_schedule]
+
+
             on_change(clean_schedule)
+
+
             st.success("Schedule updated!")
-            del st.session_state.editor_schedule
+
+
+            if 'editor_schedule' in st.session_state:
+
+
+                del st.session_state.editor_schedule
+
+
+
+
+
+
 
 
 # To run this view standalone for testing:
+
+
 if __name__ == "__main__":
+
+
     st.set_page_config(layout="wide")
+
+
     st.title("Sample Sequence Builder")
+
+
     st.info("This component allows editing the sample selection schedule of a protocol.")
 
-    if 'test_schedule' not in st.session_state:
-        st.session_state.test_schedule = [
-            {
-              "cycle_range": {"start": 1, "end": 2},
-              "mode": "predetermined",
-              "predetermined_samples": [
-                {"cycle": 1, "concentrations": '{"Sugar": 10.0, "Salt": 2.0}'},
-                {"cycle": 2, "concentrations": '{"Sugar": 20.0, "Salt": 4.0}'}
-              ]
-            },
-            {
-              "cycle_range": {"start": 3, "end": 5},
-              "mode": "user_selected"
-            },
-            {
-              "cycle_range": {"start": 6, "end": 10},
-              "mode": "bo_selected",
-              "bo_config": {"acquisition_function": "ucb"}
-            }
+
+
+
+
+    # Add dummy ingredients for testing
+
+
+    if 'test_ingredients' not in st.session_state:
+
+
+        st.session_state.test_ingredients = [
+
+
+            {'name': 'Sugar'},
+
+
+            {'name': 'Salt'}
+
+
         ]
 
+
+
+
+
+    if 'test_schedule' not in st.session_state:
+
+
+        st.session_state.test_schedule = [
+
+
+            {
+
+
+              "cycle_range": {"start": 1, "end": 2},
+
+
+              "mode": "predetermined",
+
+
+              "predetermined_samples": [
+
+
+                {"cycle": 1, "concentrations": {"Sugar": 10.0, "Salt": 2.0}},
+
+
+                {"cycle": 2, "concentrations": {"Sugar": 20.0, "Salt": 4.0}}
+
+
+              ]
+
+
+            },
+
+
+            {
+
+
+              "cycle_range": {"start": 3, "end": 5},
+
+
+              "mode": "user_selected"
+
+
+            },
+
+
+            {
+
+
+              "cycle_range": {"start": 6, "end": 10},
+
+
+              "mode": "bo_selected",
+
+
+              "bo_config": {"acquisition_function": "ucb"}
+
+
+            }
+
+
+        ]
+
+
+
+
+
     def on_schedule_change(new_schedule):
+
+
         st.session_state.test_schedule = new_schedule
+
+
         st.toast("Schedule updated in parent component's state.")
 
-    sample_sequence_editor(st.session_state.test_schedule, on_schedule_change)
+
+
+
+
+    sample_sequence_editor(
+
+
+        st.session_state.test_schedule,
+
+
+        st.session_state.test_ingredients,
+
+
+        on_schedule_change
+
+
+    )
+
+
+
+
 
     st.markdown("### Current Schedule State")
+
+
     st.json(st.session_state.test_schedule)
+

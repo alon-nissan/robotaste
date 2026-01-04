@@ -23,9 +23,10 @@ from robotaste.data.protocol_repo import (
     delete_protocol,
     archive_protocol
 )
-from robotaste.views.sample_sequence_builder import render_timeline
+from robotaste.views.sample_sequence_builder import render_timeline, sample_sequence_editor
 from robotaste.config.protocols import validate_protocol
 from robotaste.config.protocol_schema import VALIDATION_RULES
+from robotaste.config.defaults import DEFAULT_INGREDIENT_CONFIG
 
 # --- State Management Helpers ---
 
@@ -169,46 +170,264 @@ def protocol_editor():
 
     # --- Ingredient Editor ---
     st.subheader("Ingredients")
-    # Using st.data_editor with pandas DataFrame for better column config
-    ingredients_df = pd.DataFrame(form_data.get('ingredients', []))
-    
-    edited_ingredients = st.data_editor(
-        ingredients_df,
-        num_rows="dynamic",
-        key="ingredients_editor",
-        use_container_width=True,
-        column_config={
-            "name": st.column_config.TextColumn("Ingredient Name", required=True),
-            "min_concentration": st.column_config.NumberColumn("Min Concentration", format="%.4f", required=True),
-            "max_concentration": st.column_config.NumberColumn("Max Concentration", format="%.4f", required=True),
-        }
-    )
-    # The output of data_editor is a DataFrame, keep it that way for now.
-    # We will convert back to records list before saving.
-    form_data['ingredients'] = edited_ingredients
+    st.caption("Add ingredients used in your experiment with their concentration ranges.")
+
+    # Get current ingredients list (ensure it's a list, not DataFrame)
+    current_ingredients = form_data.get('ingredients', [])
+    if isinstance(current_ingredients, pd.DataFrame):
+        current_ingredients = current_ingredients.to_dict('records')
+
+    # Initialize ingredients in session state if not exists
+    if 'protocol_ingredients' not in st.session_state:
+        st.session_state.protocol_ingredients = current_ingredients.copy() if current_ingredients else []
+
+    ingredients = st.session_state.protocol_ingredients
+
+    # Display current ingredients
+    if ingredients:
+        st.write("**Current Ingredients:**")
+        for idx, ing in enumerate(ingredients):
+            with st.container(border=True):
+                col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+
+                with col1:
+                    st.write(f"**{ing['name']}**")
+
+                with col2:
+                    st.caption(f"Min: {ing['min_concentration']:.4f} mM")
+
+                with col3:
+                    st.caption(f"Max: {ing['max_concentration']:.4f} mM")
+
+                with col4:
+                    if st.button("🗑️", key=f"delete_ing_{idx}", help="Delete ingredient"):
+                        ingredients.pop(idx)
+                        st.rerun()
+    else:
+        st.info("No ingredients added yet. Use the form below to add ingredients.")
+
+    # Add new ingredient form
+    with st.expander("➕ Add Ingredient", expanded=len(ingredients) == 0):
+        with st.form("add_ingredient_form", clear_on_submit=True):
+            # Get list of ingredient names from defaults
+            available_ingredient_names = [ing["name"] for ing in DEFAULT_INGREDIENT_CONFIG]
+
+            # Create dict for quick lookup of default values
+            ingredient_defaults = {ing["name"]: ing for ing in DEFAULT_INGREDIENT_CONFIG}
+
+            # Selectbox for ingredient name
+            selected_name = st.selectbox(
+                "Select Ingredient",
+                options=available_ingredient_names,
+                help="Choose from available ingredients"
+            )
+
+            # Get default values for selected ingredient
+            default_ing = ingredient_defaults.get(selected_name, {})
+            default_min = default_ing.get("min_concentration", 0.0)
+            default_max = default_ing.get("max_concentration", 100.0)
+
+            st.caption(f"Default range for {selected_name}: {default_min:.4f} - {default_max:.4f} mM")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                min_conc = st.number_input(
+                    "Min Concentration (mM)",
+                    min_value=0.0,
+                    value=default_min,
+                    step=0.01,
+                    format="%.4f",
+                    help="Minimum concentration for this ingredient"
+                )
+            with col2:
+                max_conc = st.number_input(
+                    "Max Concentration (mM)",
+                    min_value=0.0,
+                    value=default_max,
+                    step=0.01,
+                    format="%.4f",
+                    help="Maximum concentration for this ingredient"
+                )
+
+            if st.form_submit_button("Add Ingredient", type="primary"):
+                # Check if ingredient already added
+                if any(ing["name"] == selected_name for ing in ingredients):
+                    st.error(f"{selected_name} is already in the ingredient list")
+                elif min_conc >= max_conc:
+                    st.error("Min concentration must be less than max concentration")
+                else:
+                    ingredients.append({
+                        "name": selected_name,
+                        "min_concentration": min_conc,
+                        "max_concentration": max_conc
+                    })
+                    st.success(f"Added ingredient: {selected_name}")
+                    st.rerun()
+
+    # Update form_data with current ingredients
+    form_data['ingredients'] = ingredients
 
     # --- Schedule Editor ---
     st.subheader("Sample Selection Schedule")
-    render_timeline(form_data.get('sample_selection_schedule', []))
+    st.caption("Define how samples are selected for each cycle of your experiment.")
 
-    # UI to edit the schedule
+    # Initialize schedule if empty
+    if 'sample_selection_schedule' not in form_data or not form_data['sample_selection_schedule']:
+        form_data['sample_selection_schedule'] = [
+            {
+                "cycle_range": {"start": 1, "end": 5},
+                "mode": "user_selected"
+            }
+        ]
+
+    # Callback to update form_data when schedule changes
+    def update_schedule(new_schedule):
+        form_data['sample_selection_schedule'] = new_schedule
+        st.session_state.protocol_form_data['sample_selection_schedule'] = new_schedule
+
+    # When the editor view is loaded, we should ensure any old editor state is cleared
+    # so it re-initializes with the current protocol's data. This prevents stale data
+    # from a previous edit session appearing.
+    current_protocol_id = st.session_state.get('edit_protocol_id')
+    if 'editor_protocol_id' not in st.session_state or st.session_state.editor_protocol_id != current_protocol_id:
+        if 'editor_schedule' in st.session_state:
+            del st.session_state.editor_schedule
+        st.session_state.editor_protocol_id = current_protocol_id
+
+    # Render the integrated editor (includes timeline + edit UI)
+    sample_sequence_editor(
+        schedule=form_data.get('sample_selection_schedule', []),
+        ingredients=form_data.get('ingredients', []),
+        on_change=update_schedule
+    )
+    # Get the potentially updated schedule for the save button logic later.
     schedule = form_data.get('sample_selection_schedule', [])
-    for i, block in enumerate(schedule):
-        with st.expander(f"Edit Block {i+1}: Cycles {block['cycle_range']['start']}-{block['cycle_range']['end']}"):
-            # In a real app, you'd have UI here to change ranges, modes, and samples.
-            # This is a complex UI and for now we will just show the JSON.
-            new_block_json = st.text_area(f"Block {i+1} JSON", value=json.dumps(block, indent=2), height=250, key=f"block_{i}")
-            try:
-                schedule[i] = json.loads(new_block_json)
-            except json.JSONDecodeError:
-                st.error(f"Invalid JSON in block {i+1}")
 
-    if st.button("Add Schedule Block"):
-        schedule.append({
-            "cycle_range": {"start": 1, "end": 1},
-            "mode": "user_selected"
-        })
-        st.rerun()
+    # --- Phase Sequence Editor (NEW for Week 5) ---
+    st.subheader("Phase Sequence")
+    st.caption("Define the order and type of phases in your experiment. Leave empty to use default phases.")
+
+    phase_sequence = form_data.get('phase_sequence', {})
+    phases = phase_sequence.get('phases', [])
+
+    # Show current phases
+    if phases:
+        st.write("**Current Phase Sequence:**")
+        for idx, phase in enumerate(phases):
+            phase_id = phase.get('phase_id', 'unknown')
+            phase_type = phase.get('phase_type', 'unknown')
+            required = phase.get('required', True)
+            auto_advance = phase.get('auto_advance', False)
+
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"{idx+1}. **{phase_id}** ({phase_type})")
+                if not required:
+                    st.caption("↳ Optional phase")
+                if auto_advance:
+                    duration = phase.get('duration_ms', 0) / 1000
+                    st.caption(f"↳ Auto-advances after {duration}s")
+            with col2:
+                if idx > 0 and st.button("⬆️", key=f"phase_up_{idx}", help="Move up"):
+                    phases[idx], phases[idx-1] = phases[idx-1], phases[idx]
+                    st.rerun()
+            with col3:
+                if st.button("🗑️", key=f"phase_delete_{idx}", help="Delete"):
+                    phases.pop(idx)
+                    st.rerun()
+    else:
+        st.info("No custom phases defined. The experiment will use the default phase sequence.")
+
+    # Add new phase
+    with st.expander("➕ Add Phase"):
+        new_phase_type = st.selectbox(
+            "Phase Type",
+            ["builtin", "custom", "loop"],
+            key="new_phase_type",
+            help="Builtin: Standard phases (waiting, registration, etc.). Custom: Your own phase with custom content. Loop: Experiment cycle."
+        )
+
+        if new_phase_type == "builtin":
+            new_phase_id = st.selectbox(
+                "Phase ID",
+                ["waiting", "registration", "instructions", "loading", "questionnaire", "selection", "completion"],
+                key="new_phase_id"
+            )
+        elif new_phase_type == "loop":
+            new_phase_id = st.text_input("Phase ID", value="experiment_loop", key="new_phase_id")
+        else:
+            new_phase_id = st.text_input("Custom Phase ID", placeholder="e.g., tutorial_video", key="new_phase_id")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            new_required = st.checkbox("Required", value=True, key="new_required")
+        with col2:
+            new_auto_advance = st.checkbox("Auto-advance", value=False, key="new_auto_advance")
+
+        new_duration_ms = None
+        if new_auto_advance:
+            new_duration_ms = st.number_input(
+                "Duration (seconds)",
+                min_value=1,
+                value=5,
+                key="new_duration_sec"
+            ) * 1000  # Convert to ms
+
+        # Custom phase content editor (simplified)
+        new_content = None
+        if new_phase_type == "custom":
+            st.write("**Custom Phase Content:**")
+            content_type = st.selectbox(
+                "Content Type",
+                ["text", "media", "break", "survey"],
+                key="new_content_type"
+            )
+
+            if content_type == "text":
+                new_content = {
+                    "type": "text",
+                    "title": st.text_input("Title", key="content_title"),
+                    "body": st.text_area("Body Text", key="content_body"),
+                }
+            elif content_type == "media":
+                new_content = {
+                    "type": "media",
+                    "media_type": st.selectbox("Media Type", ["image", "video"], key="content_media_type"),
+                    "media_url": st.text_input("Media URL", key="content_url"),
+                    "caption": st.text_input("Caption (optional)", key="content_caption"),
+                }
+            elif content_type == "break":
+                break_duration = st.number_input("Break Duration (seconds)", min_value=1, value=30, key="content_break_dur")
+                new_content = {
+                    "type": "break",
+                    "duration_seconds": break_duration,
+                    "message": st.text_input("Message", value=f"Please wait {break_duration} seconds...", key="content_message"),
+                }
+            elif content_type == "survey":
+                st.info("Survey content editor coming soon. For now, you can add the phase and edit the JSON manually after saving.")
+                new_content = {
+                    "type": "survey",
+                    "questions": []
+                }
+
+        if st.button("Add This Phase", type="primary"):
+            new_phase = {
+                "phase_id": new_phase_id,
+                "phase_type": new_phase_type,
+                "required": new_required,
+            }
+
+            if new_auto_advance and new_duration_ms:
+                new_phase["auto_advance"] = True
+                new_phase["duration_ms"] = int(new_duration_ms)
+
+            if new_content:
+                new_phase["content"] = new_content
+
+            phases.append(new_phase)
+            form_data['phase_sequence'] = {"phases": phases}
+            st.success(f"Added phase: {new_phase_id}")
+            st.rerun()
 
     # --- Save/Cancel Buttons ---
     st.markdown("---")
@@ -218,10 +437,6 @@ def protocol_editor():
             # Make a copy to modify for saving, preserving the original form state
             final_protocol = st.session_state.protocol_form_data.copy()
 
-            # Convert ingredients DataFrame back to list of dicts for validation/saving
-            if isinstance(final_protocol.get('ingredients'), pd.DataFrame):
-                final_protocol['ingredients'] = final_protocol['ingredients'].to_dict('records')
-            
             # Re-assign schedule from local variable
             final_protocol['sample_selection_schedule'] = schedule
 
@@ -244,12 +459,18 @@ def protocol_editor():
                     final_protocol['updated_at'] = final_protocol['created_at']
                     final_protocol['is_archived'] = False # New protocols start as active
                     success = create_protocol_in_db(final_protocol)
-                
+
                 if success:
                     st.toast("Protocol saved successfully!")
                     # Clean up session state before navigating away
                     if 'protocol_form_data' in st.session_state:
                         del st.session_state['protocol_form_data']
+                    if 'protocol_ingredients' in st.session_state:
+                        del st.session_state['protocol_ingredients']
+                    if 'editor_schedule' in st.session_state:
+                        del st.session_state.editor_schedule
+                    if 'editor_protocol_id' in st.session_state:
+                        del st.session_state.editor_protocol_id
                     go_to('list_viewer')
                 else:
                     st.error("Failed to save protocol to the database.")
@@ -258,6 +479,12 @@ def protocol_editor():
         if st.button("Cancel"):
             if 'protocol_form_data' in st.session_state:
                 del st.session_state['protocol_form_data']
+            if 'protocol_ingredients' in st.session_state:
+                del st.session_state['protocol_ingredients']
+            if 'editor_schedule' in st.session_state:
+                del st.session_state.editor_schedule
+            if 'editor_protocol_id' in st.session_state:
+                del st.session_state.editor_protocol_id
             go_to('list_viewer')
 
 def protocol_preview():

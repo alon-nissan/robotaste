@@ -28,9 +28,12 @@ from robotaste.data.database import (
     increment_cycle,
     save_sample_cycle,
 )
-from robotaste.core.state_machine import ExperimentPhase
+from robotaste.core.state_machine import ExperimentPhase, ExperimentStateMachine
 from robotaste.core import state_helpers
 from robotaste.config.questionnaire import get_default_questionnaire_type
+from robotaste.core.phase_engine import PhaseEngine
+from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
+from robotaste.data.database import get_session_protocol
 
 
 import streamlit as st
@@ -44,6 +47,47 @@ from robotaste.data.database import update_user_profile, create_user
 
 
 logger = logging.getLogger(__name__)
+
+
+def transition_to_next_phase(
+    current_phase_str: str,
+    default_next_phase: ExperimentPhase,
+    session_id: str,
+    current_cycle: int = None
+) -> None:
+    """
+    Transition to next phase using PhaseEngine if available, otherwise use default.
+
+    Args:
+        current_phase_str: Current phase as string
+        default_next_phase: Default next phase (fallback if no protocol)
+        session_id: Session ID
+        current_cycle: Current cycle number (optional, for loop logic)
+    """
+    # Try to load protocol and use PhaseEngine
+    protocol = get_session_protocol(session_id)
+
+    if protocol and 'phase_sequence' in protocol:
+        try:
+            phase_engine = PhaseEngine(protocol, session_id)
+            next_phase_str = phase_engine.get_next_phase(
+                current_phase_str,
+                current_cycle=current_cycle
+            )
+            next_phase = ExperimentPhase(next_phase_str)
+            logger.info(f"PhaseEngine transition: {current_phase_str} → {next_phase_str}")
+        except Exception as e:
+            logger.error(f"PhaseEngine transition failed: {e}, using default")
+            next_phase = default_next_phase
+    else:
+        next_phase = default_next_phase
+
+    # Execute transition
+    state_helpers.transition(
+        state_helpers.get_current_phase(),
+        new_phase=next_phase,
+        session_id=session_id,
+    )
 
 
 def render_registration_screen():
@@ -66,10 +110,10 @@ def render_registration_screen():
                 if user_id:
                     if create_user(user_id) and update_user_profile(user_id, name, gender, age):
                         st.success("Information saved!")
-                        state_helpers.transition(
-                            state_helpers.get_current_phase(),
-                            new_phase=ExperimentPhase.INSTRUCTIONS,
-                            session_id=st.session_state.session_id,
+                        transition_to_next_phase(
+                            current_phase_str=ExperimentPhase.REGISTRATION.value,
+                            default_next_phase=ExperimentPhase.INSTRUCTIONS,
+                            session_id=st.session_state.session_id
                         )
                         st.rerun()
                     else:
@@ -103,10 +147,10 @@ def render_instructions_screen():
     understand_checkbox = st.checkbox("I understand the instructions.")
 
     if st.button("Start Tasting", disabled=not understand_checkbox):
-        state_helpers.transition(
-            state_helpers.get_current_phase(),
-            new_phase=ExperimentPhase.LOADING,
-            session_id=st.session_state.session_id,
+        transition_to_next_phase(
+            current_phase_str=ExperimentPhase.INSTRUCTIONS.value,
+            default_next_phase=ExperimentPhase.LOADING,
+            session_id=st.session_state.session_id
         )
         st.rerun()
 
@@ -699,6 +743,58 @@ def subject_interface():
 
     # --- Central Phase Handling ---
 
+    # Load protocol and check for custom phase sequences
+    session_id = st.session_state.get("session_id")
+    protocol = None
+    phase_engine = None
+
+    if session_id:
+        protocol = get_session_protocol(session_id)
+
+        # Initialize PhaseEngine if protocol has custom phase_sequence
+        if protocol and 'phase_sequence' in protocol:
+            phase_engine = PhaseEngine(protocol, session_id)
+
+            # Check if current phase is a custom phase
+            phase_content = phase_engine.get_phase_content(current_phase_str)
+
+            if phase_content:
+                # Render custom phase
+                logger.info(f"Rendering custom phase: {current_phase_str}")
+                render_custom_phase(current_phase_str, phase_content)
+
+                # Handle phase completion and transition
+                if st.session_state.get('phase_complete'):
+                    # Check if auto-advance is enabled
+                    should_advance, duration_ms = phase_engine.should_auto_advance(current_phase_str)
+
+                    if should_advance and duration_ms:
+                        logger.info(f"Auto-advancing after {duration_ms}ms")
+                        time.sleep(duration_ms / 1000.0)
+
+                    # Get next phase from engine
+                    current_cycle = get_current_cycle(session_id)
+                    next_phase_str = phase_engine.get_next_phase(
+                        current_phase_str,
+                        current_cycle=current_cycle
+                    )
+
+                    logger.info(f"Transitioning from {current_phase_str} to {next_phase_str}")
+
+                    # Update phase in database
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=ExperimentPhase(next_phase_str),
+                        session_id=session_id,
+                    )
+
+                    # Clear completion flag
+                    st.session_state.phase_complete = False
+                    st.rerun()
+
+                return  # Exit early, custom phase handled
+
+    # Fallback to builtin phase rendering
     if current_phase_str == ExperimentPhase.WAITING.value:
         st.info("Waiting for moderator to start the experiment...")
         st.write("The experiment will begin shortly. Please be patient.")
@@ -718,10 +814,13 @@ def subject_interface():
             message=f"Cycle {cycle_num}: Rinse your mouth while the robot prepares the next sample.",
             load_time=5
         )
-        state_helpers.transition(
-            state_helpers.get_current_phase(),
-            new_phase=ExperimentPhase.QUESTIONNAIRE,
+
+        # Transition to next phase
+        transition_to_next_phase(
+            current_phase_str=current_phase_str,
+            default_next_phase=ExperimentPhase.QUESTIONNAIRE,
             session_id=st.session_state.session_id,
+            current_cycle=cycle_num
         )
         st.rerun()
 
@@ -748,10 +847,13 @@ def subject_interface():
                     is_final=False,
                 )
                 increment_cycle(st.session_state.session_id)
-                state_helpers.transition(
-                    state_helpers.get_current_phase(),
-                    new_phase=ExperimentPhase.SELECTION,
+
+                # Transition to next phase
+                transition_to_next_phase(
+                    current_phase_str=current_phase_str,
+                    default_next_phase=ExperimentPhase.SELECTION,
                     session_id=st.session_state.session_id,
+                    current_cycle=current_cycle
                 )
                 st.success("Questionnaire saved! Now make your selection for the next cycle.")
                 st.rerun()
