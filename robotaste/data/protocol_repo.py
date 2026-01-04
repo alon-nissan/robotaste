@@ -448,5 +448,90 @@ __all__ = [
     'archive_protocol',
     'get_protocol_count',
     'search_protocols_by_ingredients',
-    'get_all_tags'
+    'get_all_tags',
+    'get_protocol_usage_stats'
 ]
+
+
+def get_protocol_usage_stats(protocol_id: str) -> Dict[str, Any]:
+    """
+    Get statistics on protocol usage across sessions.
+
+    Args:
+        protocol_id: Protocol UUID
+
+    Returns:
+        Dictionary with usage statistics:
+        {
+            "total_sessions": int,
+            "active_sessions": int,
+            "completed_sessions": int,
+            "total_samples": int,
+            "first_used": str (ISO datetime) or None,
+            "last_used": str (ISO datetime) or None
+        }
+
+    Example:
+        >>> stats = get_protocol_usage_stats("protocol-123")
+        >>> print(f"Used in {stats['total_sessions']} sessions")
+        >>> print(f"Total samples collected: {stats['total_samples']}")
+    """
+    try:
+        from robotaste.data.database import get_sessions_by_protocol, get_database_connection
+
+        # Get all sessions using this protocol
+        sessions = get_sessions_by_protocol(protocol_id)
+
+        if not sessions:
+            return {
+                "total_sessions": 0,
+                "active_sessions": 0,
+                "completed_sessions": 0,
+                "total_samples": 0,
+                "first_used": None,
+                "last_used": None
+            }
+
+        # Count active vs completed sessions
+        active = sum(1 for s in sessions if s.get('current_phase') != 'completion')
+        completed = len(sessions) - active
+
+        # Get total sample count across all sessions
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+
+            # Count samples from sessions using this protocol
+            cursor.execute("""
+                SELECT COUNT(*) as total_samples
+                FROM samples
+                WHERE session_id IN (
+                    SELECT session_id FROM sessions WHERE protocol_id = ?
+                )
+            """, (protocol_id,))
+
+            total_samples = cursor.fetchone()['total_samples']
+
+        # Get first and last usage dates
+        first_used = sessions[-1]['created_at'] if sessions else None
+        last_used = sessions[0]['created_at'] if sessions else None
+
+        return {
+            "total_sessions": len(sessions),
+            "active_sessions": active,
+            "completed_sessions": completed,
+            "total_samples": total_samples,
+            "first_used": first_used,
+            "last_used": last_used
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get protocol usage stats: {e}")
+        return {
+            "total_sessions": 0,
+            "active_sessions": 0,
+            "completed_sessions": 0,
+            "total_samples": 0,
+            "first_used": None,
+            "last_used": None,
+            "error": str(e)
+        }

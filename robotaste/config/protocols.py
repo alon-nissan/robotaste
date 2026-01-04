@@ -777,6 +777,190 @@ def get_protocol_summary(protocol: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# =============================================================================
+# Protocol Versioning
+# =============================================================================
+
+
+def increment_protocol_version(protocol: Dict[str, Any], major_increment: bool = False) -> Dict[str, Any]:
+    """
+    Create a new version of a protocol with incremented version number.
+
+    Args:
+        protocol: Existing protocol dictionary
+        major_increment: If True, increment major version (1.9 → 2.0).
+                        If False, increment minor version (1.0 → 1.1)
+
+    Returns:
+        New protocol with incremented version, new ID, and new hash
+
+    Example:
+        >>> old_protocol = {"protocol_id": "abc", "name": "Test", "version": "1.0", ...}
+        >>> new_protocol = increment_protocol_version(old_protocol)
+        >>> new_protocol['version']
+        '1.1'
+        >>> new_protocol['protocol_id'] != old_protocol['protocol_id']
+        True
+    """
+    import copy
+    import uuid
+    from datetime import datetime
+
+    new_protocol = copy.deepcopy(protocol)
+
+    # Parse current version
+    try:
+        version_parts = protocol.get('version', '1.0').split('.')
+        major = int(version_parts[0])
+        minor = int(version_parts[1]) if len(version_parts) > 1 else 0
+    except (ValueError, IndexError):
+        logger.warning(f"Invalid version format: {protocol.get('version')}, defaulting to 1.0")
+        major, minor = 1, 0
+
+    # Increment version
+    if major_increment:
+        new_version = f"{major + 1}.0"
+    else:
+        new_version = f"{major}.{minor + 1}"
+
+    new_protocol['version'] = new_version
+
+    # Generate new ID and hash
+    new_protocol['protocol_id'] = str(uuid.uuid4())
+    new_protocol['protocol_hash'] = compute_protocol_hash(new_protocol)
+
+    # Update metadata
+    now = datetime.utcnow().isoformat()
+    new_protocol['created_at'] = now
+    new_protocol['updated_at'] = now
+
+    # Add provenance metadata
+    new_protocol['derived_from'] = protocol.get('protocol_id')
+
+    logger.info(f"Incremented protocol version: {protocol.get('version')} → {new_version}")
+    return new_protocol
+
+
+def compare_protocols(protocol_v1: Dict[str, Any], protocol_v2: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compare two protocol versions and return differences.
+
+    Args:
+        protocol_v1: First protocol (baseline)
+        protocol_v2: Second protocol (comparison)
+
+    Returns:
+        Dictionary with:
+        {
+            "ingredients_changed": bool,
+            "schedule_changed": bool,
+            "questionnaire_changed": bool,
+            "bo_config_changed": bool,
+            "stopping_criteria_changed": bool,
+            "differences": List[str]  # Human-readable descriptions
+        }
+
+    Example:
+        >>> v1 = {"name": "Test", "version": "1.0", "ingredients": [{"name": "Sugar"}]}
+        >>> v2 = {"name": "Test", "version": "1.1", "ingredients": [{"name": "Salt"}]}
+        >>> diff = compare_protocols(v1, v2)
+        >>> diff['ingredients_changed']
+        True
+        >>> "Ingredients modified" in diff['differences']
+        True
+    """
+    differences = []
+
+    # Compare ingredients
+    ingredients_changed = protocol_v1.get('ingredients') != protocol_v2.get('ingredients')
+    if ingredients_changed:
+        differences.append("Ingredients modified")
+
+    # Compare sample selection schedule
+    schedule_changed = protocol_v1.get('sample_selection_schedule') != protocol_v2.get('sample_selection_schedule')
+    if schedule_changed:
+        differences.append("Sample selection schedule modified")
+
+    # Compare questionnaire type
+    questionnaire_changed = protocol_v1.get('questionnaire_type') != protocol_v2.get('questionnaire_type')
+    if questionnaire_changed:
+        differences.append("Questionnaire type changed")
+
+    # Compare BO configuration
+    bo_config_changed = protocol_v1.get('bayesian_optimization') != protocol_v2.get('bayesian_optimization')
+    if bo_config_changed:
+        differences.append("Bayesian Optimization configuration modified")
+
+    # Compare stopping criteria
+    stopping_criteria_changed = protocol_v1.get('stopping_criteria') != protocol_v2.get('stopping_criteria')
+    if stopping_criteria_changed:
+        differences.append("Stopping criteria modified")
+
+    # Compare metadata
+    if protocol_v1.get('name') != protocol_v2.get('name'):
+        differences.append(f"Name changed: '{protocol_v1.get('name')}' → '{protocol_v2.get('name')}'")
+
+    if protocol_v1.get('description') != protocol_v2.get('description'):
+        differences.append("Description modified")
+
+    if protocol_v1.get('tags') != protocol_v2.get('tags'):
+        differences.append("Tags modified")
+
+    return {
+        "ingredients_changed": ingredients_changed,
+        "schedule_changed": schedule_changed,
+        "questionnaire_changed": questionnaire_changed,
+        "bo_config_changed": bo_config_changed,
+        "stopping_criteria_changed": stopping_criteria_changed,
+        "differences": differences,
+        "total_changes": len(differences)
+    }
+
+
+def export_protocol_to_clipboard(protocol: Dict[str, Any]) -> str:
+    """
+    Generate shareable JSON string for clipboard export.
+
+    Removes internal metadata fields (protocol_id, created_at, etc.) to create
+    a clean protocol that can be imported elsewhere.
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        Clean JSON string suitable for clipboard export
+
+    Example:
+        >>> protocol = {"protocol_id": "abc", "name": "Test", "created_at": "2026-01-01", ...}
+        >>> json_str = export_protocol_to_clipboard(protocol)
+        >>> "protocol_id" in json_str
+        False
+        >>> "name" in json_str
+        True
+    """
+    import copy
+
+    clean_protocol = copy.deepcopy(protocol)
+
+    # Remove internal metadata that shouldn't be exported
+    internal_fields = [
+        'protocol_id',
+        'created_at',
+        'updated_at',
+        'protocol_hash',
+        'is_archived',
+        'deleted_at',
+        'created_by',
+        'derived_from'
+    ]
+
+    for field in internal_fields:
+        clean_protocol.pop(field, None)
+
+    # Export to formatted JSON
+    return json.dumps(clean_protocol, indent=2, ensure_ascii=False)
+
+
 # Export key functions for easier imports
 __all__ = [
     "create_protocol",
@@ -790,5 +974,8 @@ __all__ = [
     "get_protocol_summary",
     "get_selection_mode_for_cycle",
     "get_predetermined_sample",
+    "increment_protocol_version",
+    "compare_protocols",
+    "export_protocol_to_clipboard",
     "ProtocolValidationError",
 ]

@@ -403,3 +403,31 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
                 "show_suggestion": False
             }
         }
+
+
+def should_use_bo_for_cycle(session_id: str, cycle_number: int) -> bool:
+    """
+    Check if Bayesian Optimization should be used for a specific cycle.
+
+    This is a convenience wrapper around prepare_cycle_sample() that returns
+    a simple boolean for checking if BO mode is active.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Cycle number (1-indexed)
+
+    Returns:
+        True if mode is "bo_selected", False otherwise
+
+    Example:
+        >>> if should_use_bo_for_cycle(session_id, 5):
+        ...     print("Using BO for cycle 5")
+        ... else:
+        ...     print("Not using BO for cycle 5")
+    """
+    try:
+        cycle_data = prepare_cycle_sample(session_id, cycle_number)
+        return cycle_data['mode'] == 'bo_selected'
+    except Exception as e:
+        logger.error(f"Error checking BO mode for cycle: {e}")
+        return False
