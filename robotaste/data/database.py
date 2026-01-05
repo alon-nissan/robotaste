@@ -546,24 +546,59 @@ def update_session_with_config(
     """
     Update existing session with full configuration.
 
+    IMPORTANT: This function requires that a session has been created via create_session()
+    first. It will raise ValueError if the session does not exist.
+
     Called when moderator finishes configuration and clicks "Start Trial".
 
+    Flow:
+        1. landing.py: create_session() → generates session_id + session_code
+        2. moderator.py: User configures experiment
+        3. trials.py: start_trial() → calls this function to save configuration
+
     Args:
-        session_id: Session UUID (already generated)
+        session_id: Session UUID (must exist from prior create_session() call)
         user_id: Participant/user ID
-        num_ingredients: Number of ingredients
+        num_ingredients: Number of ingredients (1 or 2)
         interface_type: 'grid_2d' or 'slider_based'
         method: Mapping method ('linear', 'logarithmic', 'exponential')
-        ingredients: List of ingredient dicts
+        ingredients: List of ingredient configuration dicts
         question_type_id: ID of questionnaire type
         bo_config: Bayesian optimization configuration dict
         experiment_config: Full experiment configuration dict
 
     Returns:
         True if successful, False otherwise
+
+    Raises:
+        ValueError: If session_id does not exist in database
+
+    Example:
+        >>> session_id, code = create_session("Researcher A")
+        >>> success = update_session_with_config(
+        ...     session_id=session_id,
+        ...     user_id="participant_001",
+        ...     num_ingredients=2,
+        ...     interface_type="grid_2d",
+        ...     method="linear",
+        ...     ingredients=[...],
+        ...     question_type_id=1,
+        ...     bo_config=get_default_bo_config(),
+        ...     experiment_config={...}
+        ... )
     """
+    # Validate inputs
+    if not session_id:
+        logger.error("update_session_with_config: session_id is required")
+        return False
+
+    if not user_id:
+        logger.warning(f"update_session_with_config: user_id is None for session {session_id}")
+
     try:
         logger.info(f"Updating session {session_id} with full configuration")
+        logger.debug(f"  user_id={user_id}, num_ingredients={num_ingredients}, "
+                    f"interface={interface_type}, method={method}")
 
         # Build complete config
         full_config = {
@@ -571,27 +606,29 @@ def update_session_with_config(
             "num_ingredients": num_ingredients,
             "interface_type": interface_type,
             "method": method,
-            "current_cycle": 0,
+            "current_cycle": 1,  # Start at cycle 1 (1-indexed, matches protocol schema)
             "created_at": datetime.now().isoformat(),
         }
 
         with get_database_connection() as conn:
             cursor = conn.cursor()
 
-            # Check if session exists, if not create it
+            # Verify session exists (must be created by create_session() first)
             cursor.execute(
-                "SELECT session_id FROM sessions WHERE session_id = ?", (session_id,)
+                "SELECT session_id, session_code FROM sessions WHERE session_id = ?", (session_id,)
             )
-            if not cursor.fetchone():
-                logger.info(f"Session {session_id} doesn't exist, creating it first")
-                session_code = generate_session_code()
-                cursor.execute(
-                    """
-                    INSERT INTO sessions (session_id, session_code, state, current_phase)
-                    VALUES (?, ?, 'active', 'waiting')
-                """,
-                    (session_id, session_code),
+            row = cursor.fetchone()
+            if not row:
+                error_msg = (
+                    f"Session {session_id} not found. Sessions must be created via create_session() "
+                    f"before calling update_session_with_config()."
                 )
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            logger.info(
+                f"Updating session {session_id} (code: {row['session_code']}) with full configuration"
+            )
 
             # Update session with full config
             cursor.execute(
@@ -673,9 +710,15 @@ def update_session_with_config(
 
             conn.commit()
 
-        logger.info(f"Updated session {session_id} with full configuration")
+        logger.info(f"Successfully updated session {session_id}")
+        logger.debug(f"  Ingredients: {[ing['name'] for ing in ingredients]}")
+        logger.debug(f"  BO enabled: {bo_config.get('enabled', True)}")
+        logger.debug(f"  Initial cycle: {full_config.get('current_cycle')}")
         return True
 
+    except ValueError:
+        # Re-raise ValueError (e.g., session not found) - caller should handle
+        raise
     except Exception as e:
         logger.error(f"Failed to update session: {e}")
         import traceback

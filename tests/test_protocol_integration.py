@@ -39,9 +39,14 @@ from robotaste.data.database import (
     save_sample_cycle,
     get_database_connection,
     init_database,
-    DB_PATH
+    DB_PATH,
+    update_session_with_config,
+    get_current_cycle,
+    increment_cycle,
+    get_session_samples
 )
-from robotaste.core.trials import prepare_cycle_sample
+from robotaste.core.trials import prepare_cycle_sample, start_trial
+from robotaste.config.bo_config import get_default_bo_config
 
 
 # ============================================================================
@@ -644,6 +649,191 @@ class TestImportExport:
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
+
+
+# ============================================================================
+# Test 6: Cycle Indexing and Session Management
+# ============================================================================
+
+class TestCycleIndexingAndSessionManagement:
+    """
+    Test cycle indexing consistency and session management fixes.
+
+    Addresses critical bugs:
+    1. Cycle indexing off-by-one (0 vs 1 start)
+    2. Session code regeneration in update_session_with_config()
+    """
+
+    def test_update_session_requires_existing_session(self, test_db):
+        """Test that update_session_with_config() fails on non-existent session."""
+        fake_session_id = str(uuid.uuid4())
+
+        # Should raise ValueError when session doesn't exist
+        with pytest.raises(ValueError, match="Session .* not found"):
+            update_session_with_config(
+                session_id=fake_session_id,
+                user_id="test_user",
+                num_ingredients=2,
+                interface_type="grid_2d",
+                method="linear",
+                ingredients=[
+                    {"name": "Sugar", "min": 0, "max": 100},
+                    {"name": "Salt", "min": 0, "max": 50}
+                ],
+                question_type_id=1,
+                bo_config=get_default_bo_config(),
+                experiment_config={}
+            )
+
+    def test_cycle_initialization_is_one_based_protocol(self, test_db, sample_protocol):
+        """Test that protocol-driven sessions initialize cycle to 1."""
+        # Create protocol
+        protocol_id = create_protocol_in_db(sample_protocol)
+
+        # Create session with protocol
+        session_id, session_code = create_session("Test Moderator", protocol_id=protocol_id)
+
+        # Mock streamlit session_state for start_trial
+        with patch('streamlit.session_state', new_callable=MagicMock) as mock_st:
+            mock_st.get.return_value = session_id
+            mock_st.session_id = session_id
+
+            # Start trial with protocol
+            success = start_trial(
+                user_type="mod",
+                participant_id="test_participant",
+                protocol_id=protocol_id
+            )
+
+            assert success, "start_trial should succeed"
+
+        # Verify cycle starts at 1
+        session = get_session(session_id)
+        assert session is not None
+        assert session['experiment_config']['current_cycle'] == 1, \
+            "Protocol session should start at cycle 1"
+
+    def test_cycle_initialization_is_one_based_manual(self, test_db):
+        """Test that manual configuration sessions initialize cycle to 1."""
+        # Create session without protocol
+        session_id, session_code = create_session("Test Moderator 2")
+
+        # Mock streamlit session_state
+        with patch('streamlit.session_state', new_callable=MagicMock) as mock_st:
+            mock_st.get.side_effect = lambda key, default=None: {
+                "session_id": session_id,
+                "selected_questionnaire_type": "hedonic_continuous",
+                "bo_config": get_default_bo_config()
+            }.get(key, default)
+            mock_st.session_id = session_id
+
+            # Start trial with manual config
+            success = start_trial(
+                user_type="mod",
+                participant_id="test_participant_2",
+                method="linear",
+                num_ingredients=1,
+                selected_ingredients=["Sugar"],
+                ingredient_configs=[{"name": "Sugar", "min": 0, "max": 100}]
+            )
+
+            assert success, "start_trial with manual config should succeed"
+
+        # Verify cycle starts at 1
+        session = get_session(session_id)
+        assert session is not None
+        assert session['experiment_config']['current_cycle'] == 1, \
+            "Manual session should start at cycle 1"
+
+    def test_complete_session_lifecycle_with_cycles(self, test_db):
+        """Test complete flow: create → configure → run cycles → verify indexing."""
+        # Create session
+        session_id, session_code = create_session("Test Moderator 3")
+        assert session_id is not None
+        assert len(session_code) == 6
+
+        # Configure session
+        success = update_session_with_config(
+            session_id=session_id,
+            user_id="participant_lifecycle",
+            num_ingredients=1,
+            interface_type="slider_based",
+            method="linear",
+            ingredients=[{"name": "Sugar", "min": 0, "max": 100}],
+            question_type_id=1,
+            bo_config=get_default_bo_config(),
+            experiment_config={
+                "questionnaire_type": "hedonic_continuous"
+            }
+        )
+        assert success, "Configuration should succeed"
+
+        # Verify initial cycle is 1
+        assert get_current_cycle(session_id) == 1
+
+        # Run cycle 1
+        sample_1_id = save_sample_cycle(
+            session_id=session_id,
+            cycle_number=1,
+            ingredient_concentration={"Sugar": 10.0},
+            selection_data={},
+            questionnaire_answer={"rating": 7},
+            selection_mode="user_selected"
+        )
+        assert sample_1_id is not None
+
+        # Increment to cycle 2
+        new_cycle = increment_cycle(session_id)
+        assert new_cycle == 2
+        assert get_current_cycle(session_id) == 2
+
+        # Run cycle 2
+        sample_2_id = save_sample_cycle(
+            session_id=session_id,
+            cycle_number=2,
+            ingredient_concentration={"Sugar": 20.0},
+            selection_data={},
+            questionnaire_answer={"rating": 8},
+            selection_mode="user_selected"
+        )
+        assert sample_2_id is not None
+
+        # Verify samples have correct cycle numbers
+        samples = get_session_samples(session_id)
+        assert len(samples) == 2
+        assert samples[0]['cycle_number'] == 1
+        assert samples[1]['cycle_number'] == 2
+
+    def test_session_code_remains_consistent(self, test_db):
+        """Test that session_code doesn't change during update_session_with_config()."""
+        # Create session
+        session_id, original_session_code = create_session("Test Moderator 4")
+
+        # Get session to verify code is stored
+        session_before = get_session(session_id)
+        assert session_before['session_code'] == original_session_code
+
+        # Update session configuration
+        success = update_session_with_config(
+            session_id=session_id,
+            user_id="participant_consistency",
+            num_ingredients=2,
+            interface_type="grid_2d",
+            method="linear",
+            ingredients=[
+                {"name": "Sugar", "min": 0, "max": 100},
+                {"name": "Salt", "min": 0, "max": 50}
+            ],
+            question_type_id=1,
+            bo_config=get_default_bo_config(),
+            experiment_config={}
+        )
+        assert success
+
+        # Verify session_code hasn't changed
+        session_after = get_session(session_id)
+        assert session_after['session_code'] == original_session_code, \
+            "Session code should remain consistent after update"
 
 
 # ============================================================================
