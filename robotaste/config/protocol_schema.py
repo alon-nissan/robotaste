@@ -21,8 +21,18 @@ import json
 
 SelectionMode = Literal["user_selected", "bo_selected", "predetermined"]
 PhaseType = Literal["builtin", "custom", "loop"]
-BuiltinPhase = Literal["waiting", "registration", "instructions", "loading", "questionnaire", "selection", "completion"]
-CustomPhaseType = Literal["custom_text", "custom_media", "custom_survey", "break", "calibration"]
+BuiltinPhase = Literal[
+    "waiting",
+    "registration",
+    "instructions",
+    "loading",
+    "questionnaire",
+    "selection",
+    "completion",
+]
+CustomPhaseType = Literal[
+    "custom_text", "custom_media", "custom_survey", "break", "calibration"
+]
 
 
 # =============================================================================
@@ -31,48 +41,48 @@ CustomPhaseType = Literal["custom_text", "custom_media", "custom_survey", "break
 
 PROTOCOL_JSON_SCHEMA = {
     "type": "object",
-    "required": ["protocol_id", "name", "version", "ingredients", "sample_selection_schedule", "questionnaire_type"],
+    "required": [
+        "protocol_id",
+        "name",
+        "version",
+        "ingredients",
+        "sample_selection_schedule",
+        "questionnaire_type",
+    ],
     "properties": {
         # ===== Identity =====
-        "protocol_id": {
-            "type": "string",
-            "description": "Unique identifier (UUID)"
-        },
+        "protocol_id": {"type": "string", "description": "Unique identifier (UUID)"},
         "name": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200,
-            "description": "Protocol name"
+            "description": "Protocol name",
         },
         "description": {
             "type": "string",
             "maxLength": 1000,
-            "description": "Detailed description of the protocol"
+            "description": "Detailed description of the protocol",
         },
         "version": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+$",
-            "description": "Protocol version (semantic versioning: major.minor)"
+            "description": "Protocol version (semantic versioning: major.minor)",
         },
         "schema_version": {
             "type": "string",
-            "description": "Schema version this protocol conforms to"
+            "description": "Schema version this protocol conforms to",
         },
-        "created_by": {
-            "type": "string",
-            "description": "Creator/researcher name"
-        },
+        "created_by": {"type": "string", "description": "Creator/researcher name"},
         "created_at": {
             "type": "string",
             "format": "date-time",
-            "description": "Creation timestamp"
+            "description": "Creation timestamp",
         },
         "tags": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Categorization tags"
+            "description": "Categorization tags",
         },
-
         # ===== Ingredients =====
         "ingredients": {
             "type": "array",
@@ -87,11 +97,10 @@ PROTOCOL_JSON_SCHEMA = {
                     "max_concentration": {"type": "number", "minimum": 0},
                     "unit": {"type": "string", "default": "mM"},
                     "molecular_weight": {"type": "number"},
-                    "stock_concentration_mM": {"type": "number"}
-                }
-            }
+                    "stock_concentration_mM": {"type": "number"},
+                },
+            },
         },
-
         # ===== Sample Selection Schedule (MIXED-MODE SUPPORT) =====
         "sample_selection_schedule": {
             "type": "array",
@@ -105,12 +114,12 @@ PROTOCOL_JSON_SCHEMA = {
                         "required": ["start", "end"],
                         "properties": {
                             "start": {"type": "integer", "minimum": 1},
-                            "end": {"type": "integer", "minimum": 1}
-                        }
+                            "end": {"type": "integer", "minimum": 1},
+                        },
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["user_selected", "bo_selected", "predetermined"]
+                        "enum": ["user_selected", "bo_selected", "predetermined"],
                     },
                     "predetermined_samples": {
                         "type": "array",
@@ -121,31 +130,32 @@ PROTOCOL_JSON_SCHEMA = {
                                 "cycle": {"type": "integer"},
                                 "concentrations": {
                                     "type": "object",
-                                    "additionalProperties": {"type": "number"}
-                                }
-                            }
-                        }
+                                    "additionalProperties": {"type": "number"},
+                                },
+                            },
+                        },
                     },
                     "config": {
                         "type": "object",
                         "properties": {
-                            "interface_type": {"type": "string", "enum": ["grid", "sliders", "auto"]},
+                            "interface_type": {
+                                "type": "string",
+                                "enum": ["grid", "sliders", "auto"],
+                            },
                             "randomize_start": {"type": "boolean"},
                             "show_bo_suggestion": {"type": "boolean"},
                             "allow_override": {"type": "boolean"},
-                            "auto_accept_suggestion": {"type": "boolean"}
-                        }
-                    }
-                }
-            }
+                            "auto_accept_suggestion": {"type": "boolean"},
+                        },
+                    },
+                },
+            },
         },
-
         # ===== Questionnaire =====
         "questionnaire_type": {
             "type": "string",
-            "description": "Questionnaire type ID from QUESTIONNAIRE_CONFIGS"
+            "description": "Questionnaire type ID from QUESTIONNAIRE_CONFIGS",
         },
-
         # ===== Bayesian Optimization =====
         "bayesian_optimization": {
             "type": "object",
@@ -161,12 +171,11 @@ PROTOCOL_JSON_SCHEMA = {
                 "xi_exploitation": {"type": "number"},
                 "kappa_exploration": {"type": "number"},
                 "kappa_exploitation": {"type": "number"},
-                "kernel_nu": {"type": "number", "enum": [0.5, 1.5, 2.5, float('inf')]},
+                "kernel_nu": {"type": "number", "enum": [0.5, 1.5, 2.5, float("inf")]},
                 "alpha": {"type": "number", "minimum": 0, "maximum": 1},
-                "n_restarts_optimizer": {"type": "integer", "minimum": 1}
-            }
+                "n_restarts_optimizer": {"type": "integer", "minimum": 1},
+            },
         },
-
         # ===== Phase Sequence (CUSTOM PHASES) =====
         "phase_sequence": {
             "type": "object",
@@ -178,32 +187,36 @@ PROTOCOL_JSON_SCHEMA = {
                         "required": ["phase_id", "phase_type"],
                         "properties": {
                             "phase_id": {"type": "string"},
-                            "phase_type": {"type": "string", "enum": ["builtin", "custom", "loop"]},
+                            "phase_type": {
+                                "type": "string",
+                                "enum": ["builtin", "custom", "loop"],
+                            },
                             "required": {"type": "boolean"},
                             "duration_ms": {"type": ["integer", "null"]},
                             "auto_advance": {"type": "boolean"},
                             "content": {"type": "object"},
-                            "loop_config": {"type": "object"}
-                        }
-                    }
+                            "loop_config": {"type": "object"},
+                        },
+                    },
                 }
-            }
+            },
         },
-
         # ===== Stopping Criteria =====
         "stopping_criteria": {
             "type": "object",
             "properties": {
-                "mode": {"type": "string", "enum": ["manual_only", "suggest_auto", "auto_with_minimum"]},
+                "mode": {
+                    "type": "string",
+                    "enum": ["manual_only", "suggest_auto", "auto_with_minimum"],
+                },
                 "min_cycles": {"type": "integer", "minimum": 1},
                 "max_cycles": {"type": "integer", "minimum": 1},
                 "convergence_detection": {"type": "boolean"},
                 "early_termination_allowed": {"type": "boolean"},
                 "ei_threshold": {"type": "number"},
-                "stability_threshold": {"type": "number"}
-            }
+                "stability_threshold": {"type": "number"},
+            },
         },
-
         # ===== Presentation Options =====
         "presentation": {
             "type": "object",
@@ -211,10 +224,44 @@ PROTOCOL_JSON_SCHEMA = {
                 "randomize_start": {"type": "boolean"},
                 "show_cycle_counter": {"type": "boolean"},
                 "show_convergence_indicator": {"type": "boolean"},
-                "display_bo_predictions": {"type": "boolean"}
-            }
+                "display_bo_predictions": {"type": "boolean"},
+            },
         },
-
+        # ===== Loading Screen Configuration =====
+        "loading_screen": {
+            "type": "object",
+            "description": "Configuration for loading/preparation screen displayed between cycles",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Instructions displayed during loading phase",
+                    "default": "Rinse your mouth while the robot prepares the next sample.",
+                },
+                "duration_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60,
+                    "description": "Duration of loading screen in seconds",
+                    "default": 5,
+                },
+                "show_progress": {
+                    "type": "boolean",
+                    "description": "Display animated progress bar during loading",
+                    "default": True,
+                },
+                "show_cycle_info": {
+                    "type": "boolean",
+                    "description": "Display current cycle number and total cycles",
+                    "default": True,
+                },
+                "message_size": {
+                    "type": "string",
+                    "enum": ["normal", "large", "extra_large"],
+                    "description": "Font size for loading message (normal=1.5rem, large=2.5rem, extra_large=3.5rem)",
+                    "default": "large",
+                },
+            },
+        },
         # ===== Data Collection Options =====
         "data_collection": {
             "type": "object",
@@ -222,10 +269,10 @@ PROTOCOL_JSON_SCHEMA = {
                 "track_trajectory": {"type": "boolean"},
                 "track_interaction_times": {"type": "boolean"},
                 "collect_demographics": {"type": "boolean"},
-                "custom_metadata": {"type": "object"}
-            }
-        }
-    }
+                "custom_metadata": {"type": "object"},
+            },
+        },
+    },
 }
 
 
@@ -243,7 +290,6 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
     "created_by": "Research Team",
     "created_at": "2026-01-01T00:00:00Z",
     "tags": ["binary", "hedonic", "mixed-mode", "research"],
-
     # Ingredients
     "ingredients": [
         {
@@ -252,7 +298,7 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
             "max_concentration": 73.0,
             "unit": "mM",
             "molecular_weight": 342.3,
-            "stock_concentration_mM": 1000.0
+            "stock_concentration_mM": 1000.0,
         },
         {
             "name": "Salt",
@@ -260,10 +306,9 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
             "max_concentration": 10.0,
             "unit": "mM",
             "molecular_weight": 58.44,
-            "stock_concentration_mM": 1000.0
-        }
+            "stock_concentration_mM": 1000.0,
+        },
     ],
-
     # Sample Selection Schedule (MIXED-MODE)
     "sample_selection_schedule": [
         {
@@ -271,16 +316,13 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
             "mode": "predetermined",
             "predetermined_samples": [
                 {"cycle": 1, "concentrations": {"Sugar": 10.0, "Salt": 2.0}},
-                {"cycle": 2, "concentrations": {"Sugar": 40.0, "Salt": 6.0}}
-            ]
+                {"cycle": 2, "concentrations": {"Sugar": 40.0, "Salt": 6.0}},
+            ],
         },
         {
             "cycle_range": {"start": 3, "end": 5},
             "mode": "user_selected",
-            "config": {
-                "interface_type": "grid",
-                "randomize_start": True
-            }
+            "config": {"interface_type": "grid", "randomize_start": True},
         },
         {
             "cycle_range": {"start": 6, "end": 15},
@@ -288,14 +330,12 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
             "config": {
                 "show_bo_suggestion": True,
                 "allow_override": True,
-                "auto_accept_suggestion": False
-            }
-        }
+                "auto_accept_suggestion": False,
+            },
+        },
     ],
-
     # Questionnaire
     "questionnaire_type": "hedonic_continuous",
-
     # Bayesian Optimization (applies when mode = "bo_selected")
     "bayesian_optimization": {
         "enabled": True,
@@ -311,19 +351,17 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
         "kappa_exploitation": 1.0,
         "kernel_nu": 2.5,
         "alpha": 1e-3,
-        "n_restarts_optimizer": 10
+        "n_restarts_optimizer": 10,
     },
-
     # Phase Sequence (optional - if not specified, use default)
     "phase_sequence": {
         "phases": [
             {"phase_id": "waiting", "phase_type": "builtin", "required": True},
             {"phase_id": "registration", "phase_type": "builtin", "required": False},
             {"phase_id": "instructions", "phase_type": "builtin", "required": True},
-            {"phase_id": "experiment_loop", "phase_type": "loop", "required": True}
+            {"phase_id": "experiment_loop", "phase_type": "loop", "required": True},
         ]
     },
-
     # Stopping Criteria
     "stopping_criteria": {
         "mode": "suggest_auto",
@@ -332,30 +370,37 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
         "convergence_detection": True,
         "early_termination_allowed": True,
         "ei_threshold": 0.001,
-        "stability_threshold": 0.05
+        "stability_threshold": 0.05,
     },
-
     # Presentation
     "presentation": {
         "randomize_start": True,
         "show_cycle_counter": True,
         "show_convergence_indicator": True,
-        "display_bo_predictions": True
+        "display_bo_predictions": True,
     },
-
+    # Loading Screen Configuration
+    "loading_screen": {
+        "message": "Please rinse your mouth with water while the robot prepares the next sample.",
+        "duration_seconds": 5,
+        "show_progress": True,
+        "show_cycle_info": True,
+        "message_size": "large",
+    },
     # Data Collection
     "data_collection": {
         "track_trajectory": True,
         "track_interaction_times": True,
         "collect_demographics": True,
-        "custom_metadata": {}
-    }
+        "custom_metadata": {},
+    },
 }
 
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
 
 def get_empty_protocol_template() -> Dict[str, Any]:
     """
@@ -380,28 +425,30 @@ def get_empty_protocol_template() -> Dict[str, Any]:
             "enabled": True,
             "min_samples_for_bo": 3,
             "acquisition_function": "ei",
-            "adaptive_acquisition": True
+            "adaptive_acquisition": True,
         },
         "stopping_criteria": {
             "mode": "suggest_auto",
             "min_cycles": 10,
             "max_cycles": 30,
-            "convergence_detection": True
+            "convergence_detection": True,
         },
         "presentation": {
             "randomize_start": True,
             "show_cycle_counter": True,
-            "show_convergence_indicator": True
+            "show_convergence_indicator": True,
         },
         "data_collection": {
             "track_trajectory": True,
             "track_interaction_times": True,
-            "collect_demographics": True
-        }
+            "collect_demographics": True,
+        },
     }
 
 
-def get_selection_mode_for_cycle(protocol: Dict[str, Any], cycle_number: int) -> SelectionMode:
+def get_selection_mode_for_cycle(
+    protocol: Dict[str, Any], cycle_number: int
+) -> SelectionMode:
     """
     Determine the selection mode for a specific cycle based on the protocol schedule.
 
@@ -426,7 +473,9 @@ def get_selection_mode_for_cycle(protocol: Dict[str, Any], cycle_number: int) ->
     return "user_selected"
 
 
-def get_predetermined_sample(protocol: Dict[str, Any], cycle_number: int) -> Optional[Dict[str, float]]:
+def get_predetermined_sample(
+    protocol: Dict[str, Any], cycle_number: int
+) -> Optional[Dict[str, float]]:
     """
     Get the predetermined sample concentrations for a specific cycle.
 
@@ -504,8 +553,8 @@ VALIDATION_RULES = {
         "unified_feedback",
         "multi_attribute",
         "composite_preference",
-        "intensity_continuous"
+        "intensity_continuous",
     ],
     "valid_acquisition_functions": ["ei", "ucb"],
-    "valid_kernel_nu": [0.5, 1.5, 2.5, float('inf')]
+    "valid_kernel_nu": [0.5, 1.5, 2.5, float("inf")],
 }

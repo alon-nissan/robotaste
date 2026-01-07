@@ -111,6 +111,51 @@ Ingredient 1: Sugar (0 - 100 mM)
 Ingredient 2: Salt (0 - 50 mM)
 ```
 
+### Step 2.5: Configure Loading Screen (Optional)
+
+The loading screen appears between experiment cycles while the robot prepares samples.
+
+**Configuration options:**
+
+1. **Message** - Instructions for participants (e.g., "Rinse your mouth with water")
+2. **Duration** - How long to display the screen (1-60 seconds, default: 5)
+3. **Show Progress** - Display animated progress bar (default: yes)
+4. **Show Cycle Info** - Display cycle number like "Cycle 3 of 10" (default: yes)
+5. **Message Size** - Font size: normal, large, or extra_large (default: large)
+
+**When to customize:**
+- **Longer duration** - If robot preparation takes more time
+- **Custom message** - For specific instructions (e.g., "Drink water", "Wait quietly")
+- **Extra large text** - For participants with visual impairments
+- **Hide progress bar** - If you prefer a simpler display
+
+**Example configurations:**
+
+For a quick experiment with minimal wait:
+```json
+{
+  "loading_screen": {
+    "message": "Next sample coming soon...",
+    "duration_seconds": 3
+  }
+}
+```
+
+For participants who need more time:
+```json
+{
+  "loading_screen": {
+    "message": "Please rinse your mouth thoroughly with water and wait for the next sample.",
+    "duration_seconds": 10,
+    "message_size": "extra_large"
+  }
+}
+```
+
+**Note:** If you don't configure this section, sensible defaults will be used.
+
+---
+
 ### Step 3: Design Sample Selection Schedule
 
 This is where you define **when to use each selection mode**.

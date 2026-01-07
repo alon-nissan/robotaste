@@ -300,6 +300,81 @@ Defines when the experiment should end.
 
 ---
 
+## Loading Screen Configuration
+
+Customizes the loading/preparation screen displayed between experiment cycles.
+
+### Structure
+
+```json
+{
+  "loading_screen": {
+    "message": "Please rinse your mouth with water while the robot prepares the next sample.",
+    "duration_seconds": 5,
+    "show_progress": true,
+    "show_cycle_info": true,
+    "message_size": "large"
+  }
+}
+```
+
+### Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `message` | string | "Rinse your mouth..." | Instructions displayed during loading |
+| `duration_seconds` | integer | 5 | Display duration (1-60 seconds) |
+| `show_progress` | boolean | true | Show animated progress bar |
+| `show_cycle_info` | boolean | true | Show cycle number (e.g., "Cycle 3 of 10") |
+| `message_size` | string | "large" | Font size: "normal" (1.5rem), "large" (2.5rem), "extra_large" (3.5rem) |
+
+### Visual Layout
+
+The loading screen displays:
+1. **Cycle Information** (if `show_cycle_info`: true) - Large blue heading showing current cycle
+2. **Message** - Instructions text in configurable size
+3. **Progress Bar** (if `show_progress`: true) - Animated bar filling over `duration_seconds`
+
+### Example Configurations
+
+**Default (minimal config):**
+```json
+{
+  "loading_screen": {}
+}
+```
+Uses all default values.
+
+**Custom message with longer duration:**
+```json
+{
+  "loading_screen": {
+    "message": "Take a moment to rinse thoroughly. The next sample will be ready soon.",
+    "duration_seconds": 8
+  }
+}
+```
+
+**Extra large text, no progress bar:**
+```json
+{
+  "loading_screen": {
+    "message": "RINSE YOUR MOUTH",
+    "message_size": "extra_large",
+    "show_progress": false
+  }
+}
+```
+
+### Notes
+
+- If `loading_screen` is omitted entirely, all defaults are used
+- Cycle information automatically shows "Cycle X of Y" if `max_cycles` is set in `stopping_criteria`
+- Progress bar animates smoothly, updating 10 times per second
+- Message supports line breaks and basic formatting
+
+---
+
 ## Complete Example Protocol
 
 ```json

@@ -711,6 +711,13 @@ def subject_interface():
             margin: 0 auto !important;
         }
 
+        /* Progress bar styling for loading screen */
+        .stProgress > div > div {
+            background-color: #1f77b4 !important;
+            height: 20px !important;
+            border-radius: 10px !important;
+        }
+
         /* Enlarge questionnaire fonts */
         div[data-testid="stForm"] {
             font-size: 1.5rem !important;
@@ -810,10 +817,25 @@ def subject_interface():
         render_instructions_screen()
 
     elif current_phase_str in [ExperimentPhase.LOADING.value, ExperimentPhase.ROBOT_PREPARING.value]:
+        # Get current cycle and total cycles
         cycle_num = get_current_cycle(st.session_state.session_id)
-        render_loading_spinner(
-            message=f"Cycle {cycle_num}: Rinse your mouth while the robot prepares the next sample.",
-            load_time=5
+        protocol = get_session_protocol(st.session_state.session_id)
+
+        # Get total cycles from protocol stopping criteria
+        total_cycles = None
+        if protocol:
+            stopping_criteria = protocol.get("stopping_criteria", {})
+            total_cycles = stopping_criteria.get("max_cycles")
+
+        # Get loading screen configuration from protocol
+        from robotaste.utils.ui_helpers import get_loading_screen_config, render_loading_screen
+        loading_config = get_loading_screen_config(protocol)
+
+        # Render dedicated loading screen
+        render_loading_screen(
+            cycle_number=cycle_num,
+            total_cycles=total_cycles,
+            **loading_config
         )
 
         # Transition to next phase
