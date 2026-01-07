@@ -60,6 +60,13 @@ from plotly.subplots import make_subplots
 import numpy as np
 import json
 import traceback
+from robotaste.core.moderator_metrics import get_current_mode_info
+from robotaste.views.moderator_views import (
+    render_overview_tab,
+    render_predetermined_view,
+    render_user_selection_view,
+    render_bo_view
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1774,9 +1781,44 @@ def binary_bo():
 
 
 def show_moderator_monitoring():
-    """Monitor active trial with single-page layout."""
+    """Monitor active trial with dynamic mode-based layout."""
 
-    # Get session info early for header
+    # ========== AUTO-REFRESH CONTROL ==========
+    # Add auto-refresh toggle at the very top
+    refresh_col1, refresh_col2, refresh_col3 = st.columns([2, 1, 1])
+    with refresh_col1:
+        auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="auto_refresh_toggle")
+    with refresh_col2:
+        if auto_refresh:
+            refresh_interval = st.selectbox(
+                "Interval",
+                options=[5, 10, 30, 60],
+                format_func=lambda x: f"{x}s",
+                key="refresh_interval"
+            )
+        else:
+            refresh_interval = None
+    with refresh_col3:
+        if st.button("🔄 Refresh Now", key="manual_refresh_btn"):
+            st.rerun()
+
+    # Auto-refresh logic
+    if auto_refresh and refresh_interval:
+        if "last_refresh_time" not in st.session_state:
+            st.session_state.last_refresh_time = time.time()
+
+        elapsed = time.time() - st.session_state.last_refresh_time
+        if elapsed >= refresh_interval:
+            st.session_state.last_refresh_time = time.time()
+            st.rerun()
+
+        # Show countdown
+        time_remaining = refresh_interval - elapsed
+        st.caption(f"Next refresh in {int(time_remaining)}s")
+
+    st.markdown("---")
+
+    # ========== GET SESSION INFO ==========
     session_info = get_session_info(st.session_state.session_id)
     if not session_info:
         st.error("Could not load session information")
@@ -1787,8 +1829,9 @@ def show_moderator_monitoring():
         st.error("Could not load session configuration")
         return
 
-    # ========== HEADER WITH END SESSION BUTTON ==========
+    experiment_config = session["experiment_config"]
 
+    # ========== HEADER WITH END SESSION BUTTON ==========
     header_col1, header_col2 = st.columns([3, 1])
     with header_col1:
         st.markdown("## 🧪 Monitoring")
@@ -1797,219 +1840,88 @@ def show_moderator_monitoring():
         if st.button("🛑 End Session", type="secondary", key="end_session_header_btn"):
             st.session_state["show_end_session_modal"] = True
 
-    experiment_config = session["experiment_config"]
+    # ========== DETECT MODE ==========
+    mode_info = get_current_mode_info(st.session_state.session_id)
 
-    # ========== MAIN VISUALIZATIONS SECTION ==========
-    st.markdown("### Bayesian Optimization Visualizations")
+    # ========== CURRENT CYCLE STATUS CARD ==========
+    st.markdown("### Current Status")
 
-    # Get ingredient count
-    num_ingredients = experiment_config.get("num_ingredients", 2)
-
-    # Route to appropriate visualization
-    if num_ingredients == 1:
-        single_bo()
-    elif num_ingredients == 2:
-        binary_bo()
-    else:
-        st.warning(f"⚠️ Visualizations not available for {num_ingredients} ingredients")
-        st.info("Supported: 1 (single ingredient) or 2 (binary mixture)")
+    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+    with status_col1:
+        st.metric("Cycle", mode_info["current_cycle"])
+    with status_col2:
+        mode_display = mode_info["current_mode"].replace("_", " ").title()
+        st.metric("Mode", mode_display)
+    with status_col3:
+        participant = st.session_state.get("participant", "Unknown")
+        st.metric("Participant", participant)
+    with status_col4:
+        current_phase = session_info.get("current_phase", "unknown")
+        st.metric("Phase", current_phase.replace("_", " ").title())
 
     st.markdown("---")
 
-    # ========== CONVERGENCE PROGRESS BAR & METRICS ==========
-    try:
-        # Get stopping criteria from session config
-        experiment_config = session.get("experiment_config", {})
-        bo_config_full = experiment_config.get("bayesian_optimization", {})
-        stopping_criteria = bo_config_full.get("stopping_criteria")
+    # ========== MODE-BASED ROUTING ==========
 
-        # Check convergence
-        convergence = check_convergence(st.session_state.session_id, stopping_criteria)
-        metrics = convergence["metrics"]
-        thresholds = convergence["thresholds"]
+    num_ingredients = experiment_config.get("num_ingredients", 2)
 
-        # Status header
-        status_emoji = convergence["status_emoji"]
-        recommendation = convergence["recommendation"]
+    if mode_info["is_mixed_mode"]:
+        # Mixed-mode protocol: Use tabs
+        st.markdown("### Protocol Monitoring")
 
-        st.markdown("### Convergence Status")
+        # Create tab list dynamically based on modes present
+        tab_names = ["Overview"]
+        if "predetermined" in mode_info["all_modes"]:
+            tab_names.append("Predetermined")
+        if "user_selected" in mode_info["all_modes"]:
+            tab_names.append("User Selection")
+        if "bo_selected" in mode_info["all_modes"]:
+            tab_names.append("BO Optimization")
 
-        # Progress bar
-        current_cycle = metrics.get("current_cycle", 0)
-        max_cycles = thresholds.get("max_cycles", 30)
-        progress = min(1.0, current_cycle / max_cycles) if max_cycles > 0 else 0
-        st.progress(progress)
-        st.caption(f"Cycle {current_cycle} of {max_cycles} ({progress*100:.1f}%)")
+        tabs = st.tabs(tab_names)
 
-        st.markdown("")  # Spacer
+        # Render each tab
+        tab_idx = 0
+        with tabs[tab_idx]:
+            render_overview_tab(st.session_state.session_id, mode_info)
+        tab_idx += 1
 
-        # ========== 4-METRIC CARD ROW ==========
-        met_col1, met_col2, met_col3, met_col4 = st.columns(4)
+        if "predetermined" in mode_info["all_modes"]:
+            with tabs[tab_idx]:
+                render_predetermined_view(st.session_state.session_id)
+            tab_idx += 1
 
-        with met_col1:
-            st.metric(label="Current Cycle", value=current_cycle)
+        if "user_selected" in mode_info["all_modes"]:
+            with tabs[tab_idx]:
+                render_user_selection_view(st.session_state.session_id)
+            tab_idx += 1
 
-        with met_col2:
-            min_cycles = thresholds.get("min_cycles", 3)
-            st.metric(
-                label="Total Cycles",
-                value=max_cycles,
-                help=f"Range: {min_cycles}-{max_cycles} cycles",
-            )
+        if "bo_selected" in mode_info["all_modes"]:
+            with tabs[tab_idx]:
+                render_bo_view(st.session_state.session_id)
+            tab_idx += 1
 
-        with met_col3:
-            best_values = metrics.get("best_values", [])
-            best_value = max(best_values) if best_values else 0
-            st.metric(label="Best Observed", value=f"{best_value:.2f}")
+    else:
+        # Single-mode protocol: Direct rendering
+        st.markdown("### Mode-Specific Monitoring")
 
-        with met_col4:
-            # Status with colored indicator
-            if "stop" in recommendation.lower():
-                status_color = "#10B981"  # Green
-                status_text = "Converged"
-            elif "consider" in recommendation.lower():
-                status_color = "#F59E0B"  # Yellow
-                status_text = "Nearing"
-            else:
-                status_color = "#6B7280"  # Gray
-                status_text = "Optimizing"
+        current_mode = mode_info["current_mode"]
 
-            st.markdown("**Status**")
-            st.markdown(
-                f'<h3 style="color: {status_color}; margin: 0;">{status_emoji} {status_text}</h3>',
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("---")
-
-        # ========== CONVERGENCE CRITERIA DETAILS EXPANDER ==========
-        with st.expander("📊 Convergence Criteria Details", expanded=False):
-            criteria_met = convergence.get("criteria_met", [])
-            criteria_failed = convergence.get("criteria_failed", [])
-            confidence = convergence.get("confidence", 0.0)
-
-            if criteria_met:
-                st.markdown("**✅ Criteria Met:**")
-                for criterion in criteria_met:
-                    st.markdown(f"- {criterion}")
-
-            if criteria_failed:
-                st.markdown("**❌ Criteria Not Met:**")
-                for criterion in criteria_failed:
-                    st.markdown(f"- {criterion}")
-
-            st.markdown(f"**Confidence:** {confidence*100:.1f}%")
-
-    except Exception as e:
-        st.warning(f"Could not load convergence status: {e}")
-        # Fallback metrics if convergence checking fails
-        try:
-            stats = get_session_stats(st.session_state.session_id)
-            met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-
-            with met_col1:
-                st.metric("Total Cycles", stats.get("total_cycles", 0))
-            with met_col2:
-                st.metric("Final Samples", stats.get("final_samples", 0))
-            with met_col3:
-                st.metric("Status", stats.get("state", "unknown").title())
-            with met_col4:
-                st.metric(
-                    "Phase",
-                    session_info.get("current_phase", "unknown")
-                    .replace("_", " ")
-                    .title(),
-                )
-        except Exception as fallback_e:
-            st.error(f"Error loading session metrics: {fallback_e}")
-
-    # ========== TIME-SERIES CHARTS EXPANDER ==========
-    try:
-        # Get convergence metrics for time-series data
-        convergence_metrics = convergence.get("metrics", {})
-
-        if convergence_metrics.get("has_sufficient_data"):
-            with st.expander("📈 Convergence Metrics Over Time", expanded=False):
-                import plotly.graph_objects as go
-
-                col_chart1, col_chart2 = st.columns(2)
-
-                with col_chart1:
-                    # Acquisition values over time
-                    acq_values = convergence_metrics.get("acquisition_values", [])
-                    if acq_values:
-                        fig_acq = go.Figure()
-                        fig_acq.add_trace(
-                            go.Scatter(
-                                x=list(range(1, len(acq_values) + 1)),
-                                y=acq_values,
-                                mode="lines+markers",
-                                name="Acquisition",
-                                line=dict(color="#14B8A6", width=2),
-                            )
-                        )
-                        # Add threshold line
-                        acq_thresh = thresholds.get("acquisition_threshold", 0.01)
-                        fig_acq.add_hline(
-                            y=acq_thresh,
-                            line_dash="dash",
-                            line_color="#F87171",
-                            annotation_text="Threshold",
-                        )
-                        fig_acq.update_layout(
-                            title="Acquisition Function Over Cycles",
-                            title_font=dict(size=21),
-                            xaxis_title="Cycle",
-                            yaxis_title="Acquisition Value",
-                            xaxis=dict(
-                                title_font=dict(size=21), tickfont=dict(size=18)
-                            ),
-                            yaxis=dict(
-                                title_font=dict(size=21), tickfont=dict(size=18)
-                            ),
-                            font=dict(size=18),
-                            height=300,
-                        )
-                        st.plotly_chart(fig_acq, use_container_width=True)
-
-                with col_chart2:
-                    # Best values over time
-                    best_values = convergence_metrics.get("best_values", [])
-                    if best_values:
-                        fig_best = go.Figure()
-                        fig_best.add_trace(
-                            go.Scatter(
-                                x=list(range(1, len(best_values) + 1)),
-                                y=best_values,
-                                mode="lines+markers",
-                                name="Best Value",
-                                line=dict(color="#10B981", width=2),
-                            )
-                        )
-                        fig_best.update_layout(
-                            title="Best Observed Rating Over Time",
-                            title_font=dict(size=21),
-                            xaxis_title="Cycle",
-                            yaxis_title="Rating",
-                            xaxis=dict(
-                                title_font=dict(size=21), tickfont=dict(size=18)
-                            ),
-                            yaxis=dict(
-                                title_font=dict(size=21), tickfont=dict(size=18)
-                            ),
-                            font=dict(size=18),
-                            height=300,
-                        )
-                        st.plotly_chart(fig_best, use_container_width=True)
+        if current_mode == "predetermined":
+            render_predetermined_view(st.session_state.session_id)
+        elif current_mode == "user_selected":
+            render_user_selection_view(st.session_state.session_id)
+        elif current_mode == "bo_selected":
+            render_bo_view(st.session_state.session_id)
         else:
-            with st.expander("📈 Convergence Metrics Over Time", expanded=False):
-                st.info("Insufficient data for time-series analysis (need 3+ samples)")
-    except Exception as e:
-        pass  # Time-series is optional, don't break if it fails
+            st.warning(f"Unknown mode: {current_mode}")
 
-    # ========== RESPONSE DATA TABLE EXPANDER ==========
+    st.markdown("---")
+
+    # ========== PRESERVE EXISTING SECTIONS IN EXPANDERS ==========
+
+    # Response Data Table
     with st.expander("📋 Response Data", expanded=False):
-        # Filter controls
         filter_col1, filter_col2 = st.columns([1, 3])
         with filter_col1:
             show_only_final = st.checkbox(
@@ -2019,7 +1931,6 @@ def show_moderator_monitoring():
             if st.button("🔄 Refresh Data", key="refresh_responses"):
                 st.rerun()
 
-        # Get samples
         try:
             samples = get_session_samples(
                 st.session_state.session_id, only_final=show_only_final
@@ -2036,6 +1947,7 @@ def show_moderator_monitoring():
                 for sample in samples:
                     row = {
                         "Cycle": sample.get("cycle_number", "?"),
+                        "Mode": sample.get("selection_mode", "unknown"),
                         "Timestamp": (
                             sample.get("created_at", "")[:19]
                             if sample.get("created_at")
@@ -2068,7 +1980,7 @@ def show_moderator_monitoring():
         except Exception as e:
             st.error(f"Error loading responses: {e}")
 
-    # ========== SESSION INFORMATION EXPANDER ==========
+    # Session Information
     session_code = session_info.get("session_code", "unknown")
     participant = st.session_state.get("participant", "unknown")
     with st.expander("ℹ️ Session Information", expanded=False):
@@ -2100,6 +2012,8 @@ def show_moderator_monitoring():
     with st.expander("⚙️ BO Configuration Summary", expanded=False):
         try:
             bo_config_db = get_bo_config(st.session_state.session_id)
+            bo_config_full = experiment_config.get("bayesian_optimization", {})
+            stopping_criteria = bo_config_full.get("stopping_criteria")
 
             if bo_config_db and bo_config_db.get("enabled"):
                 cfg_col1, cfg_col2, cfg_col3 = st.columns(3)

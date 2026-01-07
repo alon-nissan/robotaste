@@ -847,6 +847,13 @@ def subject_interface():
                 return
 
             try:
+                # Extract selection mode from selection_data or determine from protocol
+                selection_mode = selection_data.get("selection_mode", "user_selected")
+                if not selection_mode or selection_mode == "unknown":
+                    # Fall back to determining from protocol
+                    from robotaste.core.trials import get_selection_mode_for_cycle_runtime
+                    selection_mode = get_selection_mode_for_cycle_runtime(st.session_state.session_id, current_cycle)
+
                 # Save the questionnaire data for current cycle
                 save_sample_cycle(
                     session_id=st.session_state.session_id,
@@ -855,6 +862,7 @@ def subject_interface():
                     selection_data=selection_data,
                     questionnaire_answer=responses,
                     is_final=False,
+                    selection_mode=selection_mode,
                 )
 
                 # Check if we should stop BEFORE incrementing
