@@ -272,6 +272,78 @@ PROTOCOL_JSON_SCHEMA = {
                 "custom_metadata": {"type": "object"},
             },
         },
+        # ===== Pump Configuration =====
+        "pump_config": {
+            "type": "object",
+            "description": "Configuration for automated syringe pump control",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Enable automatic pump dispensing",
+                    "default": False,
+                },
+                "serial_port": {
+                    "type": "string",
+                    "description": "Serial port for pump connection (e.g., /dev/ttyUSB0, COM3)",
+                },
+                "baud_rate": {
+                    "type": "integer",
+                    "enum": [300, 1200, 2400, 9600, 19200],
+                    "description": "Serial communication baud rate",
+                    "default": 19200,
+                },
+                "pumps": {
+                    "type": "array",
+                    "description": "List of pump configurations",
+                    "items": {
+                        "type": "object",
+                        "required": ["address", "ingredient", "syringe_diameter_mm"],
+                        "properties": {
+                            "address": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 99,
+                                "description": "Pump network address (0-99)",
+                            },
+                            "ingredient": {
+                                "type": "string",
+                                "description": "Ingredient name (must match protocol ingredient)",
+                            },
+                            "syringe_diameter_mm": {
+                                "type": "number",
+                                "minimum": 0.1,
+                                "maximum": 50.0,
+                                "description": "Syringe inner diameter in millimeters",
+                            },
+                            "max_rate_ul_min": {
+                                "type": "number",
+                                "minimum": 0.1,
+                                "description": "Maximum pumping rate in µL/min",
+                                "default": 3000,
+                            },
+                            "stock_concentration_mM": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Stock solution concentration in mM",
+                            },
+                        },
+                    },
+                },
+                "total_volume_ml": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 1000,
+                    "description": "Total sample volume in mL",
+                    "default": 10.0,
+                },
+                "dispensing_rate_ul_min": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "description": "Default dispensing rate in µL/min",
+                    "default": 2000,
+                },
+            },
+        },
     },
 }
 
@@ -442,6 +514,14 @@ def get_empty_protocol_template() -> Dict[str, Any]:
             "track_trajectory": True,
             "track_interaction_times": True,
             "collect_demographics": True,
+        },
+        "pump_config": {
+            "enabled": False,
+            "serial_port": "",
+            "baud_rate": 19200,
+            "pumps": [],
+            "total_volume_ml": 10.0,
+            "dispensing_rate_ul_min": 2000,
         },
     }
 

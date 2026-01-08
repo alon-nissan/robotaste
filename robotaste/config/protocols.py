@@ -252,6 +252,10 @@ def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
     phase_errors = _validate_phase_sequence(protocol)
     errors.extend(phase_errors)
 
+    # Validate pump configuration
+    pump_errors = _validate_pump_config(protocol)
+    errors.extend(pump_errors)
+
     return errors
 
 
@@ -574,6 +578,127 @@ def _validate_phase_sequence(protocol: Dict[str, Any]) -> List[str]:
         errors.append(
             "Phase sequence must include a 'completion' or 'complete' phase"
         )
+
+    return errors
+
+
+def _validate_pump_config(protocol: Dict[str, Any]) -> List[str]:
+    """
+    Validate pump configuration.
+
+    Checks:
+    - Serial port is specified if pumps enabled
+    - Baud rate is valid
+    - Pump addresses are unique and in valid range
+    - Each pump ingredient matches protocol ingredients
+    - Syringe diameters are within valid range
+    - All protocol ingredients have pump mappings (if enabled)
+
+    Args:
+        protocol: Protocol dictionary
+
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+
+    # Get pump configuration (optional field)
+    pump_config = protocol.get("pump_config", {})
+
+    if not pump_config or not pump_config.get("enabled", False):
+        return []  # Pump control disabled = valid
+
+    # Validate serial port
+    serial_port = pump_config.get("serial_port", "").strip()
+    if not serial_port:
+        errors.append("Pump config: serial_port must be specified when pumps are enabled")
+
+    # Validate baud rate
+    baud_rate = pump_config.get("baud_rate", 19200)
+    valid_baud_rates = [300, 1200, 2400, 9600, 19200]
+    if baud_rate not in valid_baud_rates:
+        errors.append(f"Pump config: invalid baud_rate {baud_rate}, must be one of {valid_baud_rates}")
+
+    # Validate pumps list
+    pumps = pump_config.get("pumps", [])
+    if not pumps:
+        errors.append("Pump config: at least one pump must be configured when pumps are enabled")
+        return errors
+
+    # Get protocol ingredients for validation
+    protocol_ingredients = [ing.get("name") for ing in protocol.get("ingredients", [])]
+
+    # Track pump addresses for uniqueness check
+    pump_addresses = []
+    pump_ingredients = []
+
+    for i, pump in enumerate(pumps):
+        pump_num = i + 1
+
+        # Validate required fields
+        if "address" not in pump:
+            errors.append(f"Pump {pump_num}: missing 'address' field")
+            continue
+
+        if "ingredient" not in pump:
+            errors.append(f"Pump {pump_num}: missing 'ingredient' field")
+            continue
+
+        if "syringe_diameter_mm" not in pump:
+            errors.append(f"Pump {pump_num}: missing 'syringe_diameter_mm' field")
+            continue
+
+        # Validate address
+        address = pump["address"]
+        if not isinstance(address, int) or not (0 <= address <= 99):
+            errors.append(f"Pump {pump_num}: address must be an integer between 0 and 99, got {address}")
+        else:
+            if address in pump_addresses:
+                errors.append(f"Pump {pump_num}: duplicate address {address}")
+            else:
+                pump_addresses.append(address)
+
+        # Validate ingredient
+        ingredient = pump["ingredient"]
+        if ingredient not in protocol_ingredients:
+            errors.append(f"Pump {pump_num}: ingredient '{ingredient}' not found in protocol ingredients")
+        else:
+            if ingredient in pump_ingredients:
+                errors.append(f"Pump {pump_num}: duplicate mapping for ingredient '{ingredient}'")
+            else:
+                pump_ingredients.append(ingredient)
+
+        # Validate syringe diameter
+        diameter = pump.get("syringe_diameter_mm")
+        if not isinstance(diameter, (int, float)) or not (0.1 <= diameter <= 50.0):
+            errors.append(f"Pump {pump_num}: syringe_diameter_mm must be between 0.1 and 50.0 mm, got {diameter}")
+
+        # Validate max rate (optional)
+        max_rate = pump.get("max_rate_ul_min")
+        if max_rate is not None and (not isinstance(max_rate, (int, float)) or max_rate <= 0):
+            errors.append(f"Pump {pump_num}: max_rate_ul_min must be positive, got {max_rate}")
+
+        # Validate stock concentration (optional)
+        stock_conc = pump.get("stock_concentration_mM")
+        if stock_conc is not None and (not isinstance(stock_conc, (int, float)) or stock_conc < 0):
+            errors.append(f"Pump {pump_num}: stock_concentration_mM must be non-negative, got {stock_conc}")
+
+    # Check if all ingredients have pump mappings
+    unmapped_ingredients = set(protocol_ingredients) - set(pump_ingredients)
+    if unmapped_ingredients:
+        errors.append(f"Pump config: the following ingredients have no pump mapping: {', '.join(sorted(unmapped_ingredients))}")
+
+    # Validate total volume
+    total_volume = pump_config.get("total_volume_ml")
+    if total_volume is not None:
+        if not isinstance(total_volume, (int, float)) or not (0.1 <= total_volume <= 1000):
+            errors.append(f"Pump config: total_volume_ml must be between 0.1 and 1000 mL, got {total_volume}")
+
+    # Validate dispensing rate
+    dispensing_rate = pump_config.get("dispensing_rate_ul_min")
+    if dispensing_rate is not None:
+        if not isinstance(dispensing_rate, (int, float)) or dispensing_rate <= 0:
+            errors.append(f"Pump config: dispensing_rate_ul_min must be positive, got {dispensing_rate}")
 
     return errors
 

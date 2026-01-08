@@ -127,6 +127,43 @@ CREATE TABLE IF NOT EXISTS bo_configuration (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
+-- Table 7: Pump Operations (Dispensing Queue and Status)
+CREATE TABLE IF NOT EXISTS pump_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    cycle_number INTEGER NOT NULL,
+    trial_number INTEGER DEFAULT 1,
+
+    -- Dispensing recipe
+    recipe_json TEXT NOT NULL,  -- JSON: {"ingredient": volume_ul, ...}
+
+    -- Status tracking
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, in_progress, completed, failed
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP DEFAULT NULL,
+    completed_at TIMESTAMP DEFAULT NULL,
+
+    -- Results
+    actual_volumes_json TEXT,  -- JSON: {"ingredient": actual_ul, ...}
+    error_message TEXT,
+
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+);
+
+-- Table 8: Pump Operation Logs (Debugging and Audit Trail)
+CREATE TABLE IF NOT EXISTS pump_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    pump_address INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    response TEXT,
+    success INTEGER NOT NULL,  -- 0 or 1
+    error_message TEXT,
+
+    FOREIGN KEY (operation_id) REFERENCES pump_operations(id)
+);
+
 -- Create indexes for performance
 -- Protocol Library indexes
 CREATE INDEX IF NOT EXISTS idx_protocol_library_name ON protocol_library(name);
@@ -146,6 +183,15 @@ CREATE INDEX IF NOT EXISTS idx_samples_is_final ON samples(is_final);
 CREATE INDEX IF NOT EXISTS idx_samples_cycle_number ON samples(cycle_number);
 CREATE INDEX IF NOT EXISTS idx_samples_acquisition_function ON samples(acquisition_function);
 CREATE INDEX IF NOT EXISTS idx_samples_selection_mode ON samples(selection_mode);
+
+-- Pump operations indexes
+CREATE INDEX IF NOT EXISTS idx_pump_operations_status ON pump_operations(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_pump_operations_session_id ON pump_operations(session_id);
+CREATE INDEX IF NOT EXISTS idx_pump_operations_cycle ON pump_operations(cycle_number);
+
+-- Pump logs indexes
+CREATE INDEX IF NOT EXISTS idx_pump_logs_operation_id ON pump_logs(operation_id);
+CREATE INDEX IF NOT EXISTS idx_pump_logs_timestamp ON pump_logs(timestamp);
 
 -- Create view for Bayesian Optimization cycle analysis
 CREATE VIEW IF NOT EXISTS bo_cycle_analysis AS

@@ -1864,6 +1864,104 @@ def show_moderator_monitoring():
 
     st.markdown("---")
 
+    # ========== PUMP STATUS (if enabled) ==========
+    from robotaste.data.protocol_repo import get_protocol_by_id
+
+    protocol_id = session.get("protocol_id")
+    protocol = get_protocol_by_id(protocol_id) if protocol_id else None
+
+    if protocol:
+        pump_config = protocol.get("pump_config", {})
+        if pump_config.get("enabled", False):
+            st.markdown("### 🔬 Pump Status")
+
+            from robotaste.utils.pump_db import (
+                get_current_operation_for_session,
+                get_recent_operations,
+                get_operation_logs
+            )
+
+            # Current operation
+            current_op = get_current_operation_for_session(st.session_state.session_id)
+
+            if current_op:
+                status_color = {
+                    "pending": "orange",
+                    "in_progress": "blue",
+                    "completed": "green",
+                    "failed": "red"
+                }.get(current_op["status"], "gray")
+
+                st.markdown(f"**Current Operation:** :{status_color}[{current_op['status'].upper()}]")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Cycle", current_op["cycle_number"])
+                with col2:
+                    st.metric("Operation ID", current_op["id"])
+                with col3:
+                    if current_op["status"] == "in_progress":
+                        st.info("Dispensing...")
+                    elif current_op["status"] == "completed":
+                        st.success("✓ Complete")
+                    elif current_op["status"] == "failed":
+                        st.error("✗ Failed")
+                    else:
+                        st.warning("⋯ Pending")
+
+                # Show recipe
+                try:
+                    import json
+                    recipe = json.loads(current_op["recipe_json"])
+                    with st.expander("Recipe Details", expanded=True):
+                        for ingredient, volume_ul in recipe.items():
+                            st.write(f"• {ingredient}: **{volume_ul:.1f} µL**")
+                except:
+                    pass
+
+                # Show error if failed
+                if current_op["status"] == "failed" and current_op.get("error_message"):
+                    st.error(f"Error: {current_op['error_message']}")
+
+                # Show timing info
+                if current_op.get("started_at"):
+                    from datetime import datetime
+                    started = current_op["started_at"]
+                    st.caption(f"Started: {started}")
+
+                    if current_op.get("completed_at"):
+                        completed = current_op["completed_at"]
+                        st.caption(f"Completed: {completed}")
+
+            else:
+                st.info("No active pump operation")
+
+            # Recent operations log
+            with st.expander("Recent Operations", expanded=False):
+                recent_ops = get_recent_operations(
+                    session_id=st.session_state.session_id,
+                    limit=5
+                )
+
+                if recent_ops:
+                    for op in recent_ops:
+                        status_icon = {
+                            "completed": "✓",
+                            "failed": "✗",
+                            "in_progress": "⋯",
+                            "pending": "⏳"
+                        }.get(op["status"], "?")
+
+                        cycle_info = f"Cycle {op['cycle_number']}"
+                        status_info = f"{status_icon} {op['status']}"
+                        time_info = op.get("created_at", "")
+
+                        st.text(f"{time_info} | {cycle_info} | {status_info}")
+                else:
+                    st.caption("No operations yet")
+
+            st.markdown("---")
+
     # ========== MODE-BASED ROUTING ==========
 
     num_ingredients = experiment_config.get("num_ingredients", 2)

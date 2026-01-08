@@ -816,7 +816,101 @@ def subject_interface():
     elif current_phase_str == ExperimentPhase.INSTRUCTIONS.value:
         render_instructions_screen()
 
-    elif current_phase_str in [ExperimentPhase.LOADING.value, ExperimentPhase.ROBOT_PREPARING.value]:
+    elif current_phase_str == ExperimentPhase.ROBOT_PREPARING.value:
+        # Get current cycle
+        cycle_num = get_current_cycle(st.session_state.session_id)
+        protocol = get_session_protocol(st.session_state.session_id)
+
+        # Create pump operation if needed (only on first render)
+        from robotaste.core.pump_integration import (
+            create_pump_operation_for_cycle,
+            check_pump_operation_status
+        )
+
+        # Check if pump control is enabled
+        pump_config = protocol.get("pump_config", {}) if protocol else {}
+        pump_enabled = pump_config.get("enabled", False)
+
+        if pump_enabled:
+            # Try to create pump operation (will skip if already exists)
+            create_pump_operation_for_cycle(
+                session_id=st.session_state.session_id,
+                cycle_number=cycle_num
+            )
+
+            # Check operation status
+            pump_status = check_pump_operation_status(st.session_state.session_id)
+
+            if pump_status:
+                # Show pump operation progress
+                st.info("Robot is preparing your sample...")
+
+                status_text = {
+                    "pending": "Waiting to start dispensing...",
+                    "in_progress": "Dispensing ingredients...",
+                    "completed": "Sample ready!",
+                    "failed": f"Error: {pump_status.get('error_message', 'Unknown error')}"
+                }
+
+                st.write(status_text.get(pump_status["status"], "Processing..."))
+
+                # Show recipe being dispensed
+                if pump_status.get("recipe"):
+                    with st.expander("Dispensing Details", expanded=False):
+                        for ingredient, volume_ul in pump_status["recipe"].items():
+                            st.write(f"- {ingredient}: {volume_ul:.1f} µL")
+
+                # Auto-advance when completed
+                if pump_status["status"] == "completed":
+                    time.sleep(1)  # Brief pause before advancing
+                    transition_to_next_phase(
+                        current_phase_str=current_phase_str,
+                        default_next_phase=ExperimentPhase.QUESTIONNAIRE,
+                        session_id=st.session_state.session_id,
+                        current_cycle=cycle_num
+                    )
+                    st.rerun()
+                elif pump_status["status"] == "failed":
+                    st.error("Pump operation failed. Please contact the moderator.")
+                    st.stop()
+                else:
+                    # Still in progress, rerun to update status
+                    time.sleep(0.5)
+                    st.rerun()
+            else:
+                # No pump operation found
+                st.warning("No pump operation created. Waiting...")
+                time.sleep(1)
+                st.rerun()
+        else:
+            # Pump control disabled, use standard loading screen
+            # Get total cycles from protocol stopping criteria
+            total_cycles = None
+            if protocol:
+                stopping_criteria = protocol.get("stopping_criteria", {})
+                total_cycles = stopping_criteria.get("max_cycles")
+
+            # Get loading screen configuration from protocol
+            from robotaste.utils.ui_helpers import get_loading_screen_config, render_loading_screen
+            loading_config = get_loading_screen_config(protocol)
+
+            # Render dedicated loading screen
+            render_loading_screen(
+                cycle_number=cycle_num,
+                total_cycles=total_cycles,
+                **loading_config
+            )
+
+            # Transition to next phase
+            transition_to_next_phase(
+                current_phase_str=current_phase_str,
+                default_next_phase=ExperimentPhase.QUESTIONNAIRE,
+                session_id=st.session_state.session_id,
+                current_cycle=cycle_num
+            )
+            st.rerun()
+
+    elif current_phase_str == ExperimentPhase.LOADING.value:
         # Get current cycle and total cycles
         cycle_num = get_current_cycle(st.session_state.session_id)
         protocol = get_session_protocol(st.session_state.session_id)
