@@ -20,6 +20,10 @@ from threading import RLock
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Global lock to prevent multiple pumps from opening the same serial port simultaneously
+# This is critical for parallel initialization - only one pump can open the port at a time
+_serial_port_lock = RLock()
+
 
 class PumpConnectionError(Exception):
     """Raised when serial port connection fails."""
@@ -125,6 +129,9 @@ class NE4000Pump:
         """
         Open serial port connection to pump.
 
+        Uses a global lock to prevent multiple pumps from opening the same
+        serial port simultaneously (critical for parallel initialization).
+
         Raises:
             PumpConnectionError: If connection fails
         """
@@ -136,21 +143,25 @@ class NE4000Pump:
                 return
 
             try:
-                self.serial = serial.Serial(
-                    port=self.port,
-                    baudrate=self.baud,
-                    bytesize=serial.EIGHTBITS,
-                    parity=serial.PARITY_NONE,
-                    stopbits=serial.STOPBITS_ONE,
-                    timeout=self.timeout,
-                )
-                self._connected = True
-                logger.info(f"[Pump {self.address}] ✅ Serial connection established")
+                # Use global lock to serialize serial port opening across all pump instances
+                # This prevents "multiple access on port" errors during parallel initialization
+                with _serial_port_lock:
+                    self.serial = serial.Serial(
+                        port=self.port,
+                        baudrate=self.baud,
+                        bytesize=serial.EIGHTBITS,
+                        parity=serial.PARITY_NONE,
+                        stopbits=serial.STOPBITS_ONE,
+                        timeout=self.timeout,
+                    )
+                    self._connected = True
+                    logger.info(f"[Pump {self.address}] ✅ Serial connection established")
 
-                # Small delay for pump to be ready
-                time.sleep(0.1)
+                    # Small delay for pump to be ready
+                    time.sleep(0.1)
 
                 # Verify connection by stopping pump (safe command)
+                # This can run outside the global lock since we now have our own connection
                 self._send_command(self.CMD_STOP)
                 logger.info(f"[Pump {self.address}] ✅ Connection verified (test command successful)")
 

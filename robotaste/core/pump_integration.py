@@ -476,28 +476,18 @@ def execute_pumps_synchronously(
         for ingredient, volume in stock_volumes.items():
             ui_log(f"  • {ingredient}: {volume:.1f} µL")
 
-        # 3. Initialize pumps
+        # 3. Initialize pumps (using session-persistent cache)
         ui_log("🔌 Connecting to pumps...")
 
-        serial_port = pump_config.get("serial_port")
-        baud_rate = pump_config.get("baud_rate", 19200)
+        # Import pump manager for session-persistent connections
+        from robotaste.core.pump_manager import get_or_create_pumps
+
         dispensing_rate = pump_config.get("dispensing_rate_ul_min", 2000)
         simultaneous = pump_config.get("simultaneous_dispensing", True)
 
-        pumps = {}
-        for pump_cfg in pump_configs:
-            address = pump_cfg.get("address")
-            ingredient = pump_cfg.get("ingredient")
-            diameter = pump_cfg.get("syringe_diameter_mm", 14.5)
-
-            ui_log(f"  Initializing Pump {address} ({ingredient})...")
-
-            pump = NE4000Pump(port=serial_port, address=address, baud=baud_rate, timeout=5.0)
-            pump.connect()
-            pump.set_diameter(diameter)
-
-            pumps[ingredient] = pump
-            ui_log(f"  ✅ Pump {address} connected and configured")
+        # Get or reuse pumps from cache
+        pumps = get_or_create_pumps(session_id, pump_config)
+        ui_log(f"✅ Pumps ready ({len(pumps)} pump(s) configured)")
 
         # 4. Execute dispensing
         if simultaneous:
@@ -553,11 +543,6 @@ def execute_pumps_synchronously(
         logger.exception("Pump execution error")
         return result
 
-    finally:
-        # Cleanup: disconnect all pumps
-        if 'pumps' in locals():
-            for ingredient, pump in pumps.items():
-                try:
-                    pump.disconnect()
-                except:
-                    pass
+    # NOTE: Pumps are NOT disconnected here - they are kept alive in the
+    # session cache for reuse in subsequent cycles. They will be cleaned up
+    # when the session completes (see robotaste/views/subject.py)

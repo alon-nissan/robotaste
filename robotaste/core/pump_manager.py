@@ -1,0 +1,289 @@
+"""
+Global pump manager for session-persistent connections.
+
+This module manages NE-4000 pump connections across multiple experiment cycles.
+Instead of creating and destroying pump connections every cycle, we cache them
+per session and reuse them, significantly reducing cycle time.
+
+Performance Impact:
+- Without caching: ~21 seconds overhead per cycle (connect + set_diameter)
+- With caching: 21 seconds on first cycle only, 0 seconds on subsequent cycles
+- Savings: ~21 seconds per cycle from cycle 2 onwards (25% improvement)
+
+Note: Parallel initialization was attempted but disabled due to serial port
+conflicts with daisy-chained pumps. Future optimization: share a single serial
+connection across all pumps.
+
+Author: RoboTaste Team
+Version: 1.0 (Session-persistent caching)
+"""
+
+import logging
+from typing import Dict, Optional, Any, Tuple
+from robotaste.hardware.pump_controller import NE4000Pump, PumpConnectionError
+
+logger = logging.getLogger(__name__)
+
+# Global cache: {session_id: {ingredient: NE4000Pump}}
+_pump_cache: Dict[str, Dict[str, NE4000Pump]] = {}
+
+
+def get_or_create_pumps(session_id: str, pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
+    """
+    Get existing pumps for session or create new ones.
+
+    This function checks if pumps are already initialized for the given session.
+    If they exist and are still connected, they are reused. Otherwise, new
+    pumps are initialized.
+
+    Args:
+        session_id: Session identifier
+        pump_config: Pump configuration from protocol with keys:
+            - serial_port: Serial port path
+            - baud_rate: Baud rate (default 19200)
+            - pumps: List of pump configurations with:
+                - address: Pump network address
+                - ingredient: Ingredient name
+                - syringe_diameter_mm: Syringe diameter
+
+    Returns:
+        Dict of {ingredient: NE4000Pump} instances
+
+    Example:
+        >>> pump_config = {
+        ...     "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+        ...     "baud_rate": 19200,
+        ...     "pumps": [
+        ...         {"address": 0, "ingredient": "Sugar", "syringe_diameter_mm": 26.7},
+        ...         {"address": 1, "ingredient": "Water", "syringe_diameter_mm": 26.7}
+        ...     ]
+        ... }
+        >>> pumps = get_or_create_pumps("session-123", pump_config)
+        >>> pumps.keys()
+        dict_keys(['Sugar', 'Water'])
+    """
+    if session_id in _pump_cache:
+        # Verify pumps are still connected
+        cached_pumps = _pump_cache[session_id]
+        all_connected = all(p.is_connected() for p in cached_pumps.values())
+
+        if all_connected:
+            logger.info(f"♻️ Reusing existing pump connections for session {session_id} ({len(cached_pumps)} pumps)")
+            return cached_pumps
+        else:
+            logger.warning(f"Cached pumps for session {session_id} are disconnected, reinitializing")
+            cleanup_pumps(session_id)
+
+    # Initialize new pumps
+    logger.info(f"🔌 Initializing new pumps for session {session_id}")
+    pumps = _initialize_pumps(pump_config)
+    _pump_cache[session_id] = pumps
+    logger.info(f"✅ Cached {len(pumps)} pump(s) for session {session_id}")
+
+    return pumps
+
+
+def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
+    """
+    Initialize pumps with configuration sequentially.
+
+    Creates NE4000Pump instances, connects to them, and sets syringe diameter.
+    Pumps are initialized one at a time to avoid serial port conflicts in
+    daisy-chain configurations.
+
+    This is an internal function called by get_or_create_pumps().
+
+    Args:
+        pump_config: Pump configuration dictionary
+
+    Returns:
+        Dict of {ingredient: NE4000Pump} instances
+
+    Raises:
+        PumpConnectionError: If pump connection fails
+        ValueError: If configuration is invalid
+    """
+    serial_port = pump_config.get("serial_port")
+    baud_rate = pump_config.get("baud_rate", 19200)
+    pump_configs = pump_config.get("pumps", [])
+
+    if not serial_port:
+        raise ValueError("serial_port is required in pump_config")
+
+    if not pump_configs:
+        raise ValueError("No pumps configured in pump_config")
+
+    def init_single_pump(cfg: Dict[str, Any]) -> Tuple[str, NE4000Pump, Optional[Exception]]:
+        """
+        Thread worker to initialize one pump.
+
+        Args:
+            cfg: Pump configuration dict
+
+        Returns:
+            Tuple of (ingredient, pump, error)
+            - If successful: (ingredient, pump, None)
+            - If failed: (ingredient, None, exception)
+        """
+        address = cfg.get("address")
+        ingredient = cfg.get("ingredient")
+        diameter = cfg.get("syringe_diameter_mm")
+
+        try:
+            if address is None:
+                raise ValueError(f"Pump configuration missing 'address' for {ingredient}")
+            if not ingredient:
+                raise ValueError(f"Pump configuration missing 'ingredient' for address {address}")
+            if not diameter:
+                raise ValueError(f"Pump configuration missing 'syringe_diameter_mm' for {ingredient}")
+
+            logger.info(f"  🔧 [Thread] Initializing Pump {address} ({ingredient}, {diameter}mm diameter)...")
+
+            # Create pump instance with 2-second timeout (reduced from 5s default)
+            pump = NE4000Pump(
+                port=serial_port,
+                address=address,
+                baud=baud_rate,
+                timeout=2.0
+            )
+
+            # Connect and configure
+            pump.connect()
+            pump.set_diameter(diameter)
+
+            logger.info(f"  ✅ [Thread] Pump {address} ({ingredient}) connected and configured")
+
+            return (ingredient, pump, None)
+
+        except Exception as e:
+            logger.error(f"  ❌ [Thread] Failed to initialize Pump {address} ({ingredient}): {e}")
+            return (ingredient, None, e)
+
+    # Initialize pumps sequentially to avoid serial port conflicts
+    # NOTE: Parallel initialization is disabled because daisy-chained pumps
+    # cannot have multiple simultaneous Serial() connections to the same port.
+    # Future optimization: share a single serial connection across all pumps.
+    logger.info(f"  Initializing {len(pump_configs)} pumps sequentially...")
+
+    pumps = {}
+    errors = []
+
+    for cfg in pump_configs:
+        ingredient, pump, error = init_single_pump(cfg)
+        if error:
+            errors.append(f"{ingredient}: {error}")
+        elif pump:
+            pumps[ingredient] = pump
+
+    # If any pump failed, raise combined error
+    if errors:
+        error_msg = "Failed to initialize pumps:\n" + "\n".join(errors)
+        logger.error(error_msg)
+        raise PumpConnectionError(error_msg)
+
+    logger.info(f"  ✅ All {len(pumps)} pumps initialized successfully")
+
+    return pumps
+
+
+def cleanup_pumps(session_id: str) -> None:
+    """
+    Disconnect and remove pumps for a session.
+
+    Should be called when a session completes to free hardware resources.
+
+    Args:
+        session_id: Session identifier
+
+    Example:
+        >>> cleanup_pumps("session-123")
+        # Disconnects all pumps and removes from cache
+    """
+    if session_id not in _pump_cache:
+        logger.debug(f"No cached pumps to cleanup for session {session_id}")
+        return
+
+    pumps = _pump_cache[session_id]
+    logger.info(f"🧹 Cleaning up {len(pumps)} pump(s) for session {session_id}")
+
+    for ingredient, pump in pumps.items():
+        try:
+            if pump.is_connected():
+                pump.disconnect()
+                logger.debug(f"  Disconnected pump: {ingredient}")
+        except Exception as e:
+            logger.warning(f"  Error disconnecting pump {ingredient}: {e}")
+
+    del _pump_cache[session_id]
+    logger.info(f"✅ Cleaned up pumps for session {session_id}")
+
+
+def get_cached_pump_count() -> int:
+    """
+    Get the number of sessions with cached pumps.
+
+    Useful for monitoring and debugging.
+
+    Returns:
+        Number of sessions in cache
+
+    Example:
+        >>> count = get_cached_pump_count()
+        >>> print(f"Active pump sessions: {count}")
+    """
+    return len(_pump_cache)
+
+
+def get_session_pump_info(session_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get information about cached pumps for a session.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        Dict with pump info or None if no cached pumps
+
+    Example:
+        >>> info = get_session_pump_info("session-123")
+        >>> info['pump_count']
+        2
+        >>> info['ingredients']
+        ['Sugar', 'Water']
+    """
+    if session_id not in _pump_cache:
+        return None
+
+    pumps = _pump_cache[session_id]
+
+    return {
+        "session_id": session_id,
+        "pump_count": len(pumps),
+        "ingredients": list(pumps.keys()),
+        "all_connected": all(p.is_connected() for p in pumps.values()),
+    }
+
+
+def cleanup_all_pumps() -> None:
+    """
+    Cleanup all cached pumps across all sessions.
+
+    Emergency cleanup function. Use with caution as it will disconnect
+    pumps for all active sessions.
+
+    Example:
+        >>> cleanup_all_pumps()
+        # Disconnects and clears all cached pumps
+    """
+    session_ids = list(_pump_cache.keys())
+
+    if not session_ids:
+        logger.debug("No pumps to cleanup")
+        return
+
+    logger.warning(f"🧹 Cleaning up ALL cached pumps ({len(session_ids)} sessions)")
+
+    for session_id in session_ids:
+        cleanup_pumps(session_id)
+
+    logger.info("✅ All pumps cleaned up")

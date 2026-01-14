@@ -1082,6 +1082,14 @@ def subject_interface():
             st.rerun()
     
     elif current_phase_str == ExperimentPhase.COMPLETE.value:
+        # Cleanup pumps when session completes
+        try:
+            from robotaste.core.pump_manager import cleanup_pumps
+            cleanup_pumps(st.session_state.session_id)
+            logger.info(f"Cleaned up pumps for session {st.session_state.session_id}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up pumps: {e}")
+
         from robotaste.views.completion import show_subject_completion_screen
         show_subject_completion_screen()
 
