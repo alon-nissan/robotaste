@@ -11,11 +11,11 @@ Protocol details from NE-4000 User Manual:
 - Safe mode with CRC checking and timeout detection
 """
 
-import serial
+import serial  # pip install pyserial
 import time
 import logging
 from typing import Optional, Literal
-from threading import Lock
+from threading import RLock
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,16 +23,19 @@ logger = logging.getLogger(__name__)
 
 class PumpConnectionError(Exception):
     """Raised when serial port connection fails."""
+
     pass
 
 
 class PumpCommandError(Exception):
     """Raised when pump returns an error response."""
+
     pass
 
 
 class PumpTimeoutError(Exception):
     """Raised when pump doesn't respond within timeout period."""
+
     pass
 
 
@@ -69,14 +72,17 @@ class NE4000Pump:
     # Rate units
     UNIT_UL_MIN = "UM"  # µL/min
     UNIT_ML_MIN = "MM"  # mL/min
-    UNIT_UL_HR = "UH"   # µL/hr
-    UNIT_ML_HR = "MH"   # mL/hr
+    UNIT_UL_HR = "UH"  # µL/hr
+    UNIT_ML_HR = "MH"  # mL/hr
 
-    # Status responses
-    STATUS_IDLE = ":"
-    STATUS_RUNNING = ">"
-    STATUS_STALLED = "*"
-    STATUS_PAUSED = "T"
+    # Status responses (per NE-4000 manual page 33)
+    STATUS_INFUSING = "I"
+    STATUS_WITHDRAWING = "W"
+    STATUS_STOPPED = "S"
+    STATUS_PAUSED = "P"
+    STATUS_TIMED_PAUSE = "T"
+    STATUS_USER_WAIT = "U"
+    STATUS_PURGING = "X"
 
     def __init__(
         self,
@@ -84,7 +90,7 @@ class NE4000Pump:
         address: int = 0,
         baud: int = 19200,
         timeout: float = 5.0,
-        max_retries: int = 3
+        max_retries: int = 3,
     ):
         """
         Initialize pump controller.
@@ -103,8 +109,9 @@ class NE4000Pump:
         self.max_retries = max_retries
 
         self.serial: Optional[serial.Serial] = None
-        self._lock = Lock()  # Thread-safe operation
+        self._lock = RLock()  # Thread-safe operation
         self._connected = False
+        self._current_rate_ul_min: Optional[float] = None  # Track current rate for time calculations
 
         # Validate parameters
         if not 0 <= address <= 99:
@@ -133,10 +140,12 @@ class NE4000Pump:
                     bytesize=serial.EIGHTBITS,
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
-                    timeout=self.timeout
+                    timeout=self.timeout,
                 )
                 self._connected = True
-                logger.info(f"Connected to pump {self.address} on {self.port} at {self.baud} baud")
+                logger.info(
+                    f"Connected to pump {self.address} on {self.port} at {self.baud} baud"
+                )
 
                 # Small delay for pump to be ready
                 time.sleep(0.1)
@@ -190,9 +199,7 @@ class NE4000Pump:
         logger.info(f"Pump {self.address}: Set diameter to {diameter_mm:.3f} mm")
 
     def set_rate(
-        self,
-        rate: float,
-        unit: Literal["UM", "MM", "UH", "MH"] = "UM"
+        self, rate: float, unit: Literal["UM", "MM", "UH", "MH"] = "UM"
     ) -> None:
         """
         Set pumping rate.
@@ -216,6 +223,16 @@ class NE4000Pump:
         self._send_command(cmd)
         logger.info(f"Pump {self.address}: Set rate to {rate:.3f} {unit}")
 
+        # Store rate in µL/min for time calculations
+        if unit == "UM":
+            self._current_rate_ul_min = rate
+        elif unit == "MM":
+            self._current_rate_ul_min = rate * 1000
+        elif unit == "UH":
+            self._current_rate_ul_min = rate / 60
+        elif unit == "MH":
+            self._current_rate_ul_min = (rate * 1000) / 60
+
     def set_volume(self, volume_ul: float) -> None:
         """
         Set volume to dispense (does not start pumping).
@@ -235,7 +252,9 @@ class NE4000Pump:
 
         cmd = f"{self.CMD_VOLUME} {volume_ml:.6f}"
         self._send_command(cmd)
-        logger.info(f"Pump {self.address}: Set volume to {volume_ul:.3f} µL ({volume_ml:.6f} mL)")
+        logger.info(
+            f"Pump {self.address}: Set volume to {volume_ul:.3f} µL ({volume_ml:.6f} mL)"
+        )
 
     def set_direction(self, direction: Literal["INF", "WDR"]) -> None:
         """
@@ -294,18 +313,18 @@ class NE4000Pump:
         status_char = response[0] if response else "?"
 
         status_map = {
-            self.STATUS_IDLE: "idle",
-            self.STATUS_RUNNING: "running",
-            self.STATUS_STALLED: "stalled",
+            self.STATUS_INFUSING: "infusing",
+            self.STATUS_WITHDRAWING: "withdrawing",
+            self.STATUS_STOPPED: "stopped",
             self.STATUS_PAUSED: "paused",
+            self.STATUS_TIMED_PAUSE: "timed_pause",
+            self.STATUS_USER_WAIT: "user_wait",
+            self.STATUS_PURGING: "purging",
         }
 
         status_text = status_map.get(status_char, "unknown")
 
-        return {
-            "status": status_text,
-            "raw_response": response
-        }
+        return {"status": status_text, "raw_response": response}
 
     def is_running(self) -> bool:
         """Check if pump is currently running."""
@@ -317,20 +336,14 @@ class NE4000Pump:
             return False
 
     def dispense_volume(
-        self,
-        volume_ul: float,
-        rate_ul_min: Optional[float] = None,
-        wait: bool = True
+        self, volume_ul: float, rate_ul_min: Optional[float] = None, wait: bool = True
     ) -> None:
         """
         Dispense a specific volume (high-level convenience method).
 
-        This method combines multiple commands:
-        1. Set direction to infuse
-        2. Set rate (if specified)
-        3. Set volume
-        4. Start pumping
-        5. Optionally wait for completion
+        Uses time-based completion: calculates expected dispense time, waits, then
+        explicitly stops the pump. The NE-4000 does NOT automatically stop after
+        dispensing a programmed volume - it requires an explicit STOP command.
 
         Args:
             volume_ul: Volume to dispense in microliters
@@ -338,6 +351,7 @@ class NE4000Pump:
             wait: If True, block until dispensing completes
 
         Raises:
+            ValueError: If rate is not specified and no current rate is set
             PumpCommandError: If any command fails
         """
         logger.info(f"Pump {self.address}: Dispensing {volume_ul:.3f} µL")
@@ -349,15 +363,34 @@ class NE4000Pump:
         if rate_ul_min is not None:
             self.set_rate(rate_ul_min, self.UNIT_UL_MIN)
 
+        # Ensure rate is known for time calculation
+        if self._current_rate_ul_min is None:
+            raise ValueError(
+                "Rate must be specified either via rate_ul_min parameter or by calling set_rate() first"
+            )
+
         # Set volume
         self.set_volume(volume_ul)
+
+        # Calculate expected dispense time
+        expected_time_seconds = (volume_ul / self._current_rate_ul_min) * 60.0
 
         # Start pumping
         self.start()
 
         # Wait for completion if requested
         if wait:
-            self.wait_until_complete()
+            # Wait for expected time plus 10% buffer for pump acceleration/deceleration
+            wait_time = expected_time_seconds * 1.1
+            logger.debug(
+                f"Pump {self.address}: Waiting {wait_time:.2f}s for {volume_ul:.3f} µL "
+                f"at {self._current_rate_ul_min:.2f} µL/min"
+            )
+            time.sleep(wait_time)
+
+            # Explicitly stop the pump
+            self.stop()
+            logger.info(f"Pump {self.address}: Completed dispensing")
 
     def wait_until_complete(self, poll_interval: float = 0.5) -> None:
         """
@@ -374,15 +407,17 @@ class NE4000Pump:
         while True:
             status = self.get_status()
 
-            if status["status"] == "idle":
+            if status["status"] == "stopped":
                 logger.info(f"Pump {self.address}: Completed")
                 break
-            elif status["status"] == "stalled":
-                raise PumpCommandError(f"Pump {self.address} stalled - check syringe")
-            elif status["status"] == "running":
+            elif status["status"] in ["infusing", "withdrawing"]:
                 time.sleep(poll_interval)
             else:
-                # Paused or unknown - continue polling
+                # Paused, unknown, or other status - log and continue polling
+                logger.warning(
+                    f"Pump {self.address}: Unknown status '{status['status']}' "
+                    f"(raw: {status['raw_response']})"
+                )
                 time.sleep(poll_interval)
 
     def _send_command(self, command: str, retry: bool = True) -> str:
@@ -420,28 +455,35 @@ class NE4000Pump:
                     self.serial.reset_input_buffer()
 
                     # Send command
-                    self.serial.write(full_command.encode('ascii'))
+                    self.serial.write(full_command.encode("ascii"))
                     logger.debug(f"Sent: {full_command.strip()}")
 
                     # Read response (terminated by \r or \n)
-                    response = self.serial.read_until(b'\r').decode('ascii').strip()
+                    response = self.serial.read_until(b"\r").decode("ascii").strip()
 
                     if not response:
                         # Try reading with \n terminator
-                        response = self.serial.read_until(b'\n').decode('ascii').strip()
+                        response = self.serial.read_until(b"\n").decode("ascii").strip()
 
                     if not response:
                         raise PumpTimeoutError(f"No response from pump {self.address}")
 
-                    logger.debug(f"Received: {response}")
+                    logger.debug(f"Received: {response!r}")
+
+                    # Strip STX/ETX framing characters (0x02 start, 0x03 end)
+                    if response.startswith("\x02"):
+                        response = response[1:]
+                    if response.endswith("\x03"):
+                        response = response[:-1]
+
+                    # Strip 2-digit address prefix if present (e.g., "00P" -> "P")
+                    if len(response) >= 2 and response[0:2].isdigit():
+                        response = response[2:]
+                        logger.debug(f"After stripping frames and address: {response!r}")
 
                     # Check for error indicators
                     if response.startswith("?"):
                         raise PumpCommandError(f"Pump error: {response}")
-
-                    # Strip prompt character (first char)
-                    if len(response) > 0 and response[0] in [':', '>', '*', 'T']:
-                        response = response[1:]
 
                     return response
 
@@ -449,7 +491,9 @@ class NE4000Pump:
                 last_error = e
                 if attempt < attempts:
                     wait_time = 0.1 * (2 ** (attempt - 1))  # Exponential backoff
-                    logger.warning(f"Attempt {attempt}/{attempts} failed: {e}. Retrying in {wait_time:.2f}s")
+                    logger.warning(
+                        f"Attempt {attempt}/{attempts} failed: {e}. Retrying in {wait_time:.2f}s"
+                    )
                     time.sleep(wait_time)
                 else:
                     logger.error(f"All {attempts} attempts failed")
@@ -479,4 +523,6 @@ class NE4000Pump:
     def __repr__(self):
         """String representation."""
         status = "connected" if self.is_connected() else "disconnected"
-        return f"<NE4000Pump(address={self.address}, port={self.port}, status={status})>"
+        return (
+            f"<NE4000Pump(address={self.address}, port={self.port}, status={status})>"
+        )
