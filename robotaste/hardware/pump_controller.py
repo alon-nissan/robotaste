@@ -128,9 +128,11 @@ class NE4000Pump:
         Raises:
             PumpConnectionError: If connection fails
         """
+        logger.info(f"[Pump {self.address}] Attempting connection to {self.port} at {self.baud} baud")
+
         with self._lock:
             if self._connected:
-                logger.warning(f"Pump {self.address} already connected")
+                logger.warning(f"[Pump {self.address}] Already connected")
                 return
 
             try:
@@ -143,23 +145,24 @@ class NE4000Pump:
                     timeout=self.timeout,
                 )
                 self._connected = True
-                logger.info(
-                    f"Connected to pump {self.address} on {self.port} at {self.baud} baud"
-                )
+                logger.info(f"[Pump {self.address}] ✅ Serial connection established")
 
                 # Small delay for pump to be ready
                 time.sleep(0.1)
 
                 # Verify connection by stopping pump (safe command)
                 self._send_command(self.CMD_STOP)
+                logger.info(f"[Pump {self.address}] ✅ Connection verified (test command successful)")
 
             except serial.SerialException as e:
+                logger.error(f"[Pump {self.address}] ❌ Connection failed: {e}", exc_info=True)
                 raise PumpConnectionError(f"Failed to connect to {self.port}: {e}")
             except Exception as e:
                 if self.serial:
                     self.serial.close()
                     self.serial = None
                 self._connected = False
+                logger.error(f"[Pump {self.address}] ❌ Connection error: {e}", exc_info=True)
                 raise PumpConnectionError(f"Connection error: {e}")
 
     def disconnect(self) -> None:
@@ -194,9 +197,10 @@ class NE4000Pump:
         if not 0.1 <= diameter_mm <= 50.0:
             raise ValueError(f"Diameter must be 0.1-50.0 mm, got {diameter_mm}")
 
+        logger.info(f"[Pump {self.address}] Setting syringe diameter: {diameter_mm:.3f} mm")
         cmd = f"{self.CMD_DIAMETER} {diameter_mm:.3f}"
-        self._send_command(cmd)
-        logger.info(f"Pump {self.address}: Set diameter to {diameter_mm:.3f} mm")
+        response = self._send_command(cmd)
+        logger.info(f"[Pump {self.address}] ✅ Diameter set successfully (response: {response})")
 
     def set_rate(
         self, rate: float, unit: Literal["UM", "MM", "UH", "MH"] = "UM"
@@ -219,9 +223,9 @@ class NE4000Pump:
         if unit not in valid_units:
             raise ValueError(f"Unit must be one of {valid_units}, got {unit}")
 
+        logger.info(f"[Pump {self.address}] Setting rate: {rate:.3f} {unit}")
         cmd = f"{self.CMD_RATE} {rate:.3f} {unit}"
-        self._send_command(cmd)
-        logger.info(f"Pump {self.address}: Set rate to {rate:.3f} {unit}")
+        response = self._send_command(cmd)
 
         # Store rate in µL/min for time calculations
         if unit == "UM":
@@ -232,6 +236,10 @@ class NE4000Pump:
             self._current_rate_ul_min = rate / 60
         elif unit == "MH":
             self._current_rate_ul_min = (rate * 1000) / 60
+
+        logger.info(
+            f"[Pump {self.address}] ✅ Rate set: {self._current_rate_ul_min:.1f} µL/min (response: {response})"
+        )
 
     def set_volume(self, volume_ul: float) -> None:
         """
@@ -250,11 +258,10 @@ class NE4000Pump:
         # Convert µL to mL for pump command
         volume_ml = volume_ul / 1000.0
 
+        logger.info(f"[Pump {self.address}] Programming volume: {volume_ul:.1f} µL ({volume_ml:.6f} mL)")
         cmd = f"{self.CMD_VOLUME} {volume_ml:.6f}"
-        self._send_command(cmd)
-        logger.info(
-            f"Pump {self.address}: Set volume to {volume_ul:.3f} µL ({volume_ml:.6f} mL)"
-        )
+        response = self._send_command(cmd)
+        logger.info(f"[Pump {self.address}] ✅ Volume programmed (response: {response})")
 
     def set_direction(self, direction: Literal["INF", "WDR"]) -> None:
         """
@@ -270,9 +277,11 @@ class NE4000Pump:
         if direction not in [self.DIR_INFUSE, self.DIR_WITHDRAW]:
             raise ValueError(f"Direction must be 'INF' or 'WDR', got {direction}")
 
+        direction_name = "INFUSE" if direction == self.DIR_INFUSE else "WITHDRAW"
+        logger.info(f"[Pump {self.address}] Setting direction to {direction_name}")
         cmd = f"{self.CMD_DIRECTION} {direction}"
-        self._send_command(cmd)
-        logger.info(f"Pump {self.address}: Set direction to {direction}")
+        response = self._send_command(cmd)
+        logger.info(f"[Pump {self.address}] ✅ Direction set (response: {response})")
 
     def start(self) -> None:
         """
@@ -281,8 +290,9 @@ class NE4000Pump:
         Raises:
             PumpCommandError: If pump rejects command
         """
-        self._send_command(self.CMD_RUN)
-        logger.info(f"Pump {self.address}: Started pumping")
+        logger.info(f"[Pump {self.address}] ▶️  Starting pump motor...")
+        response = self._send_command(self.CMD_RUN)
+        logger.info(f"[Pump {self.address}] ✅ Pump motor running (response: {response})")
 
     def stop(self) -> None:
         """
@@ -291,8 +301,9 @@ class NE4000Pump:
         Raises:
             PumpCommandError: If pump rejects command
         """
-        self._send_command(self.CMD_STOP)
-        logger.info(f"Pump {self.address}: Stopped")
+        logger.info(f"[Pump {self.address}] ⏹️  Stopping pump motor...")
+        response = self._send_command(self.CMD_STOP)
+        logger.info(f"[Pump {self.address}] ✅ Pump stopped (response: {response})")
 
     def get_status(self) -> dict:
         """
@@ -354,7 +365,8 @@ class NE4000Pump:
             ValueError: If rate is not specified and no current rate is set
             PumpCommandError: If any command fails
         """
-        logger.info(f"Pump {self.address}: Dispensing {volume_ul:.3f} µL")
+        logger.info(f"[Pump {self.address}] ━━━ Starting dispense operation ━━━")
+        logger.info(f"[Pump {self.address}] Volume: {volume_ul:.1f} µL")
 
         # Set direction to infuse
         self.set_direction(self.DIR_INFUSE)
@@ -369,28 +381,28 @@ class NE4000Pump:
                 "Rate must be specified either via rate_ul_min parameter or by calling set_rate() first"
             )
 
-        # Set volume
-        self.set_volume(volume_ul)
-
         # Calculate expected dispense time
         expected_time_seconds = (volume_ul / self._current_rate_ul_min) * 60.0
+        wait_time = expected_time_seconds * 1.1  # 10% buffer
+        logger.info(
+            f"[Pump {self.address}] Expected time: {expected_time_seconds:.2f}s (with buffer: {wait_time:.2f}s)"
+        )
+
+        # Set volume
+        self.set_volume(volume_ul)
 
         # Start pumping
         self.start()
 
         # Wait for completion if requested
         if wait:
-            # Wait for expected time plus 10% buffer for pump acceleration/deceleration
-            wait_time = expected_time_seconds * 1.1
-            logger.debug(
-                f"Pump {self.address}: Waiting {wait_time:.2f}s for {volume_ul:.3f} µL "
-                f"at {self._current_rate_ul_min:.2f} µL/min"
-            )
+            logger.info(f"[Pump {self.address}] ⏳ Dispensing... ({wait_time:.2f}s)")
             time.sleep(wait_time)
 
             # Explicitly stop the pump
             self.stop()
-            logger.info(f"Pump {self.address}: Completed dispensing")
+            logger.info(f"[Pump {self.address}] ✅ Dispense complete: {volume_ul:.1f} µL delivered")
+            logger.info(f"[Pump {self.address}] ━━━ Operation finished ━━━")
 
     def wait_until_complete(self, poll_interval: float = 0.5) -> None:
         """
@@ -456,7 +468,7 @@ class NE4000Pump:
 
                     # Send command
                     self.serial.write(full_command.encode("ascii"))
-                    logger.debug(f"Sent: {full_command.strip()}")
+                    logger.debug(f"[Pump {self.address}] → Sending: {full_command.strip()!r}")
 
                     # Read response (terminated by \r or \n)
                     response = self.serial.read_until(b"\r").decode("ascii").strip()
@@ -468,7 +480,7 @@ class NE4000Pump:
                     if not response:
                         raise PumpTimeoutError(f"No response from pump {self.address}")
 
-                    logger.debug(f"Received: {response!r}")
+                    logger.debug(f"[Pump {self.address}] ← Received: {response!r}")
 
                     # Strip STX/ETX framing characters (0x02 start, 0x03 end)
                     if response.startswith("\x02"):
@@ -479,10 +491,11 @@ class NE4000Pump:
                     # Strip 2-digit address prefix if present (e.g., "00P" -> "P")
                     if len(response) >= 2 and response[0:2].isdigit():
                         response = response[2:]
-                        logger.debug(f"After stripping frames and address: {response!r}")
+                        logger.debug(f"[Pump {self.address}] After stripping frames and address: {response!r}")
 
                     # Check for error indicators
                     if response.startswith("?"):
+                        logger.error(f"[Pump {self.address}] ❌ Pump error: {response}")
                         raise PumpCommandError(f"Pump error: {response}")
 
                     return response
@@ -492,11 +505,11 @@ class NE4000Pump:
                 if attempt < attempts:
                     wait_time = 0.1 * (2 ** (attempt - 1))  # Exponential backoff
                     logger.warning(
-                        f"Attempt {attempt}/{attempts} failed: {e}. Retrying in {wait_time:.2f}s"
+                        f"[Pump {self.address}] Attempt {attempt}/{attempts} failed: {e}. Retrying in {wait_time:.2f}s"
                     )
                     time.sleep(wait_time)
                 else:
-                    logger.error(f"All {attempts} attempts failed")
+                    logger.error(f"[Pump {self.address}] ❌ All {attempts} attempts failed")
                     raise
 
             except Exception as e:

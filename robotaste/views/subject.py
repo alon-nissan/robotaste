@@ -50,6 +50,24 @@ from robotaste.data.database import update_user_profile, create_user
 logger = logging.getLogger(__name__)
 
 
+def get_next_phase_after_selection(session_id: str) -> ExperimentPhase:
+    """
+    Determine next phase after selection based on pump configuration.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        ExperimentPhase.ROBOT_PREPARING if pumps are enabled,
+        ExperimentPhase.LOADING otherwise
+    """
+    protocol = get_session_protocol(session_id)
+    pump_config = protocol.get("pump_config", {}) if protocol else {}
+    pump_enabled = pump_config.get("enabled", False)
+
+    return ExperimentPhase.ROBOT_PREPARING if pump_enabled else ExperimentPhase.LOADING
+
+
 def transition_to_next_phase(
     current_phase_str: str,
     default_next_phase: ExperimentPhase,
@@ -148,9 +166,10 @@ def render_instructions_screen():
     understand_checkbox = st.checkbox("I understand the instructions.")
 
     if st.button("Start Tasting", disabled=not understand_checkbox):
+        next_phase = get_next_phase_after_selection(st.session_state.session_id)
         transition_to_next_phase(
             current_phase_str=ExperimentPhase.INSTRUCTIONS.value,
-            default_next_phase=ExperimentPhase.LOADING,
+            default_next_phase=next_phase,
             session_id=st.session_state.session_id
         )
         st.rerun()
@@ -262,9 +281,10 @@ def grid_interface(cycle_data: dict):
             "sample_id": sample_id,
         }
 
+        next_phase = get_next_phase_after_selection(st.session_state.session_id)
         state_helpers.transition(
             state_helpers.get_current_phase(),
-            new_phase=ExperimentPhase.LOADING,
+            new_phase=next_phase,
             session_id=st.session_state.session_id,
         )
         st.session_state.current_tasted_sample = predetermined_concentrations.copy()
@@ -370,7 +390,8 @@ def grid_interface(cycle_data: dict):
                         "sample_id": sample_id,
                     }
                     
-                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+                    next_phase = get_next_phase_after_selection(st.session_state.session_id)
+                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
                     st.session_state.current_tasted_sample = ingredient_concentrations.copy()
                     st.session_state.override_bo = False # Reset for next cycle
                     st.rerun()
@@ -446,8 +467,9 @@ def grid_interface(cycle_data: dict):
                                 "selection_mode": final_selection_mode,
                                 "sample_id": sample_id,
                             }
-                            
-                            state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+
+                            next_phase = get_next_phase_after_selection(st.session_state.session_id)
+                            state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
                             st.session_state.current_tasted_sample = ingredient_concentrations.copy()
                             st.session_state.override_bo = False # Reset for next cycle
                             st.rerun()
@@ -536,9 +558,10 @@ def single_variable_interface(cycle_data: dict):
             "sample_id": sample_id,
         }
 
+        next_phase = get_next_phase_after_selection(st.session_state.session_id)
         state_helpers.transition(
             state_helpers.get_current_phase(),
-            new_phase=ExperimentPhase.LOADING,
+            new_phase=next_phase,
             session_id=st.session_state.session_id,
         )
         st.session_state.current_tasted_sample = predetermined_concentrations.copy()
@@ -582,7 +605,8 @@ def single_variable_interface(cycle_data: dict):
                         "sample_id": sample_id,
                     }
                     
-                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=ExperimentPhase.LOADING, session_id=st.session_state.session_id)
+                    next_phase = get_next_phase_after_selection(st.session_state.session_id)
+                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
                     st.session_state.current_tasted_sample = ingredient_concentrations.copy()
                     st.session_state.override_bo = False
                     st.rerun()
@@ -821,67 +845,54 @@ def subject_interface():
         cycle_num = get_current_cycle(st.session_state.session_id)
         protocol = get_session_protocol(st.session_state.session_id)
 
-        # Create pump operation if needed (only on first render)
-        from robotaste.core.pump_integration import (
-            create_pump_operation_for_cycle,
-            check_pump_operation_status
-        )
-
         # Check if pump control is enabled
         pump_config = protocol.get("pump_config", {}) if protocol else {}
         pump_enabled = pump_config.get("enabled", False)
 
         if pump_enabled:
-            # Try to create pump operation (will skip if already exists)
-            create_pump_operation_for_cycle(
-                session_id=st.session_state.session_id,
-                cycle_number=cycle_num
-            )
+            st.info("🤖 Robot is preparing your sample...")
 
-            # Check operation status
-            pump_status = check_pump_operation_status(st.session_state.session_id)
+            # Create container for pump logs
+            pump_log_container = st.container()
 
-            if pump_status:
-                # Show pump operation progress
-                st.info("Robot is preparing your sample...")
+            # Execute pumps synchronously
+            from robotaste.core.pump_integration import execute_pumps_synchronously
 
-                status_text = {
-                    "pending": "Waiting to start dispensing...",
-                    "in_progress": "Dispensing ingredients...",
-                    "completed": "Sample ready!",
-                    "failed": f"Error: {pump_status.get('error_message', 'Unknown error')}"
-                }
+            with pump_log_container:
+                st.markdown("### Pump Operation Log")
 
-                st.write(status_text.get(pump_status["status"], "Processing..."))
+                result = execute_pumps_synchronously(
+                    session_id=st.session_state.session_id,
+                    cycle_number=cycle_num,
+                    streamlit_container=st  # Pass streamlit for UI logging
+                )
 
-                # Show recipe being dispensed
-                if pump_status.get("recipe"):
-                    with st.expander("Dispensing Details", expanded=False):
-                        for ingredient, volume_ul in pump_status["recipe"].items():
-                            st.write(f"- {ingredient}: {volume_ul:.1f} µL")
+            # Check result
+            if result["success"]:
+                st.success(f"✅ Sample prepared successfully in {result['duration']:.1f}s")
 
-                # Auto-advance when completed
-                if pump_status["status"] == "completed":
-                    time.sleep(1)  # Brief pause before advancing
-                    transition_to_next_phase(
-                        current_phase_str=current_phase_str,
-                        default_next_phase=ExperimentPhase.QUESTIONNAIRE,
-                        session_id=st.session_state.session_id,
-                        current_cycle=cycle_num
-                    )
-                    st.rerun()
-                elif pump_status["status"] == "failed":
-                    st.error("Pump operation failed. Please contact the moderator.")
-                    st.stop()
-                else:
-                    # Still in progress, rerun to update status
-                    time.sleep(0.5)
-                    st.rerun()
-            else:
-                # No pump operation found
-                st.warning("No pump operation created. Waiting...")
+                # Show recipe details
+                with st.expander("📊 Dispensing Summary", expanded=False):
+                    for ingredient, volume in result["recipe"].items():
+                        st.write(f"• {ingredient}: {volume:.1f} µL")
+
+                # Brief pause before advancing
                 time.sleep(1)
+
+                # Transition to next phase
+                transition_to_next_phase(
+                    current_phase_str=current_phase_str,
+                    default_next_phase=ExperimentPhase.QUESTIONNAIRE,
+                    session_id=st.session_state.session_id,
+                    current_cycle=cycle_num
+                )
                 st.rerun()
+
+            else:
+                st.error(f"❌ Pump operation failed: {result['error']}")
+                st.error("Please check the logs and try again, or contact the moderator.")
+                st.stop()
+
         else:
             # Pump control disabled, use standard loading screen
             # Get total cycles from protocol stopping criteria
@@ -925,11 +936,28 @@ def subject_interface():
         from robotaste.utils.ui_helpers import get_loading_screen_config, render_loading_screen
         loading_config = get_loading_screen_config(protocol)
 
+        # Check if we should use dynamic pump time
+        pump_config = protocol.get("pump_config", {}) if protocol else {}
+        loading_screen_config = protocol.get("loading_screen", {}) if protocol else {}
+        use_dynamic = loading_screen_config.get("use_dynamic_duration", False)
+
+        if pump_config.get("enabled") and use_dynamic:
+            # Use calculated pump time if available
+            pump_time_key = f"pump_time_cycle_{cycle_num}"
+            if pump_time_key in st.session_state:
+                duration_seconds = int(st.session_state[pump_time_key]) + 2  # Add 2s for safety
+                logger.info(f"Using dynamic loading duration: {duration_seconds}s (from pump time)")
+            else:
+                duration_seconds = loading_config.get("duration_seconds", 5)
+        else:
+            duration_seconds = loading_config.get("duration_seconds", 5)
+
         # Render dedicated loading screen
         render_loading_screen(
             cycle_number=cycle_num,
             total_cycles=total_cycles,
-            **loading_config
+            duration_seconds=duration_seconds,
+            **{k: v for k, v in loading_config.items() if k != "duration_seconds"}
         )
 
         # Transition to next phase
@@ -1028,11 +1056,13 @@ def subject_interface():
                 "mode": cycle_info['mode'],
                 "timestamp": datetime.now().isoformat()
             }
-            # Auto-transition to LOADING (skip user selection UI)
-            logger.info(f"Auto-advancing to LOADING for {cycle_info['mode']} sample")
+
+            # Check if pump control is enabled to determine next phase
+            next_phase = get_next_phase_after_selection(st.session_state.session_id)
+            logger.info(f"Auto-advancing to {next_phase.value} for {cycle_info['mode']} sample")
             state_helpers.transition(
                 state_helpers.get_current_phase(),
-                new_phase=ExperimentPhase.LOADING,
+                new_phase=next_phase,
                 session_id=st.session_state.session_id
             )
             st.rerun()

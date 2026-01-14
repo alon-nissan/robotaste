@@ -235,99 +235,219 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
 
     # Get dispensing parameters
     dispensing_rate = pump_config.get('dispensing_rate_ul_min', 2000)
+    simultaneous = pump_config.get('simultaneous_dispensing', False)
 
     # Track actual dispensed volumes
     actual_volumes = {}
     errors = []
 
-    # Dispense each ingredient
-    for ingredient, volume_ul in recipe.items():
-        logger.info(f"Dispensing {volume_ul:.3f} µL of {ingredient}")
+    if simultaneous:
+        # Simultaneous dispensing - start all pumps, then wait
+        logger.info(f"Starting simultaneous dispensing of {len(recipe)} ingredients")
 
-        # Get pump for this ingredient
-        pump = get_pump_for_ingredient(ingredient, pump_config)
+        # Prepare pump list
+        pump_info = []
 
-        if not pump:
-            error_msg = f"No pump configured for ingredient '{ingredient}'"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            log_pump_command(
-                operation_id=operation_id,
-                pump_address=-1,
-                command=f"DISPENSE {ingredient}",
-                success=False,
-                error_message=error_msg,
-                db_path=db_path
-            )
-            continue
+        for ingredient, volume_ul in recipe.items():
+            pump = get_pump_for_ingredient(ingredient, pump_config)
 
-        if not pump.is_connected():
-            error_msg = f"Pump for {ingredient} (address {pump.address}) is not connected"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            log_pump_command(
-                operation_id=operation_id,
-                pump_address=pump.address,
-                command=f"DISPENSE {volume_ul} UL",
-                success=False,
-                error_message=error_msg,
-                db_path=db_path
-            )
-            continue
+            if not pump:
+                error_msg = f"No pump configured for ingredient '{ingredient}'"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=-1,
+                    command=f"DISPENSE {ingredient}",
+                    success=False,
+                    error_message=error_msg,
+                    db_path=db_path
+                )
+                continue
 
-        try:
-            # Log start
-            log_pump_command(
-                operation_id=operation_id,
-                pump_address=pump.address,
-                command=f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min",
-                response=None,
-                success=True,
-                db_path=db_path
-            )
+            if not pump.is_connected():
+                error_msg = f"Pump for {ingredient} (address {pump.address}) is not connected"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"DISPENSE {volume_ul} UL",
+                    success=False,
+                    error_message=error_msg,
+                    db_path=db_path
+                )
+                continue
 
-            # Dispense volume (this will block until complete)
-            pump.dispense_volume(
-                volume_ul=volume_ul,
-                rate_ul_min=dispensing_rate,
-                wait=True
-            )
+            pump_info.append((ingredient, pump, volume_ul))
 
-            # Record actual volume (assuming successful dispense = requested volume)
-            actual_volumes[ingredient] = volume_ul
+        if errors:
+            error_summary = "; ".join(errors)
+            raise Exception(f"Cannot start simultaneous dispensing: {error_summary}")
 
-            # Log completion
-            log_pump_command(
-                operation_id=operation_id,
-                pump_address=pump.address,
-                command=f"COMPLETED DISPENSE",
-                response=f"Dispensed {volume_ul:.3f} µL",
-                success=True,
-                db_path=db_path
-            )
+        # Start all pumps without waiting
+        for ingredient, pump, volume_ul in pump_info:
+            try:
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min",
+                    response=None,
+                    success=True,
+                    db_path=db_path
+                )
 
-            logger.info(f"Successfully dispensed {volume_ul:.3f} µL of {ingredient}")
+                pump.dispense_volume(
+                    volume_ul=volume_ul,
+                    rate_ul_min=dispensing_rate,
+                    wait=False  # Don't wait, start next pump
+                )
+                logger.info(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL")
 
-        except (PumpCommandError, PumpTimeoutError) as e:
-            error_msg = f"Pump error dispensing {ingredient}: {str(e)}"
-            logger.error(error_msg)
-            errors.append(error_msg)
+            except (PumpCommandError, PumpTimeoutError) as e:
+                error_msg = f"Failed to start pump for {ingredient}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"START DISPENSE {volume_ul} UL",
+                    success=False,
+                    error_message=str(e),
+                    db_path=db_path
+                )
 
-            # Log error
-            log_pump_command(
-                operation_id=operation_id,
-                pump_address=pump.address,
-                command=f"DISPENSE {volume_ul} UL",
-                success=False,
-                error_message=str(e),
-                db_path=db_path
-            )
+        if errors:
+            # Stop all pumps if any failed to start
+            for ingredient, pump, volume_ul in pump_info:
+                try:
+                    pump.stop()
+                except:
+                    pass
+            error_summary = "; ".join(errors)
+            raise Exception(f"Failed to start pumps: {error_summary}")
 
-            # Stop pump for safety
+        # Calculate max wait time
+        max_time = 0
+        for ingredient, pump, volume_ul in pump_info:
+            time_needed = (volume_ul / dispensing_rate) * 60 * 1.1  # 10% buffer
+            max_time = max(max_time, time_needed)
+
+        logger.info(f"Waiting {max_time:.2f}s for all pumps to complete")
+        time.sleep(max_time)
+
+        # Stop all pumps and record volumes
+        for ingredient, pump, volume_ul in pump_info:
             try:
                 pump.stop()
-            except:
-                pass
+                actual_volumes[ingredient] = volume_ul
+
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"COMPLETED DISPENSE",
+                    response=f"Dispensed {volume_ul:.3f} µL",
+                    success=True,
+                    db_path=db_path
+                )
+                logger.info(f"Completed pump {pump.address} ({ingredient}): {volume_ul:.3f}µL")
+
+            except Exception as e:
+                error_msg = f"Error stopping pump for {ingredient}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+    else:
+        # Sequential dispensing - one ingredient at a time
+        logger.info(f"Starting sequential dispensing of {len(recipe)} ingredients")
+
+        for ingredient, volume_ul in recipe.items():
+            logger.info(f"Dispensing {volume_ul:.3f} µL of {ingredient}")
+
+            # Get pump for this ingredient
+            pump = get_pump_for_ingredient(ingredient, pump_config)
+
+            if not pump:
+                error_msg = f"No pump configured for ingredient '{ingredient}'"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=-1,
+                    command=f"DISPENSE {ingredient}",
+                    success=False,
+                    error_message=error_msg,
+                    db_path=db_path
+                )
+                continue
+
+            if not pump.is_connected():
+                error_msg = f"Pump for {ingredient} (address {pump.address}) is not connected"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"DISPENSE {volume_ul} UL",
+                    success=False,
+                    error_message=error_msg,
+                    db_path=db_path
+                )
+                continue
+
+            try:
+                # Log start
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min",
+                    response=None,
+                    success=True,
+                    db_path=db_path
+                )
+
+                # Dispense volume (this will block until complete)
+                pump.dispense_volume(
+                    volume_ul=volume_ul,
+                    rate_ul_min=dispensing_rate,
+                    wait=True
+                )
+
+                # Record actual volume (assuming successful dispense = requested volume)
+                actual_volumes[ingredient] = volume_ul
+
+                # Log completion
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"COMPLETED DISPENSE",
+                    response=f"Dispensed {volume_ul:.3f} µL",
+                    success=True,
+                    db_path=db_path
+                )
+
+                logger.info(f"Successfully dispensed {volume_ul:.3f} µL of {ingredient}")
+
+            except (PumpCommandError, PumpTimeoutError) as e:
+                error_msg = f"Pump error dispensing {ingredient}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+                # Log error
+                log_pump_command(
+                    operation_id=operation_id,
+                    pump_address=pump.address,
+                    command=f"DISPENSE {volume_ul} UL",
+                    success=False,
+                    error_message=str(e),
+                    db_path=db_path
+                )
+
+                # Stop pump for safety
+                try:
+                    pump.stop()
+                except:
+                    pass
 
     # Check if any errors occurred
     if errors:
@@ -423,7 +543,7 @@ def main():
     parser.add_argument(
         '--db-path',
         type=str,
-        default='robotaste/data/robotaste.db',
+        default='robotaste.db',
         help='Path to robotaste.db database file'
     )
 

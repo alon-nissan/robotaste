@@ -25,6 +25,32 @@
       "stock_concentration_mM": 1000.0
     }
   ],
+  "pump_config": {
+    "enabled": true,
+    "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+    "baud_rate": 19200,
+    "pumps": [
+      {
+        "address": 0,
+        "ingredient": "Sugar",
+        "syringe_diameter_mm": 26.7,
+        "max_rate_ul_min": 100000,
+        "stock_concentration_mM": 1000.0,
+        "description": "BD 50mL syringe with sugar stock"
+      },
+      {
+        "address": 1,
+        "ingredient": "Salt",
+        "syringe_diameter_mm": 26.7,
+        "max_rate_ul_min": 100000,
+        "stock_concentration_mM": 1000.0,
+        "description": "BD 50mL syringe with salt stock"
+      }
+    ],
+    "total_volume_ml": 10.0,
+    "dispensing_rate_ul_min": 60000,
+    "simultaneous_dispensing": true
+  },
   "sample_selection_schedule": [
     {
       "cycle_range": {"start": 1, "end": 2},
@@ -85,6 +111,10 @@
     "early_termination_allowed": true,
     "ei_threshold": 0.001,
     "stability_threshold": 0.05
+  },
+  "loading_screen": {
+    "duration_seconds": 10,
+    "use_dynamic_duration": true
   },
   "presentation": {
     "randomize_start": true,

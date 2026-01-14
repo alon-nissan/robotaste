@@ -1,0 +1,141 @@
+{
+    "protocol_id": "proto_sugar_4cycles_pumps_001",
+    "name": "Four-Cycle Sugar Calibration with Pumps",
+    "description": "4-cycle predetermined protocol testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control",
+    "version": "1.0",
+    "schema_version": "1.0",
+    "created_by": "Researcher",
+    "created_at": "2026-01-14T00:00:00Z",
+    "tags": [
+        "calibration",
+        "sugar",
+        "predetermined",
+        "automated"
+    ],
+    "ingredients": [
+        {
+            "name": "Sugar",
+            "min_concentration": 0.0,
+            "max_concentration": 100.0,
+            "unit": "mM",
+            "molecular_weight": 342.3,
+            "stock_concentration_mM": 1000.0
+        },
+        {
+            "name": "Water",
+            "min_concentration": 0.0,
+            "max_concentration": 1.0,
+            "unit": "mM",
+            "molecular_weight": 18.015,
+            "stock_concentration_mM": 0.001,
+            "is_diluent": true
+        }
+    ],
+    "pump_config": {
+        "enabled": true,
+        "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+        "baud_rate": 19200,
+        "pumps": [
+            {
+                "address": 0,
+                "ingredient": "Sugar",
+                "syringe_diameter_mm": 26.7,
+                "max_rate_ul_min": 100000,
+                "stock_concentration_mM": 1000.0,
+                "description": "BD 50mL syringe with sugar stock solution (1000 mM)"
+            },
+            {
+                "address": 1,
+                "ingredient": "Water",
+                "syringe_diameter_mm": 26.7,
+                "max_rate_ul_min": 100000,
+                "stock_concentration_mM": 0.0,
+                "description": "BD 50mL syringe with plain water for dilution"
+            }
+        ],
+        "total_volume_ml": 10.0,
+        "dispensing_rate_ul_min": 60000,
+        "simultaneous_dispensing": true
+    },
+    "sample_selection_schedule": [
+        {
+            "cycle_range": {
+                "start": 1,
+                "end": 4
+            },
+            "mode": "predetermined",
+            "predetermined_samples": [
+                {
+                    "cycle": 1,
+                    "concentrations": {
+                        "Sugar": 0.0
+                    }
+                },
+                {
+                    "cycle": 2,
+                    "concentrations": {
+                        "Sugar": 25.0
+                    }
+                },
+                {
+                    "cycle": 3,
+                    "concentrations": {
+                        "Sugar": 50.0
+                    }
+                },
+                {
+                    "cycle": 4,
+                    "concentrations": {
+                        "Sugar": 75.0
+                    }
+                }
+            ]
+        }
+    ],
+    "questionnaire_type": "intensity_continuous",
+    "bayesian_optimization": {
+        "enabled": false
+    },
+    "phase_sequence": {
+        "phases": [
+            {
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "instructions",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "experiment_loop",
+                "phase_type": "loop",
+                "required": true
+            },
+            {
+                "phase_id": "completion",
+                "phase_type": "builtin",
+                "required": true
+            }
+        ]
+    },
+    "stopping_criteria": {
+        "max_cycles": 4,
+        "min_cycles": 4
+    },
+    "loading_screen": {
+        "message": "Please rinse your mouth with water while the robot prepares the next sugar sample.",
+        "duration_seconds": 10,
+        "use_dynamic_duration": true,
+        "show_progress": true,
+        "show_cycle_info": true,
+        "message_size": "large"
+    },
+    "data_collection": {
+        "track_trajectory": true,
+        "track_interaction_times": true,
+        "collect_demographics": true,
+        "custom_metadata": {}
+    }
+}

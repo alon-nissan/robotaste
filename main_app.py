@@ -57,6 +57,10 @@ def setup_logging():
     )
     logging.info("Logging configured to file and console.")
 
+    # Configure pump logging
+    from robotaste.utils.logging_config import setup_pump_logging
+    setup_pump_logging()
+
 # Initialize viewport detection EARLY (before CSS)
 # This must be done before rendering CSS that depends on viewport
 if "viewport_initialized" not in st.session_state:

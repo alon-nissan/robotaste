@@ -241,8 +241,13 @@ PROTOCOL_JSON_SCHEMA = {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 60,
-                    "description": "Duration of loading screen in seconds",
+                    "description": "Duration of loading screen in seconds (used when use_dynamic_duration is false)",
                     "default": 5,
+                },
+                "use_dynamic_duration": {
+                    "type": "boolean",
+                    "description": "If true, calculate duration from pump operation time instead of using duration_seconds",
+                    "default": False,
                 },
                 "show_progress": {
                     "type": "boolean",

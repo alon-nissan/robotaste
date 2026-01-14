@@ -4,7 +4,9 @@ State Machine for Experiment Phase Management (Pure Python Version)
 Manages experiment phase transitions and state validation.
 NO external dependencies (no Streamlit, no SQL).
 
-Workflow: WAITING → ROBOT_PREPARING → LOADING → QUESTIONNAIRE → SELECTION → COMPLETE
+Workflow:
+  - Non-pump: WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → LOADING → QUESTIONNAIRE → SELECTION... → COMPLETE
+  - Pump-enabled: WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → ROBOT_PREPARING → QUESTIONNAIRE → SELECTION... → COMPLETE
 
 Author: RoboTaste Team
 Version: 3.0 (Refactored Architecture - Pure Python)
@@ -27,16 +29,25 @@ class ExperimentPhase(Enum):
     """
     All possible phases in the experiment workflow.
 
-    Workflow:
+    Workflow (Pump-enabled):
     1. WAITING: Session created, waiting for moderator to start
     2. REGISTRATION: Subject enters personal information
     3. INSTRUCTIONS: Subject reads instructions
-    4. ROBOT_PREPARING: Robot is preparing the solution
-    5. LOADING: Loading screen before questionnaire in cycles 1+
+    4. SELECTION: Subject making selection for next cycle
+    5. ROBOT_PREPARING: Robot is preparing the solution (pump-controlled experiments)
     6. QUESTIONNAIRE: Subject answering questionnaire
-    7. SELECTION: Subject making selection for next cycle
+    7. Loop back to SELECTION
     8. COMPLETE: Session finished
-    9. CUSTOM: Custom phase defined in protocol (catch-all for custom phases)
+
+    Workflow (Non-pump):
+    1-3. Same as above
+    4. SELECTION: Subject making selection
+    5. LOADING: Loading screen before questionnaire
+    6. QUESTIONNAIRE: Subject answering questionnaire
+    7. Loop back to SELECTION
+    8. COMPLETE: Session finished
+
+    CUSTOM: Custom phase defined in protocol (catch-all for custom phases)
     """
 
     WAITING = "waiting"
@@ -109,6 +120,7 @@ class ExperimentStateMachine:
             ExperimentPhase.COMPLETE,
         ],
         ExperimentPhase.INSTRUCTIONS: [
+            ExperimentPhase.ROBOT_PREPARING,  # Pump-controlled experiments
             ExperimentPhase.LOADING,  # Old flow: direct to loading
             ExperimentPhase.SELECTION,  # New flow: enter loop at selection
             ExperimentPhase.COMPLETE,
@@ -126,7 +138,8 @@ class ExperimentStateMachine:
             ExperimentPhase.COMPLETE,  # Moderator can force-end
         ],
         ExperimentPhase.SELECTION: [
-            ExperimentPhase.LOADING,  # All selections go to loading screen
+            ExperimentPhase.ROBOT_PREPARING,  # Pump-controlled experiments
+            ExperimentPhase.LOADING,  # Non-pump experiments go to loading screen
             ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
         ExperimentPhase.COMPLETE: [

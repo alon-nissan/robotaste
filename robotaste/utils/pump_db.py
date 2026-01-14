@@ -23,8 +23,8 @@ def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
         SQLite connection
     """
     if db_path is None:
-        # Default to robotaste.db in data directory
-        db_path = Path(__file__).parent.parent / "data" / "robotaste.db"
+        # Default to robotaste.db in root directory (same as main app)
+        db_path = Path(__file__).parent.parent.parent / "robotaste.db"
 
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row  # Access columns by name
