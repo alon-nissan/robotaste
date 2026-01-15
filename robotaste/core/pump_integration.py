@@ -10,7 +10,7 @@ Version: 1.0
 
 import json
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from robotaste.core.trials import prepare_cycle_sample
 from robotaste.core.calculations import calculate_stock_volumes
 from robotaste.data.protocol_repo import get_protocol_by_id
@@ -18,6 +18,47 @@ from robotaste.data.database import get_database_connection
 from robotaste.utils.pump_db import create_pump_operation, get_current_operation_for_session
 
 logger = logging.getLogger(__name__)
+
+
+def _merge_pump_config_into_ingredients(ingredients: List[Dict[str, Any]], pump_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Merge pump configuration into ingredient configurations.
+    
+    This overrides the default stock concentration in the ingredient list with 
+    the actual stock concentration loaded in the pumps, which is essential 
+    for correct volume calculations.
+    
+    Args:
+        ingredients: List of ingredient configuration dictionaries
+        pump_config: Pump configuration dictionary
+        
+    Returns:
+        List of ingredient configs with updated stock concentrations
+    """
+    # Create a deep copy of ingredients to avoid modifying the original list
+    effective_ingredients = [ing.copy() for ing in ingredients]
+    
+    pump_definitions = pump_config.get("pumps", [])
+    
+    for pump_def in pump_definitions:
+        ing_name = pump_def.get("ingredient")
+        pump_stock = pump_def.get("stock_concentration_mM")
+        
+        if ing_name and pump_stock is not None:
+            # Find matching ingredient
+            found = False
+            for ing in effective_ingredients:
+                if ing["name"] == ing_name:
+                    ing["stock_concentration_mM"] = pump_stock
+                    found = True
+                    break
+            
+            # If not found in ingredients list but exists in pump config,
+            # we might want to log a warning, but usually ingredients list is the source of truth
+            if not found:
+                logger.warning(f"Pump configured for '{ing_name}' but not found in ingredient list")
+
+    return effective_ingredients
 
 
 def should_create_pump_operation(session_id: str, protocol: Dict[str, Any]) -> bool:
@@ -109,9 +150,13 @@ def create_pump_operation_for_cycle(
 
         # Calculate required stock volumes
         ingredients = protocol.get("ingredients", [])
+        
+        # Merge pump configuration into ingredients to ensure correct stock concentrations
+        effective_ingredients = _merge_pump_config_into_ingredients(ingredients, pump_config)
+        
         volumes_result = calculate_stock_volumes(
             concentrations=concentrations,
-            ingredient_configs=ingredients,
+            ingredient_configs=effective_ingredients,
             final_volume_mL=total_volume_ml
         )
 
@@ -450,10 +495,13 @@ def execute_pumps_synchronously(
         # Calculate volumes
         total_volume_ml = pump_config.get("total_volume_ml", 10.0)
         ingredients = protocol.get("ingredients", [])
+        
+        # Merge pump configuration into ingredients to ensure correct stock concentrations
+        effective_ingredients = _merge_pump_config_into_ingredients(ingredients, pump_config)
 
         volumes_result = calculate_stock_volumes(
             concentrations=concentrations,
-            ingredient_configs=ingredients,
+            ingredient_configs=effective_ingredients,
             final_volume_mL=total_volume_ml
         )
 
