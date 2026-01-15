@@ -7,7 +7,7 @@ PORT = "/dev/cu.PL2303G-USBtoUART120"
 
 # Check your syringe! A BD 10mL syringe is usually ~14.5mm.
 # Check Page 48 of the manual if unsure.
-SYRINGE_DIAMETER_MM = 14.5
+SYRINGE_DIAMETER_MM = 26.7
 # ---------------------
 
 
@@ -28,9 +28,10 @@ def run_test():
         pump.set_diameter(SYRINGE_DIAMETER_MM)
 
         # 3. Movement Test (Dry Run)
-        print("▶️ TEST: Dispensing 0.1 mL (100 µL)...")
+        print("▶️ TEST: Dispensing 1.0 mL (1000 µL)...")
         # dispense_volume(volume_ul, rate_ul_min, wait=True)
-        pump.dispense_volume(volume_ul=100, rate_ul_min=2000, wait=True)
+        # Using 60000 µL/min (60 mL/min) - within pump's 95 mL/min limit
+        pump.dispense_volume(volume_ul=1000, rate_ul_min=60000, wait=True)
 
         print("✅ Dispense complete.")
 

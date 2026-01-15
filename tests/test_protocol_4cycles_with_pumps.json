@@ -2,7 +2,7 @@
     "protocol_id": "proto_sugar_4cycles_pumps_001",
     "name": "Four-Cycle Sugar Calibration with Pumps",
     "description": "4-cycle predetermined protocol testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control",
-    "version": "1.0",
+    "version": "2.0",
     "schema_version": "1.0",
     "created_by": "Researcher",
     "created_at": "2026-01-14T00:00:00Z",
@@ -41,8 +41,8 @@
                 "ingredient": "Sugar",
                 "syringe_diameter_mm": 26.7,
                 "max_rate_ul_min": 100000,
-                "stock_concentration_mM": 1000.0,
-                "description": "BD 50mL syringe with sugar stock solution (1000 mM)"
+                "stock_concentration_mM": 200.0,
+                "description": "BD 50mL syringe with sugar stock solution (200 mM)"
             },
             {
                 "address": 1,

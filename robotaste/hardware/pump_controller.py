@@ -14,6 +14,7 @@ Protocol details from NE-4000 User Manual:
 import serial  # pip install pyserial
 import time
 import logging
+import re
 from typing import Optional, Literal
 from threading import RLock
 
@@ -115,7 +116,9 @@ class NE4000Pump:
         self.serial: Optional[serial.Serial] = None
         self._lock = RLock()  # Thread-safe operation
         self._connected = False
-        self._current_rate_ul_min: Optional[float] = None  # Track current rate for time calculations
+        self._current_rate_ul_min: Optional[float] = (
+            None  # Track current rate for time calculations
+        )
 
         # Validate parameters
         if not 0 <= address <= 99:
@@ -135,7 +138,9 @@ class NE4000Pump:
         Raises:
             PumpConnectionError: If connection fails
         """
-        logger.info(f"[Pump {self.address}] Attempting connection to {self.port} at {self.baud} baud")
+        logger.info(
+            f"[Pump {self.address}] Attempting connection to {self.port} at {self.baud} baud"
+        )
 
         with self._lock:
             if self._connected:
@@ -155,7 +160,9 @@ class NE4000Pump:
                         timeout=self.timeout,
                     )
                     self._connected = True
-                    logger.info(f"[Pump {self.address}] ✅ Serial connection established")
+                    logger.info(
+                        f"[Pump {self.address}] ✅ Serial connection established"
+                    )
 
                     # Small delay for pump to be ready
                     time.sleep(0.1)
@@ -163,17 +170,23 @@ class NE4000Pump:
                 # Verify connection by stopping pump (safe command)
                 # This can run outside the global lock since we now have our own connection
                 self._send_command(self.CMD_STOP)
-                logger.info(f"[Pump {self.address}] ✅ Connection verified (test command successful)")
+                logger.info(
+                    f"[Pump {self.address}] ✅ Connection verified (test command successful)"
+                )
 
             except serial.SerialException as e:
-                logger.error(f"[Pump {self.address}] ❌ Connection failed: {e}", exc_info=True)
+                logger.error(
+                    f"[Pump {self.address}] ❌ Connection failed: {e}", exc_info=True
+                )
                 raise PumpConnectionError(f"Failed to connect to {self.port}: {e}")
             except Exception as e:
                 if self.serial:
                     self.serial.close()
                     self.serial = None
                 self._connected = False
-                logger.error(f"[Pump {self.address}] ❌ Connection error: {e}", exc_info=True)
+                logger.error(
+                    f"[Pump {self.address}] ❌ Connection error: {e}", exc_info=True
+                )
                 raise PumpConnectionError(f"Connection error: {e}")
 
     def disconnect(self) -> None:
@@ -196,7 +209,7 @@ class NE4000Pump:
 
     def set_diameter(self, diameter_mm: float) -> None:
         """
-        Set syringe diameter.
+        Set syringe diameter with verification.
 
         Args:
             diameter_mm: Syringe inner diameter in millimeters (0.1 - 50.0)
@@ -208,16 +221,41 @@ class NE4000Pump:
         if not 0.1 <= diameter_mm <= 50.0:
             raise ValueError(f"Diameter must be 0.1-50.0 mm, got {diameter_mm}")
 
-        logger.info(f"[Pump {self.address}] Setting syringe diameter: {diameter_mm:.3f} mm")
-        cmd = f"{self.CMD_DIAMETER} {diameter_mm:.3f}"
+        logger.info(
+            f"[Pump {self.address}] Setting syringe diameter: {diameter_mm:.2f} mm"
+        )
+        # Format to 2 decimal places (max 4 digits) for NE-4000 constraint
+        cmd = f"{self.CMD_DIAMETER} {diameter_mm:.2f}"
         response = self._send_command(cmd)
-        logger.info(f"[Pump {self.address}] ✅ Diameter set successfully (response: {response})")
+        logger.info(f"[Pump {self.address}] Set diameter response: {response}")
+
+        # Check if command was rejected
+        if response == "S?":
+            logger.error(
+                f"[Pump {self.address}] ❌ DIAMETER COMMAND REJECTED (S?) - "
+                f"Value {diameter_mm:.3f} mm may be out of range or invalid"
+            )
+
+        # VERIFY: Query diameter back
+        actual_diameter = self.get_diameter()
+        if actual_diameter is not None:
+            if abs(actual_diameter - diameter_mm) < 0.01:  # Within 0.01mm tolerance
+                logger.info(
+                    f"[Pump {self.address}] ✅ Diameter verified: {actual_diameter:.3f} mm"
+                )
+            else:
+                logger.error(
+                    f"[Pump {self.address}] ⚠️  DIAMETER MISMATCH! "
+                    f"Set: {diameter_mm:.3f} mm, Got: {actual_diameter:.3f} mm"
+                )
+        else:
+            logger.warning(f"[Pump {self.address}] Could not verify diameter")
 
     def set_rate(
         self, rate: float, unit: Literal["UM", "MM", "UH", "MH"] = "UM"
     ) -> None:
         """
-        Set pumping rate.
+        Set pumping rate with verification.
 
         Args:
             rate: Pumping rate value
@@ -234,27 +272,72 @@ class NE4000Pump:
         if unit not in valid_units:
             raise ValueError(f"Unit must be one of {valid_units}, got {unit}")
 
-        logger.info(f"[Pump {self.address}] Setting rate: {rate:.3f} {unit}")
-        cmd = f"{self.CMD_RATE} {rate:.3f} {unit}"
-        response = self._send_command(cmd)
+        logger.info(f"[Pump {self.address}] Setting rate: {rate:.1f} {unit}")
 
-        # Store rate in µL/min for time calculations
-        if unit == "UM":
-            self._current_rate_ul_min = rate
-        elif unit == "MM":
-            self._current_rate_ul_min = rate * 1000
+        # Format rate and potentially convert units for NE-4000's 4-digit constraint
+        rate_str, final_unit = self._format_rate_for_pump(rate, unit)
+        cmd = f"{self.CMD_RATE} {rate_str} {final_unit}"
+        response = self._send_command(cmd)
+        logger.info(f"[Pump {self.address}] Set rate response: {response}")
+
+        # Check if command was rejected
+        if response == "S?":
+            logger.error(
+                f"[Pump {self.address}] ❌ RATE COMMAND REJECTED (S?) - "
+                f"Value {rate_str} {final_unit} may be out of range for configured syringe diameter"
+            )
+
+        # Store rate in µL/min for time calculations (use converted values)
+        # Need to convert the ORIGINAL rate value based on FINAL unit
+        if final_unit == "UM":
+            # If we kept UM, use the original or formatted rate
+            self._current_rate_ul_min = float(rate_str)
+        elif final_unit == "MM":
+            # If we converted to MM, rate_str is in mL/min
+            self._current_rate_ul_min = float(rate_str) * 1000
         elif unit == "UH":
             self._current_rate_ul_min = rate / 60
         elif unit == "MH":
             self._current_rate_ul_min = (rate * 1000) / 60
 
-        logger.info(
-            f"[Pump {self.address}] ✅ Rate set: {self._current_rate_ul_min:.1f} µL/min (response: {response})"
-        )
+        # VERIFY: Query rate back
+        actual_rate, actual_unit = self.get_rate()
+        if actual_rate is not None:
+            # Convert actual rate to µL/min for comparison
+            actual_rate_ul_min = actual_rate
+            if actual_unit == "MM":
+                actual_rate_ul_min = actual_rate * 1000
+            elif actual_unit == "UH":
+                actual_rate_ul_min = actual_rate / 60
+            elif actual_unit == "MH":
+                actual_rate_ul_min = (actual_rate * 1000) / 60
+
+            # Compare in µL/min (with 1% tolerance for rounding)
+            if self._current_rate_ul_min is not None:
+                tolerance = self._current_rate_ul_min * 0.01
+                if abs(actual_rate_ul_min - self._current_rate_ul_min) < max(
+                    tolerance, 1.0
+                ):
+                    logger.info(
+                        f"[Pump {self.address}] ✅ Rate verified: {actual_rate:.3f} {actual_unit} "
+                        f"({self._current_rate_ul_min:.1f} µL/min)"
+                    )
+                else:
+                    logger.error(
+                        f"[Pump {self.address}] ⚠️  RATE MISMATCH! "
+                        f"Set: {self._current_rate_ul_min:.1f} µL/min, "
+                        f"Got: {actual_rate_ul_min:.1f} µL/min ({actual_rate:.3f} {actual_unit})"
+                    )
+            else:
+                logger.warning(
+                    f"[Pump {self.address}] Cannot verify rate - stored rate is None"
+                )
+        else:
+            logger.warning(f"[Pump {self.address}] Could not verify rate")
 
     def set_volume(self, volume_ul: float) -> None:
         """
-        Set volume to dispense (does not start pumping).
+        Set volume to dispense with verification (does not start pumping).
 
         Args:
             volume_ul: Volume in microliters
@@ -266,17 +349,45 @@ class NE4000Pump:
         if volume_ul < 0:
             raise ValueError(f"Volume must be positive, got {volume_ul}")
 
-        # Convert µL to mL for pump command
+        # Convert to mL and format for NE-4000's 4-digit constraint
         volume_ml = volume_ul / 1000.0
+        volume_str = self._format_volume_for_pump(volume_ml)
 
-        logger.info(f"[Pump {self.address}] Programming volume: {volume_ul:.1f} µL ({volume_ml:.6f} mL)")
-        cmd = f"{self.CMD_VOLUME} {volume_ml:.6f}"
+        logger.info(
+            f"[Pump {self.address}] Programming volume: {volume_ul:.1f} µL ({volume_str} mL)"
+        )
+        cmd = f"{self.CMD_VOLUME} {volume_str}"
         response = self._send_command(cmd)
-        logger.info(f"[Pump {self.address}] ✅ Volume programmed (response: {response})")
+        logger.info(f"[Pump {self.address}] Set volume response: {response}")
+
+        # Check if command was rejected
+        if response == "S?":
+            logger.error(
+                f"[Pump {self.address}] ❌ VOLUME COMMAND REJECTED (S?) - "
+                f"Value {volume_str} mL may be out of range"
+            )
+
+        # VERIFY: Query volume back
+        actual_volume_ml = self.get_volume()
+        if actual_volume_ml is not None:
+            expected_volume_ml = volume_ul / 1000.0
+            if (
+                abs(actual_volume_ml - expected_volume_ml) < 0.001
+            ):  # Within 1µL tolerance
+                logger.info(
+                    f"[Pump {self.address}] ✅ Volume verified: {actual_volume_ml:.6f} mL ({actual_volume_ml * 1000:.1f} µL)"
+                )
+            else:
+                logger.error(
+                    f"[Pump {self.address}] ⚠️  VOLUME MISMATCH! "
+                    f"Set: {expected_volume_ml:.6f} mL, Got: {actual_volume_ml:.6f} mL"
+                )
+        else:
+            logger.warning(f"[Pump {self.address}] Could not verify volume")
 
     def set_direction(self, direction: Literal["INF", "WDR"]) -> None:
         """
-        Set pumping direction.
+        Set pumping direction with verification.
 
         Args:
             direction: "INF" for infuse (dispense), "WDR" for withdraw
@@ -292,7 +403,241 @@ class NE4000Pump:
         logger.info(f"[Pump {self.address}] Setting direction to {direction_name}")
         cmd = f"{self.CMD_DIRECTION} {direction}"
         response = self._send_command(cmd)
-        logger.info(f"[Pump {self.address}] ✅ Direction set (response: {response})")
+        logger.info(f"[Pump {self.address}] Set direction response: {response}")
+
+        # VERIFY: Query direction back
+        actual_direction = self.get_direction()
+        if actual_direction is not None:
+            if actual_direction == direction:
+                logger.info(
+                    f"[Pump {self.address}] ✅ Direction verified: {actual_direction}"
+                )
+            else:
+                logger.error(
+                    f"[Pump {self.address}] ⚠️  DIRECTION MISMATCH! "
+                    f"Set: {direction}, Got: {actual_direction}"
+                )
+        else:
+            logger.warning(f"[Pump {self.address}] Could not verify direction")
+
+    def _format_rate_for_pump(self, rate: float, unit: str) -> tuple[str, str]:
+        """
+        Format rate value and select optimal unit to fit NE-4000's 4-digit constraint.
+
+        The NE-4000 pump accepts maximum 4 digits for numeric values.
+        This method auto-converts large UM values to MM and formats appropriately.
+
+        Args:
+            rate: Rate value
+            unit: Original unit (UM, MM, UH, MH)
+
+        Returns:
+            Tuple of (formatted_rate_string, final_unit)
+
+        Examples:
+            (60000, "UM") → ("60.00", "MM")  # Auto-convert to mL/min
+            (2000, "UM") → ("2000", "UM")    # Keep as µL/min
+            (95, "MM") → ("95.00", "MM")     # Format mL/min
+        """
+        # Auto-convert UM to MM if exceeds 4 digits
+        if unit == "UM" and rate > 9999:
+            rate = rate / 1000.0
+            unit = "MM"
+            logger.debug(
+                f"[Pump {self.address}] Auto-converting rate to {rate:.2f} {unit}"
+            )
+
+        # Validate max rate (95 mL/min hardware limit)
+        if unit == "MM" and rate > 95.0:
+            logger.warning(
+                f"[Pump {self.address}] Rate {rate:.2f} MM exceeds pump maximum (95 MM). "
+                f"Command may be rejected."
+            )
+
+        # Format with appropriate precision for 4-digit limit
+        if unit in ["UM", "UH"]:
+            # Microliters: use integer format if >= 1000, else use decimals
+            if rate >= 1000:
+                rate_str = f"{rate:.0f}"  # "9999" (4 digits max)
+            elif rate >= 100:
+                rate_str = f"{rate:.1f}"  # "999.9" (4 digits)
+            else:
+                rate_str = f"{rate:.2f}"  # "99.99" (4 digits)
+        else:  # MM or MH
+            # Milliliters: always use 2 decimal places
+            rate_str = f"{rate:.2f}"  # "95.00" (4 digits max for rate <= 95)
+
+        return rate_str, unit
+
+    def _format_volume_for_pump(self, volume_ml: float) -> str:
+        """
+        Format volume to fit NE-4000's 4-digit constraint.
+
+        The NE-4000 pump accepts maximum 4 digits for numeric values.
+        The VOL command always uses milliliters (does not accept unit suffix).
+        Precision is adjusted based on magnitude to stay within limit.
+
+        Args:
+            volume_ml: Volume in milliliters
+
+        Returns:
+            Formatted volume string (always in mL)
+
+        Examples:
+            10.0 → "10.00" (4 digits)
+            1.0 → "1.000" (4 digits)
+            0.1 → "0.1000" (4 digits after decimal)
+            0.001 → "0.0010" (4 digits after decimal)
+        """
+        if volume_ml >= 100:
+            # 100-9999 mL: use 1 decimal place "100.0" to "999.9"
+            return f"{volume_ml:.1f}"
+        elif volume_ml >= 10:
+            # 10-99.99 mL: use 2 decimals "10.00" to "99.99"
+            return f"{volume_ml:.2f}"
+        elif volume_ml >= 1:
+            # 1-9.999 mL: use 3 decimals "1.000" to "9.999"
+            return f"{volume_ml:.3f}"
+        elif volume_ml == 0:
+            return "0.000"
+        else:
+            # 0.001-0.999 mL: use 4 decimals "0.001" to "0.999"
+            return f"{volume_ml:.3f}"
+
+    def get_diameter(self) -> Optional[float]:
+        """
+        Query current syringe diameter setting from pump.
+
+        Returns:
+            Current diameter in mm, or None if query fails
+
+        Actual NE-4000 response format: "S33.00" (S prefix + value)
+        """
+        logger.debug(f"[Pump {self.address}] Querying syringe diameter...")
+        response = self._send_command(self.CMD_DIAMETER)  # Send without parameters
+
+        # Parse response - NE-4000 format: "S<value>"
+        # After stripping frames/address: 'S33.00'
+        try:
+            # Remove 'S' status prefix if present
+            if response.startswith("S"):
+                diameter_str = response[1:].strip()
+                diameter = float(diameter_str)
+                logger.debug(
+                    f"[Pump {self.address}] Current diameter: {diameter:.3f} mm"
+                )
+                return diameter
+            else:
+                logger.warning(
+                    f"[Pump {self.address}] Unexpected diameter response format: {response}"
+                )
+                return None
+        except (ValueError, IndexError) as e:
+            logger.error(f"[Pump {self.address}] Error parsing diameter response: {e}")
+            return None
+
+    def get_rate(self) -> tuple[Optional[float], Optional[str]]:
+        """
+        Query current rate setting from pump.
+
+        Returns:
+            Tuple of (rate_value, unit) e.g. (100.0, "UM"), or (None, None) if query fails
+
+        Actual NE-4000 response format: "S40.00MM" (S prefix + value + unit)
+        """
+        logger.debug(f"[Pump {self.address}] Querying rate...")
+        response = self._send_command(self.CMD_RATE)
+
+        try:
+            # Parse NE-4000 format: "S40.00MM" or "S100.000UM"
+            if response.startswith("S"):
+                # Remove 'S' prefix
+                value_and_unit = response[1:].strip()
+
+                # Extract numeric part and unit (e.g., "40.00MM" → 40.00, MM)
+                # Unit is the last 2 characters (UM, MM, UH, MH)
+                if len(value_and_unit) >= 2:
+                    # Try to find where the unit starts (first non-digit/non-decimal character after numbers)
+                    match = re.match(r"([\d.]+)([A-Z]{2})", value_and_unit)
+                    if match:
+                        rate = float(match.group(1))
+                        unit = match.group(2)
+                        logger.debug(
+                            f"[Pump {self.address}] Current rate: {rate:.3f} {unit}"
+                        )
+                        return (rate, unit)
+
+            logger.warning(
+                f"[Pump {self.address}] Unexpected rate response format: {response}"
+            )
+        except (ValueError, IndexError) as e:
+            logger.error(f"[Pump {self.address}] Error parsing rate response: {e}")
+
+        return (None, None)
+
+    def get_volume(self) -> Optional[float]:
+        """
+        Query current volume setting from pump.
+
+        Returns:
+            Current programmed volume in mL, or None if query fails
+
+        Actual NE-4000 response format: "S21.10ML" (S prefix + value + unit)
+        """
+        logger.debug(f"[Pump {self.address}] Querying volume...")
+        response = self._send_command(self.CMD_VOLUME)
+
+        try:
+            # Parse NE-4000 format: "S21.10ML" or "S10.00"
+            # Note: VOL command always uses mL, may include ML suffix or not
+            if response.startswith("S"):
+                # Remove 'S' prefix
+                value_and_unit = response[1:].strip()
+
+                # Extract numeric value (remove "ML" suffix if present)
+                match = re.match(r"([\d.]+)(ML)?", value_and_unit)
+                if match:
+                    volume_ml = float(match.group(1))
+                    logger.debug(
+                        f"[Pump {self.address}] Current volume: {volume_ml:.6f} mL"
+                    )
+                    return volume_ml
+
+            logger.warning(
+                f"[Pump {self.address}] Unexpected volume response format: {response}"
+            )
+        except (ValueError, IndexError) as e:
+            logger.error(f"[Pump {self.address}] Error parsing volume response: {e}")
+
+        return None
+
+    def get_direction(self) -> Optional[str]:
+        """
+        Query current direction setting from pump.
+
+        Returns:
+            "INF" for infuse or "WDR" for withdraw, or None if query fails
+
+        Actual NE-4000 response format: "SINF" or "SWDR" (S prefix + direction)
+        """
+        logger.debug(f"[Pump {self.address}] Querying direction...")
+        response = self._send_command(self.CMD_DIRECTION)
+
+        try:
+            # Parse NE-4000 format: "SINF" or "SWDR"
+            if response.startswith("S"):
+                # Remove 'S' prefix
+                direction = response[1:].strip()
+                logger.debug(f"[Pump {self.address}] Current direction: {direction}")
+                return direction
+
+            logger.warning(
+                f"[Pump {self.address}] Unexpected direction response format: {response}"
+            )
+        except (ValueError, IndexError) as e:
+            logger.error(f"[Pump {self.address}] Error parsing direction response: {e}")
+
+        return None
 
     def start(self) -> None:
         """
@@ -303,7 +648,9 @@ class NE4000Pump:
         """
         logger.info(f"[Pump {self.address}] ▶️  Starting pump motor...")
         response = self._send_command(self.CMD_RUN)
-        logger.info(f"[Pump {self.address}] ✅ Pump motor running (response: {response})")
+        logger.info(
+            f"[Pump {self.address}] ✅ Pump motor running (response: {response})"
+        )
 
     def stop(self) -> None:
         """
@@ -379,6 +726,13 @@ class NE4000Pump:
         logger.info(f"[Pump {self.address}] ━━━ Starting dispense operation ━━━")
         logger.info(f"[Pump {self.address}] Volume: {volume_ul:.1f} µL")
 
+        # Safety check: Prevent continuous pumping if volume is 0
+        if volume_ul <= 0.001:
+            logger.warning(
+                f"[Pump {self.address}] Volume is ~0 ({volume_ul} µL), skipping dispense to prevent continuous flow."
+            )
+            return
+
         # Set direction to infuse
         self.set_direction(self.DIR_INFUSE)
 
@@ -412,7 +766,9 @@ class NE4000Pump:
 
             # Explicitly stop the pump
             self.stop()
-            logger.info(f"[Pump {self.address}] ✅ Dispense complete: {volume_ul:.1f} µL delivered")
+            logger.info(
+                f"[Pump {self.address}] ✅ Dispense complete: {volume_ul:.1f} µL delivered"
+            )
             logger.info(f"[Pump {self.address}] ━━━ Operation finished ━━━")
 
     def wait_until_complete(self, poll_interval: float = 0.5) -> None:
@@ -479,7 +835,9 @@ class NE4000Pump:
 
                     # Send command
                     self.serial.write(full_command.encode("ascii"))
-                    logger.debug(f"[Pump {self.address}] → Sending: {full_command.strip()!r}")
+                    logger.debug(
+                        f"[Pump {self.address}] → Sending: {full_command.strip()!r}"
+                    )
 
                     # Read response (terminated by \r or \n)
                     response = self.serial.read_until(b"\r").decode("ascii").strip()
@@ -502,7 +860,9 @@ class NE4000Pump:
                     # Strip 2-digit address prefix if present (e.g., "00P" -> "P")
                     if len(response) >= 2 and response[0:2].isdigit():
                         response = response[2:]
-                        logger.debug(f"[Pump {self.address}] After stripping frames and address: {response!r}")
+                        logger.debug(
+                            f"[Pump {self.address}] After stripping frames and address: {response!r}"
+                        )
 
                     # Check for error indicators
                     if response.startswith("?"):
@@ -520,7 +880,9 @@ class NE4000Pump:
                     )
                     time.sleep(wait_time)
                 else:
-                    logger.error(f"[Pump {self.address}] ❌ All {attempts} attempts failed")
+                    logger.error(
+                        f"[Pump {self.address}] ❌ All {attempts} attempts failed"
+                    )
                     raise
 
             except Exception as e:
