@@ -850,48 +850,74 @@ def subject_interface():
         pump_enabled = pump_config.get("enabled", False)
 
         if pump_enabled:
-            st.info("🤖 Robot is preparing your sample...")
+            # Check if pump operation already exists for this cycle (prevent duplicate execution on resume)
+            from robotaste.core.pump_integration import get_pump_operation_for_cycle
 
-            # Create container for pump logs
-            pump_log_container = st.container()
+            existing_operation = get_pump_operation_for_cycle(
+                st.session_state.session_id,
+                cycle_num
+            )
 
-            # Execute pumps synchronously
-            from robotaste.core.pump_integration import execute_pumps_synchronously
+            # Only execute if no existing operation (fresh entry to phase)
+            if existing_operation is None:
+                st.info("🤖 Robot is preparing your sample...")
 
-            with pump_log_container:
-                st.markdown("### Pump Operation Log")
+                # Execute pumps synchronously
+                from robotaste.core.pump_integration import execute_pumps_synchronously
 
                 result = execute_pumps_synchronously(
                     session_id=st.session_state.session_id,
                     cycle_number=cycle_num,
-                    streamlit_container=st  # Pass streamlit for UI logging
+                    streamlit_container=None  # Disable UI logging
                 )
 
-            # Check result
-            if result["success"]:
-                st.success(f"✅ Sample prepared successfully in {result['duration']:.1f}s")
+                # Check result
+                if result["success"]:
+                    st.success(f"✅ Sample prepared successfully in {result['duration']:.1f}s")
 
-                # Show recipe details
-                with st.expander("📊 Dispensing Summary", expanded=False):
-                    for ingredient, volume in result["recipe"].items():
-                        st.write(f"• {ingredient}: {volume:.1f} µL")
+                    # Transition to next phase
+                    transition_to_next_phase(
+                        current_phase_str=current_phase_str,
+                        default_next_phase=ExperimentPhase.QUESTIONNAIRE,
+                        session_id=st.session_state.session_id,
+                        current_cycle=cycle_num
+                    )
+                    st.rerun()
 
-                # Brief pause before advancing
-                time.sleep(1)
-
-                # Transition to next phase
-                transition_to_next_phase(
-                    current_phase_str=current_phase_str,
-                    default_next_phase=ExperimentPhase.QUESTIONNAIRE,
-                    session_id=st.session_state.session_id,
-                    current_cycle=cycle_num
-                )
-                st.rerun()
+                else:
+                    st.error(f"❌ Pump operation failed: {result['error']}")
+                    st.stop()
 
             else:
-                st.error(f"❌ Pump operation failed: {result['error']}")
-                st.error("Please check the logs and try again, or contact the moderator.")
-                st.stop()
+                # Operation already exists (this is a resume)
+                operation_status = existing_operation.get("status", "unknown")
+
+                if operation_status == "completed":
+                    st.success("✅ Sample already prepared (resumed session)")
+                    # Auto-transition to next phase
+                    transition_to_next_phase(
+                        current_phase_str=current_phase_str,
+                        default_next_phase=ExperimentPhase.QUESTIONNAIRE,
+                        session_id=st.session_state.session_id,
+                        current_cycle=cycle_num
+                    )
+                    st.rerun()
+
+                elif operation_status in ["pending", "in_progress"]:
+                    st.warning("⏳ Pump operation in progress... Please wait.")
+                    st.info("If this message persists, please contact the moderator.")
+                    st.stop()
+
+                elif operation_status == "failed":
+                    error_msg = existing_operation.get("error_message", "Unknown error")
+                    st.error(f"❌ Previous pump operation failed: {error_msg}")
+                    st.error("Please contact the moderator to reset the session.")
+                    st.stop()
+
+                else:
+                    st.warning(f"⚠️ Unknown pump operation status: {operation_status}")
+                    st.error("Please contact the moderator.")
+                    st.stop()
 
         else:
             # Pump control disabled, use standard loading screen

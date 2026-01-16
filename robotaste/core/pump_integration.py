@@ -249,6 +249,44 @@ def check_pump_operation_status(session_id: str, db_path: Optional[str] = None) 
     }
 
 
+def get_pump_operation_for_cycle(session_id: str, cycle_number: int) -> Optional[Dict[str, Any]]:
+    """
+    Get existing pump operation for a specific cycle.
+
+    Args:
+        session_id: Session UUID
+        cycle_number: Cycle number to check
+
+    Returns:
+        Operation dict if exists, None otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, status, created_at, completed_at, recipe_json, error_message
+                FROM pump_operations
+                WHERE session_id = ? AND cycle_number = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (session_id, cycle_number))
+
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "status": row[1],
+                    "created_at": row[2],
+                    "completed_at": row[3],
+                    "recipe": json.loads(row[4]) if row[4] else {},
+                    "error_message": row[5]
+                }
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching pump operation for cycle {cycle_number}: {e}")
+        return None
+
+
 def wait_for_pump_completion(session_id: str, timeout_seconds: int = 300) -> bool:
     """
     Wait for pump operation to complete (for synchronous workflows).
@@ -435,23 +473,15 @@ def execute_pumps_synchronously(
 
     # Helper for UI logging
     def ui_log(message, level="info"):
-        """Log to both terminal and Streamlit UI."""
+        """Log to file only (Streamlit UI logging disabled)."""
         if level == "info":
             logger.info(message)
-            if streamlit_container:
-                streamlit_container.info(message)
         elif level == "success":
             logger.info(message)
-            if streamlit_container:
-                streamlit_container.success(message)
         elif level == "error":
             logger.error(message)
-            if streamlit_container:
-                streamlit_container.error(message)
         elif level == "warning":
             logger.warning(message)
-            if streamlit_container:
-                streamlit_container.warning(message)
 
     try:
         # Import pump controller (lazy import to avoid circular dependencies)
@@ -541,7 +571,7 @@ def execute_pumps_synchronously(
         if simultaneous:
             ui_log("⚡ Executing simultaneous dispensing...")
 
-            # Start all pumps
+            # Start all pumps (must be done sequentially due to shared serial port)
             for ingredient, volume_ul in stock_volumes.items():
                 if ingredient in pumps:
                     pump = pumps[ingredient]
@@ -553,14 +583,8 @@ def execute_pumps_synchronously(
 
             ui_log(f"⏳ Dispensing in progress... ({max_time:.1f}s)")
 
-            # Wait with progress updates
-            if streamlit_container:
-                progress_bar = streamlit_container.progress(0)
-                for i in range(int(max_time)):
-                    time.sleep(1)
-                    progress_bar.progress(min((i + 1) / max_time, 1.0))
-            else:
-                time.sleep(max_time)
+            # Wait for dispensing to complete (no UI progress bar)
+            time.sleep(max_time)
 
             # Stop all pumps
             for ingredient, pump in pumps.items():

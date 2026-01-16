@@ -147,6 +147,29 @@ def start_trial(
             st.session_state.phase = "registration" # Fallback
 
         st.success(f"Trial started successfully for {participant_id}")
+
+        # === Early pump initialization ===
+        # Initialize pumps in background while subject is registering
+        # This eliminates the visible delay during ROBOT_PREPARING phase
+        try:
+            from robotaste.data.protocol_repo import get_protocol_by_id
+            from robotaste.core.pump_manager import get_or_create_pumps
+            from robotaste.data.database import get_database_connection
+
+            # Get protocol to check if pumps are enabled
+            if protocol_id:
+                # We already loaded protocol_config above
+                pump_config = protocol_config.get("pump_config", {})
+
+                if pump_config.get("enabled", False):
+                    logger.info(f"🔌 Pre-initializing pumps for session {session_id}")
+                    pumps = get_or_create_pumps(session_id, pump_config)
+                    logger.info(f"✅ Pumps pre-initialized ({len(pumps)} pump(s))")
+        except Exception as e:
+            # Non-fatal: pumps will be initialized later if early init fails
+            logger.warning(f"Early pump initialization failed (will retry later): {e}")
+        # === END early pump initialization ===
+
         return True
 
     except Exception as e:
