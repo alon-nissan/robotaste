@@ -1,15 +1,16 @@
 {
-    "protocol_id": "proto_sugar_4cycles_pumps_004",
-    "name": "Four-Cycle Sugar Calibration with Pumps - Burst Mode",
-    "description": "4-cycle predetermined protocol testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control",
+    "protocol_id": "protocol_4cycles_with_pumps_latin_square",
+    "name": "Four-Cycle Sugar Calibration with Pumps (Latin Square, Burst Mode)",
+    "description": "4-cycle protocol with randomized Latin square design testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control in burst mode. Order counterbalanced across sessions.",
     "version": "4.0",
     "schema_version": "1.0",
     "created_by": "Researcher",
-    "created_at": "2026-01-14T00:00:00Z",
+    "created_at": "2026-01-18T00:00:00Z",
     "tags": [
         "calibration",
         "sugar",
-        "predetermined",
+        "predetermined_randomized",
+        "latin_square",
         "automated"
     ],
     "ingredients": [
@@ -64,33 +65,44 @@
                 "start": 1,
                 "end": 4
             },
-            "mode": "predetermined",
-            "predetermined_samples": [
-                {
-                    "cycle": 1,
-                    "concentrations": {
-                        "Sugar": 0.0
+            "mode": "predetermined_randomized",
+            "sample_bank": {
+                "samples": [
+                    {
+                        "id": "A",
+                        "concentrations": {
+                            "Sugar": 0.0
+                        },
+                        "label": "No Sugar"
+                    },
+                    {
+                        "id": "B",
+                        "concentrations": {
+                            "Sugar": 25.0
+                        },
+                        "label": "Low Sugar"
+                    },
+                    {
+                        "id": "C",
+                        "concentrations": {
+                            "Sugar": 50.0
+                        },
+                        "label": "Medium Sugar"
+                    },
+                    {
+                        "id": "D",
+                        "concentrations": {
+                            "Sugar": 75.0
+                        },
+                        "label": "High Sugar"
                     }
-                },
-                {
-                    "cycle": 2,
-                    "concentrations": {
-                        "Sugar": 25.0
-                    }
-                },
-                {
-                    "cycle": 3,
-                    "concentrations": {
-                        "Sugar": 50.0
-                    }
-                },
-                {
-                    "cycle": 4,
-                    "concentrations": {
-                        "Sugar": 75.0
-                    }
+                ],
+                "design_type": "latin_square",
+                "constraints": {
+                    "prevent_consecutive_repeats": true,
+                    "ensure_all_used_before_repeat": true
                 }
-            ]
+            }
         }
     ],
     "questionnaire_type": "intensity_continuous",
@@ -126,7 +138,7 @@
         "min_cycles": 4
     },
     "loading_screen": {
-        "message": "Please rinse your mouth with water while the robot prepares the next sugar sample.",
+        "message": "Please rinse your mouth with water while the robot prepares the next sugar sample. (Sample order randomized per session)",
         "duration_seconds": 10,
         "use_dynamic_duration": true,
         "show_progress": true,

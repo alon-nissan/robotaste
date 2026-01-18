@@ -263,7 +263,7 @@ def grid_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         # Automatically proceed
@@ -621,7 +621,7 @@ def single_variable_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         time.sleep(3)

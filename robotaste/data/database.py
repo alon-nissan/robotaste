@@ -1087,6 +1087,137 @@ def get_questionnaire_type_id(questionnaire_type_name: str) -> Optional[int]:
 
 
 # ============================================================================
+# Section 5.5: Sample Bank State Operations
+# ============================================================================
+
+
+def get_session_bank_state(
+    session_id: str,
+    schedule_index: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Get sample bank state for a session.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+
+    Returns:
+        Dict with bank state information or None if not found
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT randomized_order, current_position, latin_square_session_number,
+                       design_type, created_at, updated_at
+                FROM session_sample_bank_state
+                WHERE session_id = ? AND protocol_schedule_index = ?
+                """,
+                (session_id, schedule_index)
+            )
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                "randomized_order": json.loads(row["randomized_order"]),
+                "current_position": row["current_position"],
+                "latin_square_session_number": row["latin_square_session_number"],
+                "design_type": row["design_type"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get session bank state: {e}")
+        return None
+
+
+def save_session_bank_state(
+    session_id: str,
+    schedule_index: int,
+    randomized_order: List[str],
+    design_type: str,
+    latin_square_session_number: Optional[int] = None
+) -> bool:
+    """
+    Save or update session bank state.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+        randomized_order: List of sample IDs in randomized order
+        design_type: "randomized" or "latin_square"
+        latin_square_session_number: Session number for latin square (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO session_sample_bank_state
+                (session_id, protocol_schedule_index, randomized_order, current_position,
+                 latin_square_session_number, design_type, created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(session_id, protocol_schedule_index) DO UPDATE SET
+                    randomized_order = excluded.randomized_order,
+                    design_type = excluded.design_type,
+                    latin_square_session_number = excluded.latin_square_session_number,
+                    updated_at = datetime('now')
+                """,
+                (session_id, schedule_index, json.dumps(randomized_order),
+                 latin_square_session_number, design_type)
+            )
+            conn.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Failed to save session bank state: {e}")
+        return False
+
+
+def update_bank_position(
+    session_id: str,
+    schedule_index: int,
+    new_position: int
+) -> bool:
+    """
+    Update current position in sample bank.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+        new_position: New position value
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE session_sample_bank_state
+                SET current_position = ?, updated_at = datetime('now')
+                WHERE session_id = ? AND protocol_schedule_index = ?
+                """,
+                (new_position, session_id, schedule_index)
+            )
+            conn.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Failed to update bank position: {e}")
+        return False
+
+
+# ============================================================================
 # Section 6: BO Integration
 # ============================================================================
 

@@ -314,10 +314,10 @@ def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
             errors.append(f"Schedule entry {i+1}: invalid mode '{mode}'")
 
         # Validate mode-specific requirements
-        if mode == "predetermined":
+        if mode in ["predetermined", "predetermined_absolute"]:
             if "predetermined_samples" not in entry:
                 errors.append(
-                    f"Schedule entry {i+1}: predetermined mode requires 'predetermined_samples'"
+                    f"Schedule entry {i+1}: predetermined_absolute mode requires 'predetermined_samples'"
                 )
             else:
                 samples = entry["predetermined_samples"]
@@ -335,6 +335,61 @@ def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
                     if "concentrations" not in sample:
                         errors.append(
                             f"Schedule entry {i+1}, cycle {sample.get('cycle')}: missing concentrations"
+                        )
+
+        elif mode == "predetermined_randomized":
+            if "sample_bank" not in entry:
+                errors.append(
+                    f"Schedule entry {i+1}: predetermined_randomized mode requires 'sample_bank'"
+                )
+            else:
+                bank = entry["sample_bank"]
+
+                # Validate required fields
+                if "samples" not in bank:
+                    errors.append(
+                        f"Schedule entry {i+1}: sample_bank requires 'samples' array"
+                    )
+                elif not bank["samples"]:
+                    errors.append(
+                        f"Schedule entry {i+1}: sample_bank 'samples' cannot be empty"
+                    )
+                else:
+                    # Check for duplicate sample IDs
+                    sample_ids = [s.get("id") for s in bank["samples"] if "id" in s]
+                    if len(sample_ids) != len(set(sample_ids)):
+                        errors.append(
+                            f"Schedule entry {i+1}: duplicate sample IDs in sample_bank"
+                        )
+
+                    # Validate each sample has concentrations
+                    for sample in bank["samples"]:
+                        if "id" not in sample:
+                            errors.append(
+                                f"Schedule entry {i+1}: sample_bank sample missing 'id'"
+                            )
+                        if "concentrations" not in sample:
+                            errors.append(
+                                f"Schedule entry {i+1}: sample_bank sample '{sample.get('id', '?')}' missing concentrations"
+                            )
+
+                # Validate design_type
+                if "design_type" not in bank:
+                    errors.append(
+                        f"Schedule entry {i+1}: sample_bank requires 'design_type'"
+                    )
+                elif bank["design_type"] not in ["randomized", "latin_square"]:
+                    errors.append(
+                        f"Schedule entry {i+1}: invalid design_type '{bank['design_type']}' (must be 'randomized' or 'latin_square')"
+                    )
+
+                # Warn if bank size doesn't match cycle count
+                if "samples" in bank and bank["samples"]:
+                    bank_size = len(bank["samples"])
+                    cycle_count = end - start + 1
+                    if bank_size != cycle_count:
+                        warnings.append(
+                            f"Schedule entry {i+1}: sample_bank size ({bank_size}) doesn't match cycle count ({cycle_count})"
                         )
 
     # Check for gaps in cycle coverage (warn only)
