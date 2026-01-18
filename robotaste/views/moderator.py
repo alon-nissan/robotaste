@@ -1972,7 +1972,9 @@ def show_moderator_monitoring():
 
         # Create tab list dynamically based on modes present
         tab_names = ["Overview"]
-        if "predetermined" in mode_info["all_modes"]:
+        # Check for any predetermined mode (legacy or new)
+        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        if has_predetermined:
             tab_names.append("Predetermined")
         if "user_selected" in mode_info["all_modes"]:
             tab_names.append("User Selection")
@@ -1987,7 +1989,9 @@ def show_moderator_monitoring():
             render_overview_tab(st.session_state.session_id, mode_info)
         tab_idx += 1
 
-        if "predetermined" in mode_info["all_modes"]:
+        # Check for any predetermined mode (legacy or new)
+        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        if has_predetermined:
             with tabs[tab_idx]:
                 render_predetermined_view(st.session_state.session_id)
             tab_idx += 1
@@ -2008,7 +2012,7 @@ def show_moderator_monitoring():
 
         current_mode = mode_info["current_mode"]
 
-        if current_mode == "predetermined":
+        if current_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
             render_predetermined_view(st.session_state.session_id)
         elif current_mode == "user_selected":
             render_user_selection_view(st.session_state.session_id)

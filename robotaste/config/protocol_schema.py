@@ -19,7 +19,7 @@ import json
 # Type Definitions
 # =============================================================================
 
-SelectionMode = Literal["user_selected", "bo_selected", "predetermined"]
+SelectionMode = Literal["user_selected", "bo_selected", "predetermined_absolute", "predetermined_randomized"]
 PhaseType = Literal["builtin", "custom", "loop"]
 BuiltinPhase = Literal[
     "waiting",
@@ -119,7 +119,7 @@ PROTOCOL_JSON_SCHEMA = {
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["user_selected", "bo_selected", "predetermined"],
+                        "enum": ["user_selected", "bo_selected", "predetermined_absolute", "predetermined_randomized"],
                     },
                     "predetermined_samples": {
                         "type": "array",
@@ -131,6 +131,54 @@ PROTOCOL_JSON_SCHEMA = {
                                 "concentrations": {
                                     "type": "object",
                                     "additionalProperties": {"type": "number"},
+                                },
+                            },
+                        },
+                    },
+                    "sample_bank": {
+                        "type": "object",
+                        "description": "Sample bank configuration for predetermined_randomized mode",
+                        "required": ["samples", "design_type"],
+                        "properties": {
+                            "samples": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "required": ["id", "concentrations"],
+                                    "properties": {
+                                        "id": {
+                                            "type": "string",
+                                            "description": "Unique sample identifier",
+                                        },
+                                        "concentrations": {
+                                            "type": "object",
+                                            "additionalProperties": {"type": "number"},
+                                            "description": "Ingredient concentrations",
+                                        },
+                                        "label": {
+                                            "type": "string",
+                                            "description": "Optional descriptive label",
+                                        },
+                                    },
+                                },
+                            },
+                            "design_type": {
+                                "type": "string",
+                                "enum": ["randomized", "latin_square"],
+                                "description": "Counterbalancing type",
+                            },
+                            "constraints": {
+                                "type": "object",
+                                "properties": {
+                                    "prevent_consecutive_repeats": {
+                                        "type": "boolean",
+                                        "default": True,
+                                    },
+                                    "ensure_all_used_before_repeat": {
+                                        "type": "boolean",
+                                        "default": True,
+                                    },
                                 },
                             },
                         },
@@ -390,7 +438,7 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
     "sample_selection_schedule": [
         {
             "cycle_range": {"start": 1, "end": 2},
-            "mode": "predetermined",
+            "mode": "predetermined_absolute",
             "predetermined_samples": [
                 {"cycle": 1, "concentrations": {"Sugar": 10.0, "Salt": 2.0}},
                 {"cycle": 2, "concentrations": {"Sugar": 40.0, "Salt": 6.0}},
@@ -574,7 +622,9 @@ def get_predetermined_sample(
     schedule = protocol.get("sample_selection_schedule", [])
 
     for entry in schedule:
-        if entry.get("mode") != "predetermined":
+        mode = entry.get("mode")
+        # Support both old "predetermined" and new "predetermined_absolute"
+        if mode not in ["predetermined", "predetermined_absolute"]:
             continue
 
         cycle_range = entry.get("cycle_range", {})
@@ -631,7 +681,7 @@ VALIDATION_RULES = {
     "max_description_length": 1000,
     "min_cycles": 1,
     "max_cycles": 100,
-    "valid_modes": ["user_selected", "bo_selected", "predetermined"],
+    "valid_modes": ["user_selected", "bo_selected", "predetermined_absolute", "predetermined_randomized", "predetermined"],  # "predetermined" is legacy alias for "predetermined_absolute"
     "valid_questionnaire_types": [
         "hedonic_continuous",
         "hedonic_discrete",
@@ -643,3 +693,70 @@ VALIDATION_RULES = {
     "valid_acquisition_functions": ["ei", "ucb"],
     "valid_kernel_nu": [0.5, 1.5, 2.5, float("inf")],
 }
+
+
+def get_sample_bank_config(protocol: Dict[str, Any], cycle_number: int) -> Optional[Dict[str, Any]]:
+    """
+    Get sample bank configuration for a specific cycle.
+
+    Args:
+        protocol: Protocol dictionary
+        cycle_number: Current cycle number (1-indexed)
+
+    Returns:
+        Sample bank configuration dict or None if not applicable
+    """
+    schedule = protocol.get("sample_selection_schedule", [])
+
+    for entry in schedule:
+        cycle_range = entry.get("cycle_range", {})
+        start = cycle_range.get("start", 0)
+        end = cycle_range.get("end", 0)
+
+        if start <= cycle_number <= end:
+            if entry.get("mode") == "predetermined_randomized":
+                return entry.get("sample_bank")
+
+    return None
+
+
+def get_schedule_index_for_cycle(protocol: Dict[str, Any], cycle_number: int) -> int:
+    """
+    Get schedule entry index (0-indexed) for a cycle.
+
+    Args:
+        protocol: Protocol dictionary
+        cycle_number: Current cycle number (1-indexed)
+
+    Returns:
+        Schedule entry index (0-indexed), or -1 if not found
+    """
+    schedule = protocol.get("sample_selection_schedule", [])
+
+    for idx, entry in enumerate(schedule):
+        cycle_range = entry.get("cycle_range", {})
+        start = cycle_range.get("start", 0)
+        end = cycle_range.get("end", 0)
+
+        if start <= cycle_number <= end:
+            return idx
+
+    return -1
+
+
+def normalize_selection_mode(mode: str) -> SelectionMode:
+    """
+    Normalize selection mode for backward compatibility.
+
+    Maps legacy "predetermined" to "predetermined_absolute".
+
+    Args:
+        mode: Selection mode string
+
+    Returns:
+        Normalized selection mode
+    """
+    if mode == "predetermined":
+        return "predetermined_absolute"
+    return mode
+

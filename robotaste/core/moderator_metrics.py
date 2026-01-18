@@ -38,7 +38,7 @@ def get_current_mode_info(session_id: str) -> Dict[str, Any]:
     Returns:
         {
             "current_cycle": int,
-            "current_mode": str,  # "predetermined", "user_selected", "bo_selected"
+            "current_mode": str,  # "predetermined_absolute", "predetermined_randomized", "user_selected", "bo_selected"
             "is_mixed_mode": bool,
             "all_modes": List[str],  # Unique modes in protocol
             "schedule": List[Dict]  # Full schedule from protocol
@@ -143,7 +143,9 @@ def get_predetermined_metrics(session_id: str) -> Dict[str, Any]:
         predetermined_cycles = []
 
         for entry in schedule:
-            if entry.get("mode") == "predetermined":
+            mode = entry.get("mode")
+            # Support all predetermined modes (legacy and new)
+            if mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
                 cycle_range = entry.get("cycle_range", {})
                 start = cycle_range.get("start", 0)
                 end = cycle_range.get("end", 0)
@@ -162,7 +164,33 @@ def get_predetermined_metrics(session_id: str) -> Dict[str, Any]:
 
         for cycle_num in predetermined_cycles:
             # Get expected concentrations from protocol
+            # Try to get from predetermined_samples first (for predetermined_absolute mode)
             expected_conc = get_predetermined_sample(protocol, cycle_num)
+
+            # If not found, try to get from sample bank (for predetermined_randomized mode)
+            if expected_conc is None:
+                from robotaste.config.protocol_schema import get_sample_bank_config, get_schedule_index_for_cycle
+                from robotaste.core.sample_bank import get_next_sample_from_bank
+
+                bank_config = get_sample_bank_config(protocol, cycle_num)
+                schedule_index = get_schedule_index_for_cycle(protocol, cycle_num)
+
+                if bank_config and schedule_index >= 0:
+                    try:
+                        # Get cycle_range_start
+                        schedule_entry = schedule[schedule_index]
+                        cycle_range_start = schedule_entry.get("cycle_range", {}).get("start", 1)
+
+                        expected_conc = get_next_sample_from_bank(
+                            session_id,
+                            schedule_index,
+                            bank_config,
+                            cycle_num,
+                            cycle_range_start
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not get sample from bank for cycle {cycle_num}: {e}")
+                        expected_conc = None
 
             # Check if this cycle has been completed
             completed_sample = completed_samples_dict.get(cycle_num)

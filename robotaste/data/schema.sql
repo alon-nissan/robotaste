@@ -164,6 +164,20 @@ CREATE TABLE IF NOT EXISTS pump_logs (
     FOREIGN KEY (operation_id) REFERENCES pump_operations(id)
 );
 
+-- Table 9: Session Sample Bank State (Track randomized sample order per session)
+CREATE TABLE IF NOT EXISTS session_sample_bank_state (
+    session_id TEXT NOT NULL,
+    protocol_schedule_index INTEGER NOT NULL,
+    randomized_order TEXT NOT NULL,           -- JSON array of sample IDs
+    current_position INTEGER DEFAULT 0,       -- Current position in order
+    latin_square_session_number INTEGER,      -- Session number for latin square
+    design_type TEXT NOT NULL,                -- "randomized" or "latin_square"
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (session_id, protocol_schedule_index),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+);
+
 -- Create indexes for performance
 -- Protocol Library indexes
 CREATE INDEX IF NOT EXISTS idx_protocol_library_name ON protocol_library(name);
@@ -192,6 +206,9 @@ CREATE INDEX IF NOT EXISTS idx_pump_operations_cycle ON pump_operations(cycle_nu
 -- Pump logs indexes
 CREATE INDEX IF NOT EXISTS idx_pump_logs_operation_id ON pump_logs(operation_id);
 CREATE INDEX IF NOT EXISTS idx_pump_logs_timestamp ON pump_logs(timestamp);
+
+-- Session sample bank state indexes
+CREATE INDEX IF NOT EXISTS idx_session_bank_state_session ON session_sample_bank_state(session_id);
 
 -- Create view for Bayesian Optimization cycle analysis
 CREATE VIEW IF NOT EXISTS bo_cycle_analysis AS
