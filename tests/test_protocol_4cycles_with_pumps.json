@@ -1,8 +1,8 @@
 {
-    "protocol_id": "proto_sugar_4cycles_pumps_001",
-    "name": "Four-Cycle Sugar Calibration with Pumps",
+    "protocol_id": "proto_sugar_4cycles_pumps_004",
+    "name": "Four-Cycle Sugar Calibration with Pumps - Burst Mode",
     "description": "4-cycle predetermined protocol testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control",
-    "version": "3.0",
+    "version": "4.0",
     "schema_version": "1.0",
     "created_by": "Researcher",
     "created_at": "2026-01-14T00:00:00Z",
@@ -19,7 +19,7 @@
             "max_concentration": 100.0,
             "unit": "mM",
             "molecular_weight": 342.3,
-            "stock_concentration_mM": 1000.0
+            "stock_concentration_mM": 200.0
         },
         {
             "name": "Water",
@@ -55,7 +55,8 @@
         ],
         "total_volume_ml": 10.0,
         "dispensing_rate_ul_min": 80000,
-        "simultaneous_dispensing": true
+        "simultaneous_dispensing": true,
+        "use_burst_mode": true
     },
     "sample_selection_schedule": [
         {

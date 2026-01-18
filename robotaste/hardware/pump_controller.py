@@ -15,8 +15,9 @@ import serial  # pip install pyserial
 import time
 import logging
 import re
-from typing import Optional, Literal
+from typing import Optional, Literal, List, Tuple
 from threading import RLock
+from dataclasses import dataclass
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -42,6 +43,127 @@ class PumpTimeoutError(Exception):
     """Raised when pump doesn't respond within timeout period."""
 
     pass
+
+
+@dataclass
+class PumpBurstConfig:
+    """Configuration for a single pump in burst operation."""
+    address: int  # 0-9 only (burst mode constraint)
+    rate_ul_min: float
+    volume_ul: float
+    direction: Literal["INF", "WDR"] = "INF"
+
+
+@dataclass
+class BurstCommandSet:
+    """Complete set of burst commands for multi-pump operation."""
+    config_command: str      # e.g., "0 RAT 60 MM * 0 VOL 3.0 * 1 RAT 30 MM * 1 VOL 1.0"
+    validation_command: str  # e.g., "0 RAT * 1 RAT * 0 VOL * 1 VOL *"
+    run_command: str        # e.g., "0 RUN * 1 RUN *"
+
+
+class BurstCommandBuilder:
+    """Builds Network Command Burst commands for NE-4000 pumps."""
+
+    @staticmethod
+    def validate_burst_config(configs: List[PumpBurstConfig]) -> List[str]:
+        """
+        Validate configurations are compatible with burst mode.
+
+        Returns:
+            List of error messages (empty if valid)
+        """
+        errors = []
+
+        # Check address range (0-9 for burst mode)
+        for config in configs:
+            if config.address < 0 or config.address > 9:
+                errors.append(
+                    f"Pump address {config.address} out of range. "
+                    f"Burst mode requires addresses 0-9."
+                )
+
+        # Check for duplicate addresses
+        addresses = [c.address for c in configs]
+        if len(addresses) != len(set(addresses)):
+            errors.append("Duplicate pump addresses detected")
+
+        # Validate rates and volumes
+        for config in configs:
+            if config.rate_ul_min <= 0:
+                errors.append(f"Pump {config.address}: Rate must be positive")
+            if config.volume_ul <= 0:
+                errors.append(f"Pump {config.address}: Volume must be positive")
+
+        return errors
+
+    @staticmethod
+    def build_burst_commands(configs: List[PumpBurstConfig]) -> BurstCommandSet:
+        """
+        Build three command strings for burst mode operation.
+
+        Args:
+            configs: List of pump configurations
+
+        Returns:
+            BurstCommandSet with config, validation, and run commands
+
+        Example output for 2 pumps (3mL @ 60mL/min, 1mL @ 30mL/min):
+            config: "0 RAT 60.00 MM * 0 VOL 3.000 * 1 RAT 30.00 MM * 1 VOL 1.000"
+            validation: "0 RAT * 1 RAT * 0 VOL * 1 VOL *"
+            run: "0 RUN * 1 RUN *"
+        """
+        # Validate first
+        errors = BurstCommandBuilder.validate_burst_config(configs)
+        if errors:
+            raise ValueError(f"Invalid burst configuration: {'; '.join(errors)}")
+
+        config_parts = []
+        validation_parts = []
+        run_parts = []
+
+        # Create a temporary pump instance to access formatting methods
+        # (we'll use address 0, but we only need the formatting logic)
+        temp_pump = NE4000Pump(port="dummy", address=0)
+
+        for config in configs:
+            addr = config.address
+
+            # Format rate (auto-converts to MM if needed)
+            rate_str, rate_unit = temp_pump._format_rate_for_pump(
+                config.rate_ul_min, "UM"
+            )
+
+            # Format volume (always in mL)
+            volume_ml = config.volume_ul / 1000.0
+            volume_str = temp_pump._format_volume_for_pump(volume_ml)
+
+            # Direction
+            direction = config.direction
+
+            # Build config command parts
+            # Format: <addr> RAT <value> <unit> * <addr> DIR <direction> * <addr> VOL <value> *
+            config_parts.append(f"{addr} RAT {rate_str} {rate_unit}")
+            config_parts.append(f"{addr} DIR {direction}")
+            config_parts.append(f"{addr} VOL {volume_str}")
+
+            # Build validation command parts
+            validation_parts.append(f"{addr} RAT")
+            validation_parts.append(f"{addr} VOL")
+
+            # Build run command parts
+            run_parts.append(f"{addr} RUN")
+
+        # Join with " * " separator and add trailing " *"
+        config_cmd = " * ".join(config_parts) + " *"
+        validation_cmd = " * ".join(validation_parts) + " *"
+        run_cmd = " * ".join(run_parts) + " *"
+
+        return BurstCommandSet(
+            config_command=config_cmd,
+            validation_command=validation_cmd,
+            run_command=run_cmd
+        )
 
 
 class NE4000Pump:
@@ -895,6 +1017,51 @@ class NE4000Pump:
             raise last_error
 
         return ""
+
+    def _send_burst_command(self, command: str) -> str:
+        """
+        Send Network Command Burst (responses will be gibberish per manual).
+
+        Args:
+            command: Pre-formatted burst command (e.g., "0 RAT 60 MM * 1 RAT 30 MM *")
+
+        Returns:
+            Raw response string (for logging only - content is gibberish)
+
+        Note:
+            Per NE-4000 manual page 44: "all of the pumps will be responding
+            simultaneously, and therefore the communications response to a
+            Network Command Burst will be gibberish and should be ignored."
+        """
+        if not self.is_connected():
+            raise PumpConnectionError("Not connected to pump")
+
+        # Burst commands don't use address prefix - they're already in the command
+        full_command = f"{command}\r"
+
+        logger.info(f"[Burst Mode] Sending: {command}")
+
+        try:
+            with self._lock:
+                # Clear input buffer
+                self.serial.reset_input_buffer()
+
+                # Send command
+                self.serial.write(full_command.encode("ascii"))
+
+                # Read response (will be gibberish, but read it anyway to clear buffer)
+                response = self.serial.read_until(b"\r").decode("ascii", errors="ignore").strip()
+
+                if not response:
+                    response = self.serial.read_until(b"\n").decode("ascii", errors="ignore").strip()
+
+                logger.info(f"[Burst Mode] Response (gibberish): {response!r}")
+
+                return response
+
+        except Exception as e:
+            logger.error(f"[Burst Mode] Command failed: {e}")
+            raise PumpCommandError(f"Burst command failed: {e}")
 
     def __enter__(self):
         """Context manager entry."""
