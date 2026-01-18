@@ -755,6 +755,27 @@ def _validate_pump_config(protocol: Dict[str, Any]) -> List[str]:
         if not isinstance(dispensing_rate, (int, float)) or dispensing_rate <= 0:
             errors.append(f"Pump config: dispensing_rate_ul_min must be positive, got {dispensing_rate}")
 
+    # Validate burst mode compatibility
+    use_burst = pump_config.get("use_burst_mode", False)
+    if use_burst:
+        for i, pump_cfg in enumerate(pumps):
+            address = pump_cfg.get("address")
+            if address is None:
+                errors.append(f"Pump {i+1}: Missing address (required for burst mode)")
+            elif address > 9:
+                errors.append(
+                    f"Pump {i+1}: Address {address} exceeds burst mode limit (0-9). "
+                    f"Either change address or disable burst mode."
+                )
+
+        # Warn if burst mode enabled but not using simultaneous dispensing
+        if not pump_config.get("simultaneous_dispensing", False):
+            # This is just a warning, not an error
+            logger.warning(
+                "Burst mode is enabled but simultaneous_dispensing is False. "
+                "Burst mode only works with simultaneous dispensing."
+            )
+
     return errors
 
 

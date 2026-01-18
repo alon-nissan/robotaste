@@ -395,6 +395,16 @@ PROTOCOL_JSON_SCHEMA = {
                     "description": "Default dispensing rate in µL/min",
                     "default": 2000,
                 },
+                "simultaneous_dispensing": {
+                    "type": "boolean",
+                    "description": "Enable simultaneous dispensing for multiple pumps",
+                    "default": True,
+                },
+                "use_burst_mode": {
+                    "type": "boolean",
+                    "description": "Use Network Command Burst for simultaneous dispensing (requires pump addresses 0-9). Significantly faster than individual commands.",
+                    "default": False,
+                },
             },
         },
     },
@@ -575,6 +585,8 @@ def get_empty_protocol_template() -> Dict[str, Any]:
             "pumps": [],
             "total_volume_ml": 10.0,
             "dispensing_rate_ul_min": 2000,
+            "simultaneous_dispensing": True,
+            "use_burst_mode": False,
         },
     }
 

@@ -1,8 +1,8 @@
 {
     "protocol_id": "protocol_4cycles_with_pumps_latin_square",
-    "name": "Four-Cycle Sugar Calibration with Pumps (Latin Square)",
-    "description": "4-cycle protocol with randomized Latin square design testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control. Order counterbalanced across sessions.",
-    "version": "3.0",
+    "name": "Four-Cycle Sugar Calibration with Pumps (Latin Square, Burst Mode)",
+    "description": "4-cycle protocol with randomized Latin square design testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control in burst mode. Order counterbalanced across sessions.",
+    "version": "4.0",
     "schema_version": "1.0",
     "created_by": "Researcher",
     "created_at": "2026-01-18T00:00:00Z",
@@ -20,7 +20,7 @@
             "max_concentration": 100.0,
             "unit": "mM",
             "molecular_weight": 342.3,
-            "stock_concentration_mM": 1000.0
+            "stock_concentration_mM": 200.0
         },
         {
             "name": "Water",
@@ -56,7 +56,8 @@
         ],
         "total_volume_ml": 10.0,
         "dispensing_rate_ul_min": 80000,
-        "simultaneous_dispensing": true
+        "simultaneous_dispensing": true,
+        "use_burst_mode": true
     },
     "sample_selection_schedule": [
         {
