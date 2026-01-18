@@ -107,7 +107,49 @@ def render_questionnaire(
 
                 # Handle continuous slider display (float values)
                 elif display_type == "slider_continuous" or is_float:
-                    if scale_labels:
+                    # Check if we should use the visual layout (columns for labels)
+                    # For continuous sliders, we base visual steps on the integer range
+                    num_steps = int(max_val) - int(min_val) + 1
+                    use_visual_layout = bool(scale_labels) and num_steps <= 12 and num_steps > 1
+
+                    if use_visual_layout:
+                        st.markdown(f"**{question['label']}**")
+                        if help_text:
+                            st.caption(help_text)
+
+                        # Create columns for labels
+                        cols = st.columns(num_steps)
+
+                        # Iterate through steps to place labels
+                        current_val = int(min_val)
+                        for i in range(num_steps):
+                            with cols[i]:
+                                # Try both int and str keys for labels
+                                label = scale_labels.get(current_val) or scale_labels.get(
+                                    str(current_val)
+                                )
+                                if label:
+                                    # Use HTML to center small text
+                                    st.markdown(
+                                        f"<div style='text-align: center; font-size: 12px; line-height: 1.1;'>{label}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    st.write("")  # Spacer
+                            current_val += 1
+
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=float(min_val),
+                            max_value=float(max_val),
+                            value=float(default_val),
+                            step=float(step_val),
+                            key=question_key,
+                            label_visibility="collapsed",
+                            format="%.2f",  # Show 2 decimal places
+                        )
+
+                    elif scale_labels:
                         st.markdown(f"**{question['label']}**")
                         if help_text:
                             st.caption(help_text)
@@ -145,7 +187,50 @@ def render_questionnaire(
 
                 # Handle standard discrete slider (default behavior)
                 else:
-                    if scale_labels:
+                    # Check if we should use the visual layout (columns for labels)
+                    # Use visual layout if we have labels and a reasonable number of steps (<= 12)
+                    step_int = int(step_val) if step_val >= 1 else 1
+                    num_steps = (int(max_val) - int(min_val)) // step_int + 1
+                    use_visual_layout = bool(scale_labels) and num_steps <= 12
+
+                    if use_visual_layout:
+                        st.markdown(f"**{question['label']}**")
+                        if help_text:
+                            st.caption(help_text)
+
+                        # Create columns for labels
+                        cols = st.columns(num_steps)
+
+                        # Iterate through steps to place labels
+                        current_val = int(min_val)
+                        for i in range(num_steps):
+                            with cols[i]:
+                                # Try both int and str keys for labels
+                                label = scale_labels.get(current_val) or scale_labels.get(
+                                    str(current_val)
+                                )
+                                if label:
+                                    # Use HTML to center small text, matching visual layout approach
+                                    st.markdown(
+                                        f"<div style='text-align: center; font-size: 12px; line-height: 1.1;'>{label}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    st.write("")  # Spacer
+                            current_val += step_int
+
+                        responses[question_id] = st.slider(
+                            label=question["label"],
+                            min_value=int(min_val),
+                            max_value=int(max_val),
+                            value=int(default_val),
+                            step=int(step_val),
+                            key=question_key,
+                            label_visibility="collapsed",
+                            format="%d",
+                        )
+
+                    elif scale_labels:
                         st.markdown(f"**{question['label']}**")
                         if help_text:
                             st.caption(help_text)
