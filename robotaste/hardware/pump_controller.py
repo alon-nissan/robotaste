@@ -57,8 +57,8 @@ class PumpBurstConfig:
 @dataclass
 class BurstCommandSet:
     """Complete set of burst commands for multi-pump operation."""
-    config_command: str      # e.g., "0 RAT 60 MM * 0 VOL 3.0 * 1 RAT 30 MM * 1 VOL 1.0"
-    validation_command: str  # e.g., "0 RAT * 1 RAT * 0 VOL * 1 VOL *"
+    config_command: str      # e.g., "0 RAT 60 MM * 0 DIR INF * 0 VOL ML * 0 VOL 3.0 * 1 RAT 30 MM * 1 DIR INF * 1 VOL ML * 1 VOL 1.0 *"
+    validation_command: str  # e.g., "0 RAT * 0 VOL * 1 RAT * 1 VOL *"
     run_command: str        # e.g., "0 RUN * 1 RUN *"
 
 
@@ -109,8 +109,8 @@ class BurstCommandBuilder:
             BurstCommandSet with config, validation, and run commands
 
         Example output for 2 pumps (3mL @ 60mL/min, 1mL @ 30mL/min):
-            config: "0 RAT 60.00 MM * 0 VOL 3.000 * 1 RAT 30.00 MM * 1 VOL 1.000"
-            validation: "0 RAT * 1 RAT * 0 VOL * 1 VOL *"
+            config: "0 RAT 60.00 MM * 0 DIR INF * 0 VOL ML * 0 VOL 3.000 * 1 RAT 30.00 MM * 1 DIR INF * 1 VOL ML * 1 VOL 1.000 *"
+            validation: "0 RAT * 0 VOL * 1 RAT * 1 VOL *"
             run: "0 RUN * 1 RUN *"
         """
         # Validate first
@@ -142,9 +142,10 @@ class BurstCommandBuilder:
             direction = config.direction
 
             # Build config command parts
-            # Format: <addr> RAT <value> <unit> * <addr> DIR <direction> * <addr> VOL <value> *
+            # Format: <addr> RAT <value> <unit> * <addr> DIR <direction> * <addr> VOL <unit> * <addr> VOL <value> *
             config_parts.append(f"{addr} RAT {rate_str} {rate_unit}")
             config_parts.append(f"{addr} DIR {direction}")
+            config_parts.append(f"{addr} VOL ML")  # Set volume units to milliliters
             config_parts.append(f"{addr} VOL {volume_str}")
 
             # Build validation command parts
