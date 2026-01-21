@@ -28,6 +28,7 @@ from robotaste.data.database import (
     get_session_samples,
     increment_cycle,
     save_sample_cycle,
+    update_session_user_id,
 )
 from robotaste.core.state_machine import ExperimentPhase, ExperimentStateMachine
 from robotaste.core import state_helpers
@@ -46,7 +47,7 @@ import logging
 import json
 from datetime import datetime
 
-from robotaste.data.database import update_user_profile, create_user
+from robotaste.data.database import update_user_profile
 
 
 logger = logging.getLogger(__name__)
@@ -89,21 +90,26 @@ def render_registration_screen():
                 st.warning("Please select your gender.")
             else:
                 user_id = st.session_state.get("participant")
-                if user_id:
-                    if create_user(user_id) and update_user_profile(
-                        user_id, name, gender, age
-                    ):
-                        st.success("Information saved!")
+                session_id = st.session_state.get("session_id")
+
+                if not user_id:
+                    st.error("Session error: No participant ID found. Please rejoin the session.")
+                elif not session_id:
+                    st.error("Session error: No session ID found. Please rejoin the session.")
+                elif update_user_profile(user_id, name, gender, age):
+                    # Link user to session in database after demographics saved
+                    if update_session_user_id(session_id, user_id):
+                        st.success("Information saved and linked to session!")
                         transition_to_next_phase(
                             current_phase_str=ExperimentPhase.REGISTRATION.value,
                             default_next_phase=ExperimentPhase.COMPLETE,
-                            session_id=st.session_state.session_id,
+                            session_id=session_id,
                         )
                         st.rerun()
                     else:
-                        st.error("Failed to save your information. Please try again.")
+                        st.error("Failed to link participant to session. Please try again.")
                 else:
-                    st.error("User ID not found in session. Cannot save profile.")
+                    st.error("Failed to save your information. Please try again.")
 
 
 def render_instructions_screen():
