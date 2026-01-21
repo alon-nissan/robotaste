@@ -801,6 +801,36 @@ def update_user_profile(user_id: str, name: str, gender: str, age: int) -> bool:
         return False
 
 
+def save_consent_response(session_id: str, consent_given: bool) -> bool:
+    """Save consent response with timestamp to the sessions table.
+
+    Args:
+        session_id: The session ID
+        consent_given: Whether the user gave consent (True/False)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET consent_given = ?,
+                    consent_timestamp = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                (1 if consent_given else 0, session_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error saving consent response: {e}")
+        return False
+
+
 # ============================================================================
 # Section 4: Sample/Cycle Operations
 # ============================================================================

@@ -315,6 +315,7 @@ class ExperimentStateMachine:
             False
         """
         return phase in [
+            ExperimentPhase.CONSENT,
             ExperimentPhase.REGISTRATION,
             ExperimentPhase.INSTRUCTIONS,
             ExperimentPhase.ROBOT_PREPARING,

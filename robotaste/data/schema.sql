@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     state TEXT NOT NULL DEFAULT 'active',
     current_phase TEXT DEFAULT 'waiting',
     current_cycle INTEGER DEFAULT 0,
+    consent_given INTEGER DEFAULT NULL,
+    consent_timestamp TIMESTAMP DEFAULT NULL,
     experiment_config TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

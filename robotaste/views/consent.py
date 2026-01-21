@@ -1,7 +1,6 @@
 import streamlit as st
 from robotaste.core.state_machine import ExperimentPhase
-from robotaste.views.subject import transition_to_next_phase
-from robotaste.data.database import get_session_protocol
+from robotaste.data.database import get_session_protocol, save_consent_response
 
 def render_consent_screen():
     """
@@ -43,10 +42,17 @@ def render_consent_screen():
     agreed = st.checkbox(consent_label)
     
     if st.button("Continue", disabled=not agreed, type="primary"):
-        # Transition to next phase (likely Experiment Loop -> Selection)
-        transition_to_next_phase(
-            current_phase_str=ExperimentPhase.CONSENT.value,
-            default_next_phase=ExperimentPhase.SELECTION, # Default start of loop if not specified
-            session_id=st.session_state.session_id,
-        )
-        st.rerun()
+        # Save consent response to database
+        if save_consent_response(st.session_state.session_id, agreed):
+            # Import here to avoid circular dependency
+            from robotaste.views.subject import transition_to_next_phase
+
+            # Transition to next phase (likely Experiment Loop -> Selection)
+            transition_to_next_phase(
+                current_phase_str=ExperimentPhase.CONSENT.value,
+                default_next_phase=ExperimentPhase.SELECTION, # Default start of loop if not specified
+                session_id=st.session_state.session_id,
+            )
+            st.rerun()
+        else:
+            st.error("Failed to save consent response. Please try again.")
