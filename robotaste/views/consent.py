@@ -1,6 +1,6 @@
 import streamlit as st
 from robotaste.core.state_machine import ExperimentPhase
-from robotaste.views.subject import transition_to_next_phase
+from robotaste.views.phase_utils import transition_to_next_phase
 from robotaste.data.database import get_session_protocol
 
 def render_consent_screen():

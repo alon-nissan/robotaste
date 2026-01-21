@@ -35,6 +35,7 @@ from robotaste.config.questionnaire import get_default_questionnaire_type
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
 from robotaste.views.consent import render_consent_screen
+from robotaste.views.phase_utils import transition_to_next_phase
 from robotaste.data.database import get_session_protocol
 
 
@@ -67,48 +68,6 @@ def get_next_phase_after_selection(session_id: str) -> ExperimentPhase:
     pump_enabled = pump_config.get("enabled", False)
 
     return ExperimentPhase.ROBOT_PREPARING if pump_enabled else ExperimentPhase.LOADING
-
-
-def transition_to_next_phase(
-    current_phase_str: str,
-    default_next_phase: ExperimentPhase,
-    session_id: str,
-    current_cycle: int = None,  # type: ignore
-) -> None:
-    """
-    Transition to next phase using PhaseEngine if available, otherwise use default.
-
-    Args:
-        current_phase_str: Current phase as string
-        default_next_phase: Default next phase (fallback if no protocol)
-        session_id: Session ID
-        current_cycle: Current cycle number (optional, for loop logic)
-    """
-    # Try to load protocol and use PhaseEngine
-    protocol = get_session_protocol(session_id)
-
-    if protocol and "phase_sequence" in protocol:
-        try:
-            phase_engine = PhaseEngine(protocol, session_id)
-            next_phase_str = phase_engine.get_next_phase(
-                current_phase_str, current_cycle=current_cycle
-            )
-            next_phase = ExperimentPhase(next_phase_str)
-            logger.info(
-                f"PhaseEngine transition: {current_phase_str} → {next_phase_str}"
-            )
-        except Exception as e:
-            logger.error(f"PhaseEngine transition failed: {e}, using default")
-            next_phase = default_next_phase
-    else:
-        next_phase = default_next_phase
-
-    # Execute transition
-    state_helpers.transition(
-        state_helpers.get_current_phase(),
-        new_phase=next_phase,
-        session_id=session_id,
-    )
 
 
 def render_registration_screen():
