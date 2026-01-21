@@ -842,9 +842,8 @@ def show_single_ingredient_setup():
             # Start trial
             success = start_trial(
                 "mod",
-                st.session_state.participant,
-                "linear",  # Sliders use linear mapping
-                1,  # num_ingredients
+                method="linear",  # Sliders use linear mapping
+                num_ingredients=1,
                 selected_ingredients=st.session_state.selected_ingredients,
                 ingredient_configs=ingredient_configs,
             )
@@ -1200,9 +1199,8 @@ def show_binary_mixture_setup():
             # Start trial
             success = start_trial(
                 "mod",
-                st.session_state.participant,
-                method,
-                2,  # num_ingredients
+                method=method,
+                num_ingredients=2,
                 selected_ingredients=st.session_state.selected_ingredients,
                 ingredient_configs=ingredient_configs,
             )
@@ -2606,7 +2604,6 @@ def start_session_with_protocol(protocol_id: str):
         # Start trial using the protocol
         success = start_trial(
             user_type="mod",
-            participant_id=st.session_state.get("participant", "participant_001"),
             protocol_id=protocol_id,
         )
 

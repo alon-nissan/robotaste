@@ -91,7 +91,7 @@ if "db_initialized" not in st.session_state:
 def init_session_state():
     """Initialize session state variables."""
     defaults = {
-        "participant": "participant_001",
+        "participant": None,
         "phase": "waiting",  # Changed from "welcome" to match ExperimentPhase enum
         "method": "linear",
         "auto_refresh": True,

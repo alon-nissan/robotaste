@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 def start_trial(
     user_type: str,
-    participant_id: str,
+    participant_id: Optional[str] = None,
     method: Optional[str] = None,
     num_ingredients: Optional[int] = None,
     selected_ingredients: Optional[list] = None,
@@ -48,9 +48,22 @@ def start_trial(
 ) -> bool:
     """
     Initialize a new trial, either from a protocol or manual configuration.
+
+    Args:
+        user_type: User type (moderator/subject)
+        participant_id: Optional participant ID. If not provided, fetches from session's user_id.
+        method: Concentration mapping method
+        num_ingredients: Number of ingredients (1 or 2)
+        selected_ingredients: List of ingredient names
+        ingredient_configs: List of ingredient configuration dicts
+        protocol_id: Optional protocol ID to use
+
+    Returns:
+        True if successful, False otherwise
     """
     try:
         from robotaste.data import protocol_repo
+        from robotaste.data import database as db
         from robotaste.core.state_machine import ExperimentPhase
         from robotaste.core import state_helpers
         from robotaste.config.questionnaire import get_default_questionnaire_type
@@ -59,6 +72,19 @@ def start_trial(
         if not session_id:
             st.error("No session ID found. Please create a session first.")
             return False
+
+        # If participant_id not provided, fetch from session's user_id (may be None)
+        if not participant_id:
+            session = db.get_session(session_id)
+            if session:
+                participant_id = session.get("user_id")
+
+            if participant_id:
+                logger.info(f"Using participant {participant_id} from session {session_id}")
+            else:
+                logger.info(f"Starting trial without participant (will be linked after registration)")
+        else:
+            logger.info(f"Using provided participant_id: {participant_id}")
 
         # --- Configuration Loading ---
         # If a protocol is provided, it is the source of truth.

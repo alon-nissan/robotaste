@@ -345,6 +345,40 @@ def update_session_state(session_id: str, state: str) -> bool:
         return False
 
 
+def update_session_user_id(session_id: str, user_id: str) -> bool:
+    """
+    Link a user to a session (1:1 relationship).
+
+    Args:
+        session_id: Session UUID
+        user_id: User UUID to link to session
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET user_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (user_id, session_id),
+            )
+            conn.commit()
+
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"Linked user {user_id} to session {session_id}")
+            return success
+
+    except Exception as e:
+        logger.error(f"Failed to update session user_id: {e}")
+        return False
+
+
 def update_current_phase(session_id: str, phase: str) -> bool:
     """
     Update current phase for multi-device synchronization.
@@ -534,7 +568,7 @@ def get_sessions_by_protocol(protocol_id: str) -> List[Dict]:
 
 def update_session_with_config(
     session_id: str,
-    user_id: str,
+    user_id: Optional[str],
     num_ingredients: int,
     interface_type: str,
     method: str,
@@ -558,7 +592,7 @@ def update_session_with_config(
 
     Args:
         session_id: Session UUID (must exist from prior create_session() call)
-        user_id: Participant/user ID
+        user_id: Optional participant/user ID (may be None if participant hasn't joined yet)
         num_ingredients: Number of ingredients (1 or 2)
         interface_type: 'grid_2d' or 'slider_based'
         method: Mapping method ('linear', 'logarithmic', 'exponential')
