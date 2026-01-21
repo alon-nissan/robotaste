@@ -221,7 +221,7 @@ class PhaseEngine:
 
         # Max cycles check
         max_cycles = stopping_criteria.get("max_cycles")
-        if max_cycles and current_cycle >= max_cycles:
+        if max_cycles and current_cycle > max_cycles:
             logger.info(f"Stopping experiment: reached max_cycles ({max_cycles})")
             return True
 

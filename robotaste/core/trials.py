@@ -143,9 +143,21 @@ def start_trial(
         # Use state machine to transition to the next phase
         try:
             current_phase = state_helpers.get_current_phase()
+
+            # If protocol has custom phase sequence, use PhaseEngine to determine next phase
+            if protocol_id and protocol_config.get("phase_sequence"):
+                from robotaste.core.phase_engine import PhaseEngine
+                phase_engine = PhaseEngine(protocol_config, session_id)
+                next_phase_str = phase_engine.get_next_phase(current_phase.value, current_cycle=0)
+                next_phase = ExperimentPhase(next_phase_str)
+                logger.info(f"Using PhaseEngine: {current_phase.value} → {next_phase_str}")
+            else:
+                # Default behavior: go to registration
+                next_phase = ExperimentPhase.REGISTRATION
+
             state_helpers.transition(
                 current_phase=current_phase,
-                new_phase=ExperimentPhase.REGISTRATION,
+                new_phase=next_phase,
                 session_id=session_id,
             )
         except Exception as sm_error:

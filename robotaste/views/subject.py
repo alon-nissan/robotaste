@@ -76,15 +76,17 @@ def render_registration_screen():
     st.write("Please provide some basic information to begin.")
 
     with st.form("registration_form"):
-        name = st.text_input("Name")
-        age = st.number_input("Age", min_value=18, max_value=100, step=1)
-        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"))
+        name = st.text_input("Name (optional)")
+        age = st.number_input("Age", min_value=18, max_value=100, step=1, value=18)
+        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"), index=None)
 
         submitted = st.form_submit_button("Continue")
 
         if submitted:
-            if not name:
-                st.warning("Please enter your name.")
+            if age < 18 or age > 100:
+                st.warning("Please enter a valid age (18-100).")
+            elif gender is None or gender == "":
+                st.warning("Please select your gender.")
             else:
                 user_id = st.session_state.get("participant")
                 if user_id:
@@ -789,7 +791,7 @@ def subject_interface():
         .stSpinner > div > div {
             font-size: 3.5rem !important;
             margin-top: 2rem !important;
-            font-weight: 500 !import
+            font-weight: 500 !important;
         }
 
         .stSpinner svg {
@@ -900,9 +902,6 @@ def subject_interface():
         sync_session_state(st.session_state.session_id, "subject")
         time.sleep(2)
         st.rerun()
-
-    elif current_phase_str == ExperimentPhase.CONSENT.value:
-        render_consent_screen()
 
     elif current_phase_str == ExperimentPhase.CONSENT.value:
         render_consent_screen()

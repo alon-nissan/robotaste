@@ -546,6 +546,7 @@ def _validate_phase_sequence(protocol: Dict[str, Any]) -> List[str]:
     # Valid phase IDs for builtin phases
     valid_builtin_ids = {
         "waiting",
+        "consent",
         "registration",
         "instructions",
         "robot_preparing",
