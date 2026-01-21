@@ -1,17 +1,18 @@
 {
-    "protocol_id": "protocol_4cycles_with_pumps_latin_square",
-    "name": "Four-Cycle Sugar Calibration with Pumps (Latin Square, Burst Mode)",
-    "description": "4-cycle protocol with randomized Latin square design testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control in burst mode. Order counterbalanced across sessions.",
-    "version": "4.0",
+    "protocol_id": "protocol_consent_first_flow",
+    "name": "Consent-First Flow: Four-Cycle Sugar Calibration",
+    "description": "4-cycle protocol with consent-first flow (WAITING → CONSENT → EXPERIMENT_LOOP → REGISTRATION → COMPLETE). Testing sugar concentrations at 0, 25, 50, and 75 mM with automated pump control in burst mode.",
+    "version": "1.0",
     "schema_version": "1.0",
     "created_by": "Researcher",
-    "created_at": "2026-01-18T00:00:00Z",
+    "created_at": "2026-01-21T00:00:00Z",
     "tags": [
         "calibration",
         "sugar",
         "predetermined_randomized",
         "latin_square",
-        "automated"
+        "automated",
+        "consent_first"
     ],
     "ingredients": [
         {
@@ -58,6 +59,16 @@
         "dispensing_rate_ul_min": 80000,
         "simultaneous_dispensing": true,
         "use_burst_mode": true
+    },
+    "consent_form": {
+        "explanation": "You are invited to participate in a sugar taste calibration study. This study aims to understand individual differences in taste perception by testing your responses to different concentrations of sugar solutions.\n\nProcedure: You will taste 4 different sugar solutions and rate their intensity on a continuous scale. The entire session will take approximately 10-15 minutes.\n\nRisks: There are minimal risks associated with this study. You will be consuming small amounts of sugar solutions, which should pose no risk to healthy individuals.\n\nBenefits: You will contribute to scientific understanding of taste perception. There is no direct benefit to you.\n\nConfidentiality: All data collected will be anonymized and stored securely. Your personal information will not be shared with third parties.",
+        "contact_info": "For questions about this study, please contact: researcher@example.com\n\nIf you have questions about your rights as a research participant, please contact the Institutional Review Board at: irb@example.edu",
+        "medical_disclaimers": [
+            "You should not participate if you have diabetes or other conditions affecting sugar metabolism",
+            "Please inform the researcher of any food allergies or dietary restrictions",
+            "You must be at least 18 years old to participate in this study"
+        ],
+        "consent_label": "I have read and understood the information above, and I agree to participate in this study"
     },
     "sample_selection_schedule": [
         {
@@ -112,12 +123,12 @@
     "phase_sequence": {
         "phases": [
             {
-                "phase_id": "registration",
+                "phase_id": "waiting",
                 "phase_type": "builtin",
                 "required": true
             },
             {
-                "phase_id": "instructions",
+                "phase_id": "consent",
                 "phase_type": "builtin",
                 "required": true
             },
@@ -127,7 +138,12 @@
                 "required": true
             },
             {
-                "phase_id": "completion",
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "complete",
                 "phase_type": "builtin",
                 "required": true
             }

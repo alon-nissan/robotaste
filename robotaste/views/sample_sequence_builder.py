@@ -14,15 +14,19 @@ import uuid
 
 # Define colors for different modes for the timeline
 MODE_COLORS = {
-    "predetermined": "#3B82F6",  # Blue
+    "predetermined_absolute": "#3B82F6",  # Blue
+    "predetermined_randomized": "#F59E0B",  # Amber/Orange
     "user_selected": "#10B981",  # Green
     "bo_selected": "#8B5CF6",    # Purple
+    "predetermined": "#3B82F6",  # Legacy - maps to predetermined_absolute
     "default": "#D1D5DB"        # Gray
 }
 MODE_NAMES = {
-    "predetermined": "Predetermined",
+    "predetermined_absolute": "Predetermined (Absolute)",
+    "predetermined_randomized": "Predetermined (Randomized)",
     "user_selected": "User Selected",
-    "bo_selected": "BO Selected"
+    "bo_selected": "BO Selected",
+    "predetermined": "Predetermined (Absolute)"  # Legacy - maps to predetermined_absolute
 }
 
 
@@ -215,7 +219,7 @@ def sample_sequence_editor(schedule: list, ingredients: list, on_change):
 
 
 
-            if mode == "predetermined":
+            if mode in ["predetermined", "predetermined_absolute"]:
 
 
                 st.markdown("##### Predetermined Samples")
@@ -364,9 +368,124 @@ def sample_sequence_editor(schedule: list, ingredients: list, on_change):
 
                         st.session_state.editor_schedule[i]["predetermined_samples"] = new_samples
 
+            elif mode == "predetermined_randomized":
+                st.markdown("##### Sample Bank Configuration")
 
+                ingredient_names = [ing['name'] for ing in ingredients]
 
+                if not ingredient_names:
+                    st.warning("Please add ingredients to the protocol to define sample bank.")
+                else:
+                    # Initialize sample_bank if not exists
+                    if "sample_bank" not in st.session_state.editor_schedule[i]:
+                        st.session_state.editor_schedule[i]["sample_bank"] = {
+                            "samples": [],
+                            "design_type": "randomized",
+                            "constraints": {
+                                "prevent_consecutive_repeats": True,
+                                "ensure_all_used_before_repeat": True
+                            }
+                        }
 
+                    # Design type selector
+                    design_type = st.selectbox(
+                        "Design Type",
+                        options=["randomized", "latin_square"],
+                        index=0 if st.session_state.editor_schedule[i]["sample_bank"].get("design_type") == "randomized" else 1,
+                        key=f"design_type_{block['id']}",
+                        help="Randomized: Random order each session. Latin Square: Counterbalanced order across sessions."
+                    )
+                    st.session_state.editor_schedule[i]["sample_bank"]["design_type"] = design_type
+
+                    # Constraints
+                    st.markdown("**Constraints:**")
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        prevent_repeats = st.checkbox(
+                            "Prevent consecutive repeats",
+                            value=st.session_state.editor_schedule[i]["sample_bank"]["constraints"].get("prevent_consecutive_repeats", True),
+                            key=f"prevent_repeats_{block['id']}"
+                        )
+                        st.session_state.editor_schedule[i]["sample_bank"]["constraints"]["prevent_consecutive_repeats"] = prevent_repeats
+                    with col_c2:
+                        ensure_all = st.checkbox(
+                            "Use all before repeating",
+                            value=st.session_state.editor_schedule[i]["sample_bank"]["constraints"].get("ensure_all_used_before_repeat", True),
+                            key=f"ensure_all_{block['id']}"
+                        )
+                        st.session_state.editor_schedule[i]["sample_bank"]["constraints"]["ensure_all_used_before_repeat"] = ensure_all
+
+                    # Sample bank data editor
+                    st.markdown("**Sample Bank:**")
+
+                    # Flatten samples for data_editor
+                    flat_samples = []
+                    for sample in st.session_state.editor_schedule[i]["sample_bank"].get("samples", []):
+                        record = {
+                            'ID': sample.get('id', ''),
+                            'Label': sample.get('label', '')
+                        }
+                        concentrations = sample.get('concentrations', {})
+                        for name in ingredient_names:
+                            record[name] = concentrations.get(name, 0.0)
+                        flat_samples.append(record)
+
+                    all_columns = ['ID', 'Label'] + ingredient_names
+                    samples_df = pd.DataFrame(flat_samples, columns=all_columns)
+
+                    # Column configuration
+                    column_config = {
+                        'ID': st.column_config.TextColumn("Sample ID", required=True, help="Unique identifier (e.g., A, B, C)"),
+                        'Label': st.column_config.TextColumn("Label", help="Optional description (e.g., Low, Medium, High)")
+                    }
+                    for name in ingredient_names:
+                        column_config[name] = st.column_config.NumberColumn(f"{name} (mM)", format="%.4f", default=0.0)
+
+                    edited_df = st.data_editor(
+                        samples_df,
+                        num_rows="dynamic",
+                        key=f"bank_samples_{block['id']}",
+                        column_config=column_config,
+                        use_container_width=True
+                    )
+
+                    # Re-pivot data from data_editor
+                    if isinstance(edited_df, pd.DataFrame):
+                        new_samples = []
+                        edited_df.dropna(subset=['ID'], inplace=True)
+                        edited_df.dropna(subset=ingredient_names, how='all', inplace=True)
+
+                        for _, row in edited_df.iterrows():
+                            sample_id = str(row['ID']).strip()
+                            if not sample_id:
+                                continue
+                            label = str(row['Label']).strip() if pd.notna(row['Label']) else ""
+                            concentrations = {name: float(row[name]) if pd.notna(row[name]) else 0.0 for name in ingredient_names}
+
+                            new_samples.append({
+                                "id": sample_id,
+                                "label": label,
+                                "concentrations": concentrations
+                            })
+
+                        st.session_state.editor_schedule[i]["sample_bank"]["samples"] = new_samples
+
+                        # Validation: check bank size vs cycle count
+                        cycle_count = end - start + 1
+                        bank_size = len(new_samples)
+                        if bank_size > 0 and bank_size != cycle_count:
+                            st.warning(f"⚠️ Bank size ({bank_size}) doesn't match cycle count ({cycle_count}). Consider adjusting to match.")
+
+                        # Preview for Latin Square
+                        if design_type == "latin_square" and bank_size > 0:
+                            st.markdown("**Latin Square Preview (first 4 sessions):**")
+                            sample_ids = [s['id'] for s in new_samples]
+                            preview_text = ""
+                            for session_num in range(1, min(5, bank_size + 1)):
+                                rotation = (session_num - 1) % bank_size
+                                sequence = sample_ids[rotation:] + sample_ids[:rotation]
+                                preview_text += f"Session {session_num}: {' → '.join(sequence)}\n"
+                            st.code(preview_text)
 
             elif mode == "bo_selected":
 

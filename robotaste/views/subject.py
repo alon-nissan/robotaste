@@ -34,6 +34,8 @@ from robotaste.core import state_helpers
 from robotaste.config.questionnaire import get_default_questionnaire_type
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
+from robotaste.views.consent import render_consent_screen
+from robotaste.views.phase_utils import transition_to_next_phase
 from robotaste.data.database import get_session_protocol
 
 
@@ -68,63 +70,23 @@ def get_next_phase_after_selection(session_id: str) -> ExperimentPhase:
     return ExperimentPhase.ROBOT_PREPARING if pump_enabled else ExperimentPhase.LOADING
 
 
-def transition_to_next_phase(
-    current_phase_str: str,
-    default_next_phase: ExperimentPhase,
-    session_id: str,
-    current_cycle: int = None,  # type: ignore
-) -> None:
-    """
-    Transition to next phase using PhaseEngine if available, otherwise use default.
-
-    Args:
-        current_phase_str: Current phase as string
-        default_next_phase: Default next phase (fallback if no protocol)
-        session_id: Session ID
-        current_cycle: Current cycle number (optional, for loop logic)
-    """
-    # Try to load protocol and use PhaseEngine
-    protocol = get_session_protocol(session_id)
-
-    if protocol and "phase_sequence" in protocol:
-        try:
-            phase_engine = PhaseEngine(protocol, session_id)
-            next_phase_str = phase_engine.get_next_phase(
-                current_phase_str, current_cycle=current_cycle
-            )
-            next_phase = ExperimentPhase(next_phase_str)
-            logger.info(
-                f"PhaseEngine transition: {current_phase_str} → {next_phase_str}"
-            )
-        except Exception as e:
-            logger.error(f"PhaseEngine transition failed: {e}, using default")
-            next_phase = default_next_phase
-    else:
-        next_phase = default_next_phase
-
-    # Execute transition
-    state_helpers.transition(
-        state_helpers.get_current_phase(),
-        new_phase=next_phase,
-        session_id=session_id,
-    )
-
-
 def render_registration_screen():
     """Renders the user registration screen."""
     st.header("Personal Information")
     st.write("Please provide some basic information to begin.")
 
     with st.form("registration_form"):
-        name = st.text_input("Name")
-        age = st.number_input("Age", min_value=18, max_value=100, step=1)
-        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"))
+        name = st.text_input("Name (optional)")
+        age = st.number_input("Age", min_value=18, max_value=100, step=1, value=18)
+        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"), index=None)
 
         submitted = st.form_submit_button("Continue")
 
         if submitted:
-            if not name:
-                st.warning("Please enter your name.")
+            if age < 18 or age > 100:
+                st.warning("Please enter a valid age (18-100).")
+            elif gender is None or gender == "":
+                st.warning("Please select your gender.")
             else:
                 user_id = st.session_state.get("participant")
                 if user_id:
@@ -134,7 +96,7 @@ def render_registration_screen():
                         st.success("Information saved!")
                         transition_to_next_phase(
                             current_phase_str=ExperimentPhase.REGISTRATION.value,
-                            default_next_phase=ExperimentPhase.INSTRUCTIONS,
+                            default_next_phase=ExperimentPhase.COMPLETE,
                             session_id=st.session_state.session_id,
                         )
                         st.rerun()
@@ -263,7 +225,7 @@ def grid_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         # Automatically proceed
@@ -621,7 +583,7 @@ def single_variable_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         time.sleep(3)
@@ -829,7 +791,7 @@ def subject_interface():
         .stSpinner > div > div {
             font-size: 3.5rem !important;
             margin-top: 2rem !important;
-            font-weight: 500 !import
+            font-weight: 500 !important;
         }
 
         .stSpinner svg {
@@ -940,6 +902,9 @@ def subject_interface():
         sync_session_state(st.session_state.session_id, "subject")
         time.sleep(2)
         st.rerun()
+
+    elif current_phase_str == ExperimentPhase.CONSENT.value:
+        render_consent_screen()
 
     elif current_phase_str == ExperimentPhase.REGISTRATION.value:
         render_registration_screen()
@@ -1199,29 +1164,32 @@ def subject_interface():
                     selection_mode=selection_mode,
                 )
 
-                # Check if we should stop BEFORE incrementing
-                session = get_session(st.session_state.session_id)
-                if session:
-                    protocol = session.get("experiment_config", {})
+                # Determine stopping logic
+                protocol = get_session_protocol(st.session_state.session_id)
+                max_cycles = None
+                has_custom_phases = False
+
+                if protocol:
                     max_cycles = protocol.get("stopping_criteria", {}).get("max_cycles")
+                    has_custom_phases = "phase_sequence" in protocol
 
-                    if max_cycles and current_cycle >= max_cycles:
-                        # We've completed all required cycles - go to completion
-                        logger.info(
-                            f"Completed all {max_cycles} cycles. Transitioning to completion."
-                        )
-                        state_helpers.transition(
-                            state_helpers.get_current_phase(),
-                            new_phase=ExperimentPhase.COMPLETE,
-                            session_id=st.session_state.session_id,
-                        )
-                        st.success(
-                            f"Experiment complete! You have finished all {max_cycles} cycles."
-                        )
-                        st.rerun()
-                        return
+                if max_cycles and current_cycle >= max_cycles and not has_custom_phases:
+                    # Legacy behavior: force completion
+                    logger.info(
+                        f"Completed all {max_cycles} cycles. Transitioning to completion."
+                    )
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=ExperimentPhase.COMPLETE,
+                        session_id=st.session_state.session_id,
+                    )
+                    st.success(
+                        f"Experiment complete! You have finished all {max_cycles} cycles."
+                    )
+                    st.rerun()
+                    return
 
-                # Not stopping - increment to next cycle
+                # Increment and continue (PhaseEngine will handle loop exit if needed)
                 increment_cycle(st.session_state.session_id)
 
                 # Transition to next phase

@@ -51,6 +51,7 @@ class ExperimentPhase(Enum):
     """
 
     WAITING = "waiting"
+    CONSENT = "consent"
     REGISTRATION = "registration"
     INSTRUCTIONS = "instructions"
     ROBOT_PREPARING = "robot_preparing"
@@ -112,17 +113,24 @@ class ExperimentStateMachine:
     # Define valid transitions (phase -> list of allowed next phases)
     VALID_TRANSITIONS = {
         ExperimentPhase.WAITING: [
-            ExperimentPhase.REGISTRATION,  # Moderator starts -> Subject enters info
+            ExperimentPhase.CONSENT,  # Moderator starts -> Subject gives consent
+            ExperimentPhase.REGISTRATION,  # Legacy support
             ExperimentPhase.COMPLETE,  # Moderator can force-end
         ],
+        ExperimentPhase.CONSENT: [
+            ExperimentPhase.SELECTION,  # Start experiment loop (default)
+            ExperimentPhase.INSTRUCTIONS,  # Optional instructions
+            ExperimentPhase.REGISTRATION,  # Legacy or skipping loop
+            ExperimentPhase.COMPLETE,  # Subject declines or moderator ends
+        ],
         ExperimentPhase.REGISTRATION: [
-            ExperimentPhase.INSTRUCTIONS,  # Subject finishes info
-            ExperimentPhase.COMPLETE,
+            ExperimentPhase.COMPLETE,  # End of experiment (new flow)
+            ExperimentPhase.INSTRUCTIONS,  # Legacy flow
         ],
         ExperimentPhase.INSTRUCTIONS: [
+            ExperimentPhase.SELECTION,  # Start loop
             ExperimentPhase.ROBOT_PREPARING,  # Pump-controlled experiments
-            ExperimentPhase.LOADING,  # Old flow: direct to loading
-            ExperimentPhase.SELECTION,  # New flow: enter loop at selection
+            ExperimentPhase.LOADING,  # Old flow
             ExperimentPhase.COMPLETE,
         ],
         ExperimentPhase.ROBOT_PREPARING: [
@@ -134,7 +142,8 @@ class ExperimentStateMachine:
             ExperimentPhase.COMPLETE,  # Moderator can force-end
         ],
         ExperimentPhase.QUESTIONNAIRE: [
-            ExperimentPhase.SELECTION,  # Subject finished questionnaire
+            ExperimentPhase.SELECTION,  # Loop back
+            ExperimentPhase.REGISTRATION,  # End of loop -> Registration
             ExperimentPhase.COMPLETE,  # Moderator can force-end
         ],
         ExperimentPhase.SELECTION: [
@@ -250,6 +259,7 @@ class ExperimentStateMachine:
         """
         display_names = {
             ExperimentPhase.WAITING: "Waiting to Start",
+            ExperimentPhase.CONSENT: "Informed Consent",
             ExperimentPhase.REGISTRATION: "User Registration",
             ExperimentPhase.INSTRUCTIONS: "Showing Instructions",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
@@ -305,6 +315,7 @@ class ExperimentStateMachine:
             False
         """
         return phase in [
+            ExperimentPhase.CONSENT,
             ExperimentPhase.REGISTRATION,
             ExperimentPhase.INSTRUCTIONS,
             ExperimentPhase.ROBOT_PREPARING,

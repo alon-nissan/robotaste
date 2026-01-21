@@ -569,27 +569,96 @@ def execute_pumps_synchronously(
 
         # 4. Execute dispensing
         if simultaneous:
-            ui_log("⚡ Executing simultaneous dispensing...")
+            # Check if burst mode is enabled and possible
+            use_burst_mode = pump_config.get("use_burst_mode", False)
+            pump_addresses = [p.address for p in pumps.values()]
+            burst_compatible = all(addr <= 9 for addr in pump_addresses)
 
-            # Start all pumps (must be done sequentially due to shared serial port)
-            for ingredient, volume_ul in stock_volumes.items():
-                if ingredient in pumps:
-                    pump = pumps[ingredient]
-                    ui_log(f"  Starting {ingredient}: {volume_ul:.1f} µL...")
-                    pump.dispense_volume(volume_ul, dispensing_rate, wait=False)
+            # Debug logging for burst mode decision
+            logger.info(f"Burst mode check: use_burst_mode={use_burst_mode}, addresses={pump_addresses}, burst_compatible={burst_compatible}")
 
-            # Calculate max time
-            max_time = max((vol / dispensing_rate) * 60 * 1.1 for vol in stock_volumes.values())
+            if use_burst_mode and burst_compatible:
+                ui_log("⚡ Executing burst mode dispensing...")
 
-            ui_log(f"⏳ Dispensing in progress... ({max_time:.1f}s)")
+                # Import burst command builder
+                from robotaste.hardware.pump_controller import (
+                    BurstCommandBuilder,
+                    PumpBurstConfig
+                )
 
-            # Wait for dispensing to complete (no UI progress bar)
-            time.sleep(max_time)
+                # Build pump configurations (filter out 0 volume pumps)
+                burst_configs = []
+                for ingredient, volume_ul in stock_volumes.items():
+                    if ingredient in pumps and volume_ul > 0.001:  # Skip ~0 volumes
+                        pump = pumps[ingredient]
+                        burst_configs.append(PumpBurstConfig(
+                            address=pump.address,
+                            rate_ul_min=dispensing_rate,
+                            volume_ul=volume_ul,
+                            direction="INF"
+                        ))
 
-            # Stop all pumps
-            for ingredient, pump in pumps.items():
-                pump.stop()
-                ui_log(f"  ✅ {ingredient} complete", "success")
+                # Check if we have any pumps to run
+                if not burst_configs:
+                    ui_log("⚠️ All pump volumes are ~0, skipping dispensing", "warning")
+                    logger.info("Skipping burst mode: all volumes are ~0")
+                    return
+
+                # Build burst commands
+                commands = BurstCommandBuilder.build_burst_commands(burst_configs)
+
+                # Use any pump to send commands (they share the serial port)
+                any_pump = next(iter(pumps.values()))
+
+                ui_log(f"  Configuring {len(burst_configs)} pumps...")
+                any_pump._send_burst_command(commands.config_command)
+
+                ui_log(f"  Validating settings...")
+                any_pump._send_burst_command(commands.validation_command)
+
+                ui_log(f"  Starting all pumps simultaneously...")
+                any_pump._send_burst_command(commands.run_command)
+
+                # Calculate max wait time (only for pumps actually dispensing)
+                max_time = max((config.volume_ul / dispensing_rate) * 60 * 1.1 for config in burst_configs)
+                ui_log(f"⏳ Dispensing in progress... ({max_time:.1f}s)")
+                time.sleep(max_time)
+
+                # Stop all pumps (use individual commands for safety)
+                for ingredient, pump in pumps.items():
+                    pump.stop()
+                    ui_log(f"  ✅ {ingredient} complete", "success")
+
+            else:
+                # Fall back to original individual command mode
+                if use_burst_mode and not burst_compatible:
+                    ui_log("⚠️ Burst mode requires pump addresses 0-9. Using individual mode.", "warning")
+
+                ui_log("⚡ Executing simultaneous dispensing...")
+
+                # Start all pumps (must be done sequentially due to shared serial port)
+                for ingredient, volume_ul in stock_volumes.items():
+                    if ingredient in pumps:
+                        pump = pumps[ingredient]
+                        ui_log(f"  Starting {ingredient}: {volume_ul:.1f} µL...")
+                        pump.dispense_volume(volume_ul, dispensing_rate, wait=False)
+
+                # Calculate max time (only for non-zero volumes)
+                non_zero_volumes = [vol for vol in stock_volumes.values() if vol > 0.001]
+                if non_zero_volumes:
+                    max_time = max((vol / dispensing_rate) * 60 * 1.1 for vol in non_zero_volumes)
+                else:
+                    max_time = 0  # All volumes are ~0
+
+                ui_log(f"⏳ Dispensing in progress... ({max_time:.1f}s)")
+
+                # Wait for dispensing to complete (no UI progress bar)
+                time.sleep(max_time)
+
+                # Stop all pumps
+                for ingredient, pump in pumps.items():
+                    pump.stop()
+                    ui_log(f"  ✅ {ingredient} complete", "success")
 
         else:
             ui_log("🔄 Executing sequential dispensing...")

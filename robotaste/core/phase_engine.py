@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 # Default phase sequence used when protocol has no custom phase_sequence
 DEFAULT_PHASES = [
     {"phase_id": "waiting", "phase_type": "builtin", "required": True},
-    {"phase_id": "registration", "phase_type": "builtin", "required": False},
-    {"phase_id": "instructions", "phase_type": "builtin", "required": True},
+    {"phase_id": "consent", "phase_type": "builtin", "required": True},
     {"phase_id": "experiment_loop", "phase_type": "loop", "required": True},
-    {"phase_id": "completion", "phase_type": "builtin", "required": True},
+    {"phase_id": "registration", "phase_type": "builtin", "required": True},
+    {"phase_id": "complete", "phase_type": "builtin", "required": True},
 ]
 
 
@@ -221,7 +221,7 @@ class PhaseEngine:
 
         # Max cycles check
         max_cycles = stopping_criteria.get("max_cycles")
-        if max_cycles and current_cycle >= max_cycles:
+        if max_cycles and current_cycle > max_cycles:
             logger.info(f"Stopping experiment: reached max_cycles ({max_cycles})")
             return True
 
@@ -261,13 +261,16 @@ class PhaseEngine:
             Next phase ID in loop
         """
         # Standard loop progression
-        # NOTE: Stopping check is now handled in subject.py after QUESTIONNAIRE
         if current_phase == "selection":
             return "loading"
         elif current_phase == "loading" or current_phase == "robot_preparing":
             return "questionnaire"
         elif current_phase == "questionnaire":
-            # Always return to selection - stopping is handled before transition
+            # Check if we should stop the experiment loop
+            if self._should_stop_experiment(current_cycle):
+                logger.info(f"Session {self.session_id}: Exiting experiment loop (cycle {current_cycle})")
+                return self._get_phase_after_loop()
+            
             return "selection"
 
         # Unknown loop phase, exit loop

@@ -25,7 +25,13 @@ from robotaste.core.calculations import (
     INTERFACE_SINGLE_INGREDIENT,
 )
 from robotaste.config.defaults import DEFAULT_INGREDIENT_CONFIG
-from robotaste.config.protocol_schema import get_selection_mode_for_cycle, get_predetermined_sample
+from robotaste.config.protocol_schema import (
+    get_selection_mode_for_cycle,
+    get_predetermined_sample,
+    get_sample_bank_config,
+    get_schedule_index_for_cycle,
+    normalize_selection_mode,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -137,9 +143,21 @@ def start_trial(
         # Use state machine to transition to the next phase
         try:
             current_phase = state_helpers.get_current_phase()
+
+            # If protocol has custom phase sequence, use PhaseEngine to determine next phase
+            if protocol_id and protocol_config.get("phase_sequence"):
+                from robotaste.core.phase_engine import PhaseEngine
+                phase_engine = PhaseEngine(protocol_config, session_id)
+                next_phase_str = phase_engine.get_next_phase(current_phase.value, current_cycle=0)
+                next_phase = ExperimentPhase(next_phase_str)
+                logger.info(f"Using PhaseEngine: {current_phase.value} → {next_phase_str}")
+            else:
+                # Default behavior: go to registration
+                next_phase = ExperimentPhase.REGISTRATION
+
             state_helpers.transition(
                 current_phase=current_phase,
-                new_phase=ExperimentPhase.REGISTRATION,
+                new_phase=next_phase,
                 session_id=session_id,
             )
         except Exception as sm_error:
@@ -334,9 +352,12 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
         # Determine mode from protocol
         mode = get_selection_mode_for_cycle_runtime(session_id, cycle_number)
 
+        # Normalize mode for backward compatibility (predetermined -> predetermined_absolute)
+        normalized_mode = normalize_selection_mode(mode)
+
         # Initialize result
         result = {
-            "mode": mode,
+            "mode": normalized_mode,
             "concentrations": None,
             "metadata": {
                 "is_predetermined": False,
@@ -346,7 +367,7 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
         }
 
         # Handle each mode
-        if mode == "predetermined":
+        if normalized_mode == "predetermined_absolute":
             # Get predetermined concentrations from protocol
             session = sql.get_session(session_id)
             if session:
@@ -373,7 +394,57 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
                     else:
                         logger.warning(f"No predetermined sample found for cycle {cycle_number}")
 
-        elif mode == "bo_selected":
+        elif normalized_mode == "predetermined_randomized":
+            # Get sample from randomized bank
+            from robotaste.core.sample_bank import get_next_sample_from_bank
+
+            session = sql.get_session(session_id)
+            if session:
+                experiment_config = session.get("experiment_config", {})
+                protocol = None
+
+                # Get protocol (same logic as predetermined_absolute)
+                if "sample_selection_schedule" in experiment_config:
+                    protocol = experiment_config
+                else:
+                    from robotaste.data import protocol_repo
+                    protocol_id_from_session = experiment_config.get("protocol_id")
+                    if protocol_id_from_session:
+                        protocol_obj = protocol_repo.get_protocol_by_id(protocol_id_from_session)
+                        if protocol_obj:
+                            protocol = protocol_obj.get("protocol_json", {})
+
+                if protocol:
+                    # Get sample bank config and schedule index
+                    bank_config = get_sample_bank_config(protocol, cycle_number)
+                    schedule_index = get_schedule_index_for_cycle(protocol, cycle_number)
+
+                    if bank_config and schedule_index >= 0:
+                        try:
+                            # Get cycle_range_start from the schedule entry
+                            schedule = protocol.get("sample_selection_schedule", [])
+                            cycle_range_start = 1  # Default
+                            if schedule_index < len(schedule):
+                                cycle_range = schedule[schedule_index].get("cycle_range", {})
+                                cycle_range_start = cycle_range.get("start", 1)
+
+                            concentrations = get_next_sample_from_bank(
+                                session_id,
+                                schedule_index,
+                                bank_config,
+                                cycle_number,
+                                cycle_range_start
+                            )
+                            result["concentrations"] = concentrations
+                            result["metadata"]["is_predetermined"] = True
+                            result["metadata"]["from_bank"] = True
+                            logger.info(f"Sample from bank for cycle {cycle_number}: {concentrations}")
+                        except Exception as e:
+                            logger.error(f"Error getting sample from bank: {e}", exc_info=True)
+                    else:
+                        logger.warning(f"No sample bank config found for cycle {cycle_number}")
+
+        elif normalized_mode == "bo_selected":
             # Get BO suggestion
             from robotaste.core.bo_integration import get_bo_suggestion_for_session
 
