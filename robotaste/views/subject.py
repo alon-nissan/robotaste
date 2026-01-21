@@ -931,55 +931,67 @@ def subject_interface():
 
             # Only execute if no existing operation (fresh entry to phase)
             if existing_operation is None:
-                st.info("🤖 Robot is preparing your sample...")
+                # Get loading screen configuration
+                from robotaste.utils.ui_helpers import get_loading_screen_config
 
-                # Execute pumps synchronously
+                loading_config = get_loading_screen_config(protocol)
+
+                # Get total cycles for display
+                total_cycles = None
+                if protocol:
+                    stopping_criteria = protocol.get("stopping_criteria", {})
+                    total_cycles = stopping_criteria.get("max_cycles")
+
+                # Display cycle information
+                if loading_config.get("show_cycle_info", True):
+                    if total_cycles:
+                        st.markdown(
+                            f"<div style='text-align: center; font-size: 3rem; "
+                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
+                            f"Cycle {cycle_num} of {total_cycles}</div>",
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f"<div style='text-align: center; font-size: 3rem; "
+                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
+                            f"Cycle {cycle_num}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                # Display loading message
+                message = loading_config.get("message", "Rinse your mouth while the robot prepares the next sample.")
+                size_map = {
+                    "normal": "1.5rem",
+                    "large": "2.5rem",
+                    "extra_large": "3.5rem"
+                }
+                font_size = size_map.get(loading_config.get("message_size", "large"), "2.5rem")
+
+                st.markdown(
+                    f"<div style='text-align: center; font-size: {font_size}; "
+                    f"font-weight: 500; color: #333; margin: 2rem 0; line-height: 1.4;'>"
+                    f"{message}</div>",
+                    unsafe_allow_html=True
+                )
+
+                # Execute pumps synchronously with spinner
                 from robotaste.core.pump_integration import execute_pumps_synchronously
 
-                result = execute_pumps_synchronously(
-                    session_id=st.session_state.session_id,
-                    cycle_number=cycle_num,
-                    streamlit_container=None,  # Disable UI logging
-                )
+                with st.spinner("🤖 Robot is preparing your sample..."):
+                    result = execute_pumps_synchronously(
+                        session_id=st.session_state.session_id,
+                        cycle_number=cycle_num,
+                        streamlit_container=None,  # Disable UI logging
+                    )
 
                 # Check result
                 if result["success"]:
+                    # Show brief success message
                     st.success(
                         f"✅ Sample prepared successfully in {result['duration']:.1f}s"
                     )
-
-                    # Get loading screen configuration
-                    from robotaste.utils.ui_helpers import (
-                        get_loading_screen_config,
-                        render_loading_screen,
-                    )
-
-                    loading_config = get_loading_screen_config(protocol)
-
-                    # Get total cycles for display
-                    total_cycles = None
-                    if protocol:
-                        stopping_criteria = protocol.get("stopping_criteria", {})
-                        total_cycles = stopping_criteria.get("max_cycles")
-
-                    # Determine loading duration
-                    loading_screen_config = protocol.get("loading_screen", {}) if protocol else {}
-                    use_dynamic = loading_screen_config.get("use_dynamic_duration", False)
-
-                    if use_dynamic and result.get("duration"):
-                        # Use pump duration + buffer as loading time
-                        duration_seconds = int(result["duration"]) + 5  # Add 5s buffer for rinsing
-                    else:
-                        # Use configured duration
-                        duration_seconds = loading_config.get("duration_seconds", 5)
-
-                    # Show loading screen for participant preparation
-                    render_loading_screen(
-                        cycle_number=cycle_num,
-                        total_cycles=total_cycles,
-                        duration_seconds=duration_seconds,
-                        **{k: v for k, v in loading_config.items() if k != "duration_seconds"},
-                    )
+                    time.sleep(1)  # Brief pause to show success
 
                     # Transition to next phase
                     transition_to_next_phase(
