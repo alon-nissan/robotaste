@@ -2428,8 +2428,11 @@ def render_protocol_selection():
         # Show protocol summary
         if selected_protocol_id:
             protocol = protocol_repo.get_protocol_by_id(selected_protocol_id)
-            with st.expander("📄 View Protocol JSON"):
-                st.json(protocol.get("protocol_json", {}))
+            if protocol:
+                with st.expander("📄 View Protocol JSON"):
+                    st.json(protocol.get("protocol_json", {}))
+            else:
+                st.warning(f"⚠️ Protocol with ID {selected_protocol_id} not found.")
 
     st.markdown("---")
 

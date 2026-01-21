@@ -948,6 +948,39 @@ def subject_interface():
                         f"✅ Sample prepared successfully in {result['duration']:.1f}s"
                     )
 
+                    # Get loading screen configuration
+                    from robotaste.utils.ui_helpers import (
+                        get_loading_screen_config,
+                        render_loading_screen,
+                    )
+
+                    loading_config = get_loading_screen_config(protocol)
+
+                    # Get total cycles for display
+                    total_cycles = None
+                    if protocol:
+                        stopping_criteria = protocol.get("stopping_criteria", {})
+                        total_cycles = stopping_criteria.get("max_cycles")
+
+                    # Determine loading duration
+                    loading_screen_config = protocol.get("loading_screen", {}) if protocol else {}
+                    use_dynamic = loading_screen_config.get("use_dynamic_duration", False)
+
+                    if use_dynamic and result.get("duration"):
+                        # Use pump duration + buffer as loading time
+                        duration_seconds = int(result["duration"]) + 5  # Add 5s buffer for rinsing
+                    else:
+                        # Use configured duration
+                        duration_seconds = loading_config.get("duration_seconds", 5)
+
+                    # Show loading screen for participant preparation
+                    render_loading_screen(
+                        cycle_number=cycle_num,
+                        total_cycles=total_cycles,
+                        duration_seconds=duration_seconds,
+                        **{k: v for k, v in loading_config.items() if k != "duration_seconds"},
+                    )
+
                     # Transition to next phase
                     transition_to_next_phase(
                         current_phase_str=current_phase_str,
