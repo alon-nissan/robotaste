@@ -47,3 +47,7 @@ Thumbs.db
 *.logbackup_v0/
 *.txt
 *.log
+
+# Claude
+.claude/
+CLAUDE.md
