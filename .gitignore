@@ -48,5 +48,7 @@ Thumbs.db
 *.txt
 *.log
 
-# Claude
+# AI assistance tools
 .claude/
+CLAUDE.md
+AGENTS.md
