@@ -2565,17 +2565,43 @@ def start_session_with_protocol(protocol_id: str):
     """
     Start a new session using the selected protocol.
 
+    If a session already exists (created from landing page), update it.
+    Otherwise, create a new session.
+
     Args:
         protocol_id: Protocol UUID to use
     """
     try:
-        # Create session with protocol_id
-        session_id, session_code = create_session(
-            moderator_name=st.session_state.get("moderator_name", "Moderator"),
-            protocol_id=protocol_id,
-        )
-        st.session_state.session_id = session_id
-        st.session_state.session_code = session_code
+        # Check if session already exists in session_state
+        existing_session_id = st.session_state.get("session_id")
+        existing_session_code = st.session_state.get("session_code")
+
+        if existing_session_id and existing_session_code:
+            # Update existing session with protocol_id
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET protocol_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = ?
+                    """,
+                    (protocol_id, existing_session_id)
+                )
+                conn.commit()
+
+            session_id = existing_session_id
+            session_code = existing_session_code
+            logger.info(f"Updated existing session {session_id} with protocol {protocol_id}")
+        else:
+            # No existing session, create new one
+            session_id, session_code = create_session(
+                moderator_name=st.session_state.get("moderator_name", "Moderator"),
+                protocol_id=protocol_id,
+            )
+            st.session_state.session_id = session_id
+            st.session_state.session_code = session_code
+            logger.info(f"Created new session {session_id} with protocol {protocol_id}")
 
         # Start trial using the protocol
         success = start_trial(

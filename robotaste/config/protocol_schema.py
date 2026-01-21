@@ -23,6 +23,7 @@ SelectionMode = Literal["user_selected", "bo_selected", "predetermined_absolute"
 PhaseType = Literal["builtin", "custom", "loop"]
 BuiltinPhase = Literal[
     "waiting",
+    "consent",
     "registration",
     "instructions",
     "loading",
@@ -203,6 +204,32 @@ PROTOCOL_JSON_SCHEMA = {
         "questionnaire_type": {
             "type": "string",
             "description": "Questionnaire type ID from QUESTIONNAIRE_CONFIGS",
+        },
+        # ===== Consent Form =====
+        "consent_form": {
+            "type": "object",
+            "properties": {
+                "explanation": {
+                    "type": "string",
+                    "description": "Explanation of the study",
+                    "default": "You are invited to participate in a taste research study."
+                },
+                "contact_info": {
+                    "type": "string",
+                    "description": "Contact information for the research team",
+                    "default": "For questions, please contact the research team."
+                },
+                "medical_disclaimers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of medical disclaimers"
+                },
+                "consent_label": {
+                    "type": "string",
+                    "description": "Label for the consent checkbox",
+                    "default": "I have read the information above and agree to participate in this study."
+                }
+            }
         },
         # ===== Bayesian Optimization =====
         "bayesian_optimization": {
@@ -556,6 +583,12 @@ def get_empty_protocol_template() -> Dict[str, Any]:
         "ingredients": [],
         "sample_selection_schedule": [],
         "questionnaire_type": "hedonic_continuous",
+        "consent_form": {
+            "explanation": "You are invited to participate in a taste research study.",
+            "contact_info": "For questions, please contact the research team.",
+            "medical_disclaimers": [],
+            "consent_label": "I have read the information above and agree to participate in this study.",
+        },
         "bayesian_optimization": {
             "enabled": True,
             "min_samples_for_bo": 3,

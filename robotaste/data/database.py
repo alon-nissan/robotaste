@@ -1554,3 +1554,46 @@ def get_session_protocol(session_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to get protocol for session {session_id}: {e}")
         return None
+
+
+def cleanup_orphaned_sessions(max_age_minutes: int = 30) -> int:
+    """
+    Delete sessions that have no configuration and are older than max_age_minutes.
+
+    Orphaned sessions are created when a user clicks "Create New Session" but then
+    abandons the flow or closes the browser before configuring the session. This
+    function removes these incomplete sessions to maintain database hygiene.
+
+    Args:
+        max_age_minutes: Maximum age in minutes for orphaned sessions
+
+    Returns:
+        Number of sessions deleted
+
+    Example:
+        >>> deleted = cleanup_orphaned_sessions(30)
+        >>> print(f"Cleaned up {deleted} orphaned sessions")
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM sessions
+                WHERE experiment_config IS NULL
+                AND user_id IS NULL
+                AND datetime(created_at) < datetime('now', ? || ' minutes')
+                AND deleted_at IS NULL
+                """,
+                (f"-{max_age_minutes}",)
+            )
+            conn.commit()
+            deleted_count = cursor.rowcount
+
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} orphaned sessions older than {max_age_minutes} minutes")
+
+            return deleted_count
+    except Exception as e:
+        logger.error(f"Failed to cleanup orphaned sessions: {e}")
+        return 0

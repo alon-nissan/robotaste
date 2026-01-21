@@ -34,6 +34,7 @@ from robotaste.core import state_helpers
 from robotaste.config.questionnaire import get_default_questionnaire_type
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
+from robotaste.views.consent import render_consent_screen
 from robotaste.data.database import get_session_protocol
 
 
@@ -134,7 +135,7 @@ def render_registration_screen():
                         st.success("Information saved!")
                         transition_to_next_phase(
                             current_phase_str=ExperimentPhase.REGISTRATION.value,
-                            default_next_phase=ExperimentPhase.INSTRUCTIONS,
+                            default_next_phase=ExperimentPhase.COMPLETE,
                             session_id=st.session_state.session_id,
                         )
                         st.rerun()
@@ -941,6 +942,12 @@ def subject_interface():
         time.sleep(2)
         st.rerun()
 
+    elif current_phase_str == ExperimentPhase.CONSENT.value:
+        render_consent_screen()
+
+    elif current_phase_str == ExperimentPhase.CONSENT.value:
+        render_consent_screen()
+
     elif current_phase_str == ExperimentPhase.REGISTRATION.value:
         render_registration_screen()
 
@@ -1166,29 +1173,32 @@ def subject_interface():
                     selection_mode=selection_mode,
                 )
 
-                # Check if we should stop BEFORE incrementing
-                session = get_session(st.session_state.session_id)
-                if session:
-                    protocol = session.get("experiment_config", {})
+                # Determine stopping logic
+                protocol = get_session_protocol(st.session_state.session_id)
+                max_cycles = None
+                has_custom_phases = False
+
+                if protocol:
                     max_cycles = protocol.get("stopping_criteria", {}).get("max_cycles")
+                    has_custom_phases = "phase_sequence" in protocol
 
-                    if max_cycles and current_cycle >= max_cycles:
-                        # We've completed all required cycles - go to completion
-                        logger.info(
-                            f"Completed all {max_cycles} cycles. Transitioning to completion."
-                        )
-                        state_helpers.transition(
-                            state_helpers.get_current_phase(),
-                            new_phase=ExperimentPhase.COMPLETE,
-                            session_id=st.session_state.session_id,
-                        )
-                        st.success(
-                            f"Experiment complete! You have finished all {max_cycles} cycles."
-                        )
-                        st.rerun()
-                        return
+                if max_cycles and current_cycle >= max_cycles and not has_custom_phases:
+                    # Legacy behavior: force completion
+                    logger.info(
+                        f"Completed all {max_cycles} cycles. Transitioning to completion."
+                    )
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=ExperimentPhase.COMPLETE,
+                        session_id=st.session_state.session_id,
+                    )
+                    st.success(
+                        f"Experiment complete! You have finished all {max_cycles} cycles."
+                    )
+                    st.rerun()
+                    return
 
-                # Not stopping - increment to next cycle
+                # Increment and continue (PhaseEngine will handle loop exit if needed)
                 increment_cycle(st.session_state.session_id)
 
                 # Transition to next phase

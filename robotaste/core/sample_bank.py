@@ -244,7 +244,11 @@ def _get_latin_square_session_number(session_id: str) -> int:
             SELECT COUNT(*) as count
             FROM sessions
             WHERE protocol_id = ?
-            AND session_id < ?
+            AND created_at < (
+                SELECT created_at
+                FROM sessions
+                WHERE session_id = ?
+            )
             AND deleted_at IS NULL
             """,
             (protocol_id, session_id)
