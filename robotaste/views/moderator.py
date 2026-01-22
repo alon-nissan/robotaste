@@ -842,9 +842,8 @@ def show_single_ingredient_setup():
             # Start trial
             success = start_trial(
                 "mod",
-                st.session_state.participant,
-                "linear",  # Sliders use linear mapping
-                1,  # num_ingredients
+                method="linear",  # Sliders use linear mapping
+                num_ingredients=1,
                 selected_ingredients=st.session_state.selected_ingredients,
                 ingredient_configs=ingredient_configs,
             )
@@ -1200,9 +1199,8 @@ def show_binary_mixture_setup():
             # Start trial
             success = start_trial(
                 "mod",
-                st.session_state.participant,
-                method,
-                2,  # num_ingredients
+                method=method,
+                num_ingredients=2,
                 selected_ingredients=st.session_state.selected_ingredients,
                 ingredient_configs=ingredient_configs,
             )
@@ -1972,7 +1970,9 @@ def show_moderator_monitoring():
 
         # Create tab list dynamically based on modes present
         tab_names = ["Overview"]
-        if "predetermined" in mode_info["all_modes"]:
+        # Check for any predetermined mode (legacy or new)
+        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        if has_predetermined:
             tab_names.append("Predetermined")
         if "user_selected" in mode_info["all_modes"]:
             tab_names.append("User Selection")
@@ -1987,7 +1987,9 @@ def show_moderator_monitoring():
             render_overview_tab(st.session_state.session_id, mode_info)
         tab_idx += 1
 
-        if "predetermined" in mode_info["all_modes"]:
+        # Check for any predetermined mode (legacy or new)
+        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        if has_predetermined:
             with tabs[tab_idx]:
                 render_predetermined_view(st.session_state.session_id)
             tab_idx += 1
@@ -2008,7 +2010,7 @@ def show_moderator_monitoring():
 
         current_mode = mode_info["current_mode"]
 
-        if current_mode == "predetermined":
+        if current_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
             render_predetermined_view(st.session_state.session_id)
         elif current_mode == "user_selected":
             render_user_selection_view(st.session_state.session_id)
@@ -2424,8 +2426,11 @@ def render_protocol_selection():
         # Show protocol summary
         if selected_protocol_id:
             protocol = protocol_repo.get_protocol_by_id(selected_protocol_id)
-            with st.expander("📄 View Protocol JSON"):
-                st.json(protocol.get("protocol_json", {}))
+            if protocol:
+                with st.expander("📄 View Protocol JSON"):
+                    st.json(protocol.get("protocol_json", {}))
+            else:
+                st.warning(f"⚠️ Protocol with ID {selected_protocol_id} not found.")
 
     st.markdown("---")
 
@@ -2561,22 +2566,47 @@ def start_session_with_protocol(protocol_id: str):
     """
     Start a new session using the selected protocol.
 
+    If a session already exists (created from landing page), update it.
+    Otherwise, create a new session.
+
     Args:
         protocol_id: Protocol UUID to use
     """
     try:
-        # Create session with protocol_id
-        session_id, session_code = create_session(
-            moderator_name=st.session_state.get("moderator_name", "Moderator"),
-            protocol_id=protocol_id,
-        )
-        st.session_state.session_id = session_id
-        st.session_state.session_code = session_code
+        # Check if session already exists in session_state
+        existing_session_id = st.session_state.get("session_id")
+        existing_session_code = st.session_state.get("session_code")
+
+        if existing_session_id and existing_session_code:
+            # Update existing session with protocol_id
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET protocol_id = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = ?
+                    """,
+                    (protocol_id, existing_session_id)
+                )
+                conn.commit()
+
+            session_id = existing_session_id
+            session_code = existing_session_code
+            logger.info(f"Updated existing session {session_id} with protocol {protocol_id}")
+        else:
+            # No existing session, create new one
+            session_id, session_code = create_session(
+                moderator_name=st.session_state.get("moderator_name", "Moderator"),
+                protocol_id=protocol_id,
+            )
+            st.session_state.session_id = session_id
+            st.session_state.session_code = session_code
+            logger.info(f"Created new session {session_id} with protocol {protocol_id}")
 
         # Start trial using the protocol
         success = start_trial(
             user_type="mod",
-            participant_id=st.session_state.get("participant", "participant_001"),
             protocol_id=protocol_id,
         )
 

@@ -28,12 +28,15 @@ from robotaste.data.database import (
     get_session_samples,
     increment_cycle,
     save_sample_cycle,
+    update_session_user_id,
 )
 from robotaste.core.state_machine import ExperimentPhase, ExperimentStateMachine
 from robotaste.core import state_helpers
 from robotaste.config.questionnaire import get_default_questionnaire_type
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
+from robotaste.views.consent import render_consent_screen
+from robotaste.views.phase_utils import transition_to_next_phase
 from robotaste.data.database import get_session_protocol
 
 
@@ -44,7 +47,7 @@ import logging
 import json
 from datetime import datetime
 
-from robotaste.data.database import update_user_profile, create_user
+from robotaste.data.database import update_user_profile
 
 
 logger = logging.getLogger(__name__)
@@ -68,83 +71,51 @@ def get_next_phase_after_selection(session_id: str) -> ExperimentPhase:
     return ExperimentPhase.ROBOT_PREPARING if pump_enabled else ExperimentPhase.LOADING
 
 
-def transition_to_next_phase(
-    current_phase_str: str,
-    default_next_phase: ExperimentPhase,
-    session_id: str,
-    current_cycle: int = None
-) -> None:
-    """
-    Transition to next phase using PhaseEngine if available, otherwise use default.
-
-    Args:
-        current_phase_str: Current phase as string
-        default_next_phase: Default next phase (fallback if no protocol)
-        session_id: Session ID
-        current_cycle: Current cycle number (optional, for loop logic)
-    """
-    # Try to load protocol and use PhaseEngine
-    protocol = get_session_protocol(session_id)
-
-    if protocol and 'phase_sequence' in protocol:
-        try:
-            phase_engine = PhaseEngine(protocol, session_id)
-            next_phase_str = phase_engine.get_next_phase(
-                current_phase_str,
-                current_cycle=current_cycle
-            )
-            next_phase = ExperimentPhase(next_phase_str)
-            logger.info(f"PhaseEngine transition: {current_phase_str} → {next_phase_str}")
-        except Exception as e:
-            logger.error(f"PhaseEngine transition failed: {e}, using default")
-            next_phase = default_next_phase
-    else:
-        next_phase = default_next_phase
-
-    # Execute transition
-    state_helpers.transition(
-        state_helpers.get_current_phase(),
-        new_phase=next_phase,
-        session_id=session_id,
-    )
-
-
 def render_registration_screen():
     """Renders the user registration screen."""
     st.header("Personal Information")
     st.write("Please provide some basic information to begin.")
 
     with st.form("registration_form"):
-        name = st.text_input("Name")
-        age = st.number_input("Age", min_value=18, max_value=100, step=1)
-        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"))
+        name = st.text_input("Name (optional)")
+        age = st.number_input("Age", min_value=18, max_value=100, step=1, value=18)
+        gender = st.radio("Gender", ("Male", "Female", "Other", "Prefer not to say"), index=None)
 
         submitted = st.form_submit_button("Continue")
 
         if submitted:
-            if not name:
-                st.warning("Please enter your name.")
+            if age < 18 or age > 100:
+                st.warning("Please enter a valid age (18-100).")
+            elif gender is None or gender == "":
+                st.warning("Please select your gender.")
             else:
                 user_id = st.session_state.get("participant")
-                if user_id:
-                    if create_user(user_id) and update_user_profile(user_id, name, gender, age):
-                        st.success("Information saved!")
+                session_id = st.session_state.get("session_id")
+
+                if not user_id:
+                    st.error("Session error: No participant ID found. Please rejoin the session.")
+                elif not session_id:
+                    st.error("Session error: No session ID found. Please rejoin the session.")
+                elif update_user_profile(user_id, name, gender, age):
+                    # Link user to session in database after demographics saved
+                    if update_session_user_id(session_id, user_id):
+                        st.success("Information saved and linked to session!")
                         transition_to_next_phase(
                             current_phase_str=ExperimentPhase.REGISTRATION.value,
-                            default_next_phase=ExperimentPhase.INSTRUCTIONS,
-                            session_id=st.session_state.session_id
+                            default_next_phase=ExperimentPhase.COMPLETE,
+                            session_id=session_id,
                         )
                         st.rerun()
                     else:
-                        st.error("Failed to save your information. Please try again.")
+                        st.error("Failed to link participant to session. Please try again.")
                 else:
-                    st.error("User ID not found in session. Cannot save profile.")
+                    st.error("Failed to save your information. Please try again.")
 
 
 def render_instructions_screen():
     """Renders the instructions screen."""
     st.header("Instructions")
-    
+
     # Placeholder for instructions text
     st.markdown(
         """
@@ -160,7 +131,7 @@ def render_instructions_screen():
         Please rinse your mouth with water between samples.
         """
     )
-    
+
     st.info("Text (TBD)")
 
     understand_checkbox = st.checkbox("I understand the instructions.")
@@ -170,7 +141,7 @@ def render_instructions_screen():
         transition_to_next_phase(
             current_phase_str=ExperimentPhase.INSTRUCTIONS.value,
             default_next_phase=next_phase,
-            session_id=st.session_state.session_id
+            session_id=st.session_state.session_id,
         )
         st.rerun()
 
@@ -249,9 +220,7 @@ def grid_interface(cycle_data: dict):
     # Verify interface type matches ingredients
     calculated_interface = mixture.get_interface_type()
     if calculated_interface != interface_type:
-        st.warning(
-            f"Interface type mismatch. Using calculated: {calculated_interface}"
-        )
+        st.warning(f"Interface type mismatch. Using calculated: {calculated_interface}")
         interface_type = calculated_interface
 
     if interface_type != INTERFACE_2D_GRID:
@@ -262,12 +231,13 @@ def grid_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         # Automatically proceed
         time.sleep(3)  # Give user time to read the message
         import uuid
+
         sample_id = str(uuid.uuid4())
         st.session_state.current_sample_id = sample_id
 
@@ -308,7 +278,9 @@ def grid_interface(cycle_data: dict):
 
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Predicted Liking", f"{bo_suggestion.get('predicted_value', 0):.2f}")
+                st.metric(
+                    "Predicted Liking", f"{bo_suggestion.get('predicted_value', 0):.2f}"
+                )
             with col2:
                 st.metric("Uncertainty", f"{bo_suggestion.get('uncertainty', 0):.2f}")
 
@@ -318,9 +290,7 @@ def grid_interface(cycle_data: dict):
                 st.markdown('<div class="canvas-container">', unsafe_allow_html=True)
                 bo_x = bo_suggestion["grid_coordinates"]["x"]
                 bo_y = bo_suggestion["grid_coordinates"]["y"]
-                selection_history = getattr(
-                    st.session_state, "selection_history", None
-                )
+                selection_history = getattr(st.session_state, "selection_history", None)
                 if not hasattr(st.session_state, "initial_grid_position"):
                     initial_conc = st.session_state.get("current_tasted_sample", {})
                     if (
@@ -330,12 +300,10 @@ def grid_interface(cycle_data: dict):
                     ):
 
                         method = st.session_state.get("method", "linear")
-                        x, y = (
-                            ConcentrationMapper.map_concentrations_to_coordinates(
-                                sugar_mm=initial_conc["Sugar"],
-                                salt_mm=initial_conc["Salt"],
-                                method=method,
-                            )
+                        x, y = ConcentrationMapper.map_concentrations_to_coordinates(
+                            sugar_mm=initial_conc["Sugar"],
+                            salt_mm=initial_conc["Salt"],
+                            method=method,
                         )
                         st.session_state.initial_grid_position = {"x": x, "y": y}
                     else:
@@ -350,20 +318,34 @@ def grid_interface(cycle_data: dict):
                     selection_history,  # type: ignore
                 )
                 if initial_drawing and "objects" in initial_drawing:
-                    initial_drawing["objects"].append({
-                        "type": "circle", "left": bo_x, "top": bo_y,
-                        "fill": "#8B5CF6", "stroke": "#6D28D9", "radius": 10, "strokeWidth": 2,
-                    })
+                    initial_drawing["objects"].append(
+                        {
+                            "type": "circle",
+                            "left": bo_x,
+                            "top": bo_y,
+                            "fill": "#8B5CF6",
+                            "stroke": "#6D28D9",
+                            "radius": 10,
+                            "strokeWidth": 2,
+                        }
+                    )
 
                 canvas_size = get_canvas_size()
                 st_canvas(
-                    fill_color="#8B5CF6", stroke_width=2, stroke_color="#6D28D9",
-                    background_color="white", update_streamlit=False, height=canvas_size, width=canvas_size,
-                    drawing_mode="transform", display_toolbar=False, initial_drawing=initial_drawing,
+                    fill_color="#8B5CF6",
+                    stroke_width=2,
+                    stroke_color="#6D28D9",
+                    background_color="white",
+                    update_streamlit=False,
+                    height=canvas_size,
+                    width=canvas_size,
+                    drawing_mode="transform",
+                    display_toolbar=False,
+                    initial_drawing=initial_drawing,
                     key=f"bo_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
                 )
                 st.markdown("</div>", unsafe_allow_html=True)
-            
+
             st.write(f"**Selected Position:** X: {bo_x:.0f}, Y: {bo_y:.0f}")
 
             st.markdown("---")
@@ -371,34 +353,48 @@ def grid_interface(cycle_data: dict):
             with col1:
                 if st.button("Proceed to Next Sample", type="primary"):
                     import uuid
+
                     sample_id = str(uuid.uuid4())
                     st.session_state.current_sample_id = sample_id
                     ingredient_concentrations = bo_suggestion["concentrations"]
-                    
+
                     st.session_state.next_selection_data = {
                         "interface_type": INTERFACE_2D_GRID,
                         "method": "bayesian_optimization",
                         "selection_mode": "bo_selected",
                         "original_method": st.session_state.get("method", "linear"),
-                        "x_position": bo_x, "y_position": bo_y,
+                        "x_position": bo_x,
+                        "y_position": bo_y,
                         "ingredient_concentrations": ingredient_concentrations,
                         "predicted_value": bo_suggestion.get("predicted_value"),
                         "uncertainty": bo_suggestion.get("uncertainty"),
                         "acquisition_value": bo_suggestion.get("acquisition_value"),
-                        "acquisition_function": bo_suggestion.get("acquisition_function"),
-                        "acquisition_params": bo_suggestion.get("acquisition_params", {}),
+                        "acquisition_function": bo_suggestion.get(
+                            "acquisition_function"
+                        ),
+                        "acquisition_params": bo_suggestion.get(
+                            "acquisition_params", {}
+                        ),
                         "sample_id": sample_id,
                     }
-                    
-                    next_phase = get_next_phase_after_selection(st.session_state.session_id)
-                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
-                    st.session_state.current_tasted_sample = ingredient_concentrations.copy()
-                    st.session_state.override_bo = False # Reset for next cycle
+
+                    next_phase = get_next_phase_after_selection(
+                        st.session_state.session_id
+                    )
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=next_phase,
+                        session_id=st.session_state.session_id,
+                    )
+                    st.session_state.current_tasted_sample = (
+                        ingredient_concentrations.copy()
+                    )
+                    st.session_state.override_bo = False  # Reset for next cycle
                     st.rerun()
             with col2:
                 st.button("Override and Select Manually", on_click=handle_override)
             return
-            
+
     # MANUAL MODE (USER_SELECTED or BO Override)
     if selection_mode == "user_selected" or st.session_state.override_bo:
         st.markdown("### Make Your Selection")
@@ -407,7 +403,7 @@ def grid_interface(cycle_data: dict):
         # Reset override flag at the beginning of a new selection
         if selection_mode == "user_selected":
             st.session_state.override_bo = False
-            
+
         col1, col2, col3 = st.columns([1, 3, 1])
         with col2:
             st.markdown('<div class="canvas-container">', unsafe_allow_html=True)
@@ -417,23 +413,41 @@ def grid_interface(cycle_data: dict):
                 if initial_conc and "Sugar" in initial_conc and "Salt" in initial_conc:
                     method = st.session_state.get("method", "linear")
                     x, y = ConcentrationMapper.map_concentrations_to_coordinates(
-                        sugar_mm=initial_conc["Sugar"], salt_mm=initial_conc["Salt"], method=method
+                        sugar_mm=initial_conc["Sugar"],
+                        salt_mm=initial_conc["Salt"],
+                        method=method,
                     )
                     st.session_state.initial_grid_position = {"x": x, "y": y}
                 else:
                     st.session_state.initial_grid_position = {"x": 250, "y": 250}
 
-            x_init, y_init = st.session_state.initial_grid_position["x"], st.session_state.initial_grid_position["y"]
-            initial_drawing = create_canvas_drawing(x_init, y_init, selection_history) # type: ignore
-            
+            x_init, y_init = (
+                st.session_state.initial_grid_position["x"],
+                st.session_state.initial_grid_position["y"],
+            )
+            initial_drawing = create_canvas_drawing(x_init, y_init, selection_history)  # type: ignore
+
             canvas_size = get_canvas_size()
             point_radius = max(5, int(canvas_size / 62.5))
             canvas_result = st_canvas(
-                fill_color=("#14B8A6" if not st.session_state.get("high_contrast", False) else "#FF0000"),
+                fill_color=(
+                    "#14B8A6"
+                    if not st.session_state.get("high_contrast", False)
+                    else "#FF0000"
+                ),
                 stroke_width=2,
-                stroke_color=("#0D9488" if not st.session_state.get("high_contrast", False) else "#000000"),
-                background_color="white", update_streamlit=True, height=canvas_size, width=canvas_size,
-                drawing_mode="point", point_display_radius=point_radius, display_toolbar=False,
+                stroke_color=(
+                    "#0D9488"
+                    if not st.session_state.get("high_contrast", False)
+                    else "#000000"
+                ),
+                background_color="white",
+                update_streamlit=True,
+                height=canvas_size,
+                width=canvas_size,
+                drawing_mode="point",
+                point_display_radius=point_radius,
+                display_toolbar=False,
                 initial_drawing=initial_drawing,
                 key=f"subject_canvas_{st.session_state.participant}_{st.session_state.session_code}_{canvas_size}",
             )
@@ -443,35 +457,67 @@ def grid_interface(cycle_data: dict):
             try:
                 objects = canvas_result.json_data.get("objects", [])
                 for obj in reversed(objects):
-                    if obj.get("type") == "circle" and obj.get("fill") in ["#EF4444", "#FF0000"]:
+                    if obj.get("type") == "circle" and obj.get("fill") in [
+                        "#EF4444",
+                        "#FF0000",
+                    ]:
                         x, y = obj.get("left", 0), obj.get("top", 0)
-                        if not hasattr(st.session_state, "last_saved_position") or st.session_state.last_saved_position != (x, y):
+                        if not hasattr(
+                            st.session_state, "last_saved_position"
+                        ) or st.session_state.last_saved_position != (x, y):
                             import uuid
+
                             sample_id = str(uuid.uuid4())
                             st.session_state.current_sample_id = sample_id
-                            
-                            method = st.session_state.get("method", "linear")
-                            save_click(st.session_state.participant, x, y, method, sample_id=sample_id)
-                            st.session_state.last_saved_position = (x, y)
-                            
-                            sugar_mm, salt_mm = ConcentrationMapper.map_coordinates_to_concentrations(x, y, method=method)
-                            ingredient_concentrations = {"Sugar": round(sugar_mm, 3), "Salt": round(salt_mm, 3)}
 
-                            final_selection_mode = "user_selected_override" if st.session_state.override_bo else "user_selected"
+                            method = st.session_state.get("method", "linear")
+                            save_click(
+                                st.session_state.participant,
+                                x,
+                                y,
+                                method,
+                                sample_id=sample_id,
+                            )
+                            st.session_state.last_saved_position = (x, y)
+
+                            sugar_mm, salt_mm = (
+                                ConcentrationMapper.map_coordinates_to_concentrations(
+                                    x, y, method=method
+                                )
+                            )
+                            ingredient_concentrations = {
+                                "Sugar": round(sugar_mm, 3),
+                                "Salt": round(salt_mm, 3),
+                            }
+
+                            final_selection_mode = (
+                                "user_selected_override"
+                                if st.session_state.override_bo
+                                else "user_selected"
+                            )
 
                             st.session_state.next_selection_data = {
                                 "interface_type": INTERFACE_2D_GRID,
                                 "method": method,
-                                "x_position": x, "y_position": y,
+                                "x_position": x,
+                                "y_position": y,
                                 "ingredient_concentrations": ingredient_concentrations,
                                 "selection_mode": final_selection_mode,
                                 "sample_id": sample_id,
                             }
 
-                            next_phase = get_next_phase_after_selection(st.session_state.session_id)
-                            state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
-                            st.session_state.current_tasted_sample = ingredient_concentrations.copy()
-                            st.session_state.override_bo = False # Reset for next cycle
+                            next_phase = get_next_phase_after_selection(
+                                st.session_state.session_id
+                            )
+                            state_helpers.transition(
+                                state_helpers.get_current_phase(),
+                                new_phase=next_phase,
+                                session_id=st.session_state.session_id,
+                            )
+                            st.session_state.current_tasted_sample = (
+                                ingredient_concentrations.copy()
+                            )
+                            st.session_state.override_bo = False  # Reset for next cycle
                             st.rerun()
                         break
             except Exception as e:
@@ -479,7 +525,12 @@ def grid_interface(cycle_data: dict):
 
         st.markdown("---")
         st.markdown("### Finish Experiment")
-        if st.button("Complete Experiment", type="secondary", help="Mark this as your final selection and end the experiment", key="grid_complete_experiment_button"):
+        if st.button(
+            "Complete Experiment",
+            type="secondary",
+            help="Mark this as your final selection and end the experiment",
+            key="grid_complete_experiment_button",
+        ):
             # ... (code for completing experiment)
             pass
 
@@ -507,9 +558,7 @@ def single_variable_interface(cycle_data: dict):
 
     # Get experiment settings from session state
     num_ingredients = st.session_state.get("num_ingredients", 1)
-    interface_type = st.session_state.get(
-        "interface_type", INTERFACE_SINGLE_INGREDIENT
-    )
+    interface_type = st.session_state.get("interface_type", INTERFACE_SINGLE_INGREDIENT)
 
     # Validate single ingredient configuration
     if num_ingredients != 1:
@@ -540,16 +589,17 @@ def single_variable_interface(cycle_data: dict):
 
     selection_mode = cycle_data.get("mode", "user_selected")
 
-    if selection_mode == "predetermined":
+    if selection_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
         st.markdown("### Predetermined Sample")
         st.info("This sample was predetermined by the experiment protocol.")
         time.sleep(3)
         import uuid
+
         sample_id = str(uuid.uuid4())
         st.session_state.current_sample_id = sample_id
 
         predetermined_concentrations = cycle_data.get("concentrations", {})
-        
+
         st.session_state.next_selection_data = {
             "interface_type": INTERFACE_SINGLE_INGREDIENT,
             "method": "predetermined",
@@ -579,23 +629,27 @@ def single_variable_interface(cycle_data: dict):
         if bo_suggestion:
             st.markdown("### Next Sample Selected by Optimization")
             st.info("The system has automatically selected your next sample.")
-            
+
             bo_value = bo_suggestion["slider_value"]
             st.slider(
                 label="Optimized selection",
-                min_value=0, max_value=100, value=int(bo_value), step=1,
-                disabled=True
+                min_value=0,
+                max_value=100,
+                value=int(bo_value),
+                step=1,
+                disabled=True,
             )
-            
+
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("Proceed to Next Sample", type="primary"):
                     import uuid
+
                     sample_id = str(uuid.uuid4())
                     st.session_state.current_sample_id = sample_id
                     ingredient_concentrations = bo_suggestion["concentrations"]
-                    
+
                     st.session_state.next_selection_data = {
                         "interface_type": INTERFACE_SINGLE_INGREDIENT,
                         "method": "bayesian_optimization",
@@ -604,10 +658,18 @@ def single_variable_interface(cycle_data: dict):
                         "ingredient_concentrations": ingredient_concentrations,
                         "sample_id": sample_id,
                     }
-                    
-                    next_phase = get_next_phase_after_selection(st.session_state.session_id)
-                    state_helpers.transition(state_helpers.get_current_phase(), new_phase=next_phase, session_id=st.session_state.session_id)
-                    st.session_state.current_tasted_sample = ingredient_concentrations.copy()
+
+                    next_phase = get_next_phase_after_selection(
+                        st.session_state.session_id
+                    )
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=next_phase,
+                        session_id=st.session_state.session_id,
+                    )
+                    st.session_state.current_tasted_sample = (
+                        ingredient_concentrations.copy()
+                    )
                     st.session_state.override_bo = False
                     st.rerun()
             with col2:
@@ -619,7 +681,7 @@ def single_variable_interface(cycle_data: dict):
         if selection_mode == "user_selected":
             st.session_state.override_bo = False
 
-        initial_value = 50.0 # Default
+        initial_value = 50.0  # Default
         current_cycle = get_current_cycle(st.session_state.session_id)
         try:
             samples = get_session_samples(st.session_state.session_id)
@@ -637,12 +699,16 @@ def single_variable_interface(cycle_data: dict):
 
         slider_value = st.slider(
             label="Use the slider below to adjust the ingredient concentration.",
-            min_value=0, max_value=100, value=int(initial_value), step=1,
+            min_value=0,
+            max_value=100,
+            value=int(initial_value),
+            step=1,
             key=f"single_slider_{ingredient_name}_{st.session_state.participant}",
         )
 
         if st.button("Finish Selection", type="primary"):
             import uuid
+
             sample_id = str(uuid.uuid4())
             st.session_state.current_sample_id = sample_id
 
@@ -651,9 +717,15 @@ def single_variable_interface(cycle_data: dict):
                 {ingredient_name: float(slider_value)}
             )
             ingredient_concentrations = {
-                ingredient_name: round(concentrations[ingredient_name]["actual_concentration_mM"], 3)
+                ingredient_name: round(
+                    concentrations[ingredient_name]["actual_concentration_mM"], 3
+                )
             }
-            final_selection_mode = "user_selected_override" if st.session_state.override_bo else "user_selected"
+            final_selection_mode = (
+                "user_selected_override"
+                if st.session_state.override_bo
+                else "user_selected"
+            )
 
             st.session_state.next_selection_data = {
                 "interface_type": INTERFACE_SINGLE_INGREDIENT,
@@ -663,7 +735,7 @@ def single_variable_interface(cycle_data: dict):
                 "selection_mode": final_selection_mode,
                 "sample_id": sample_id,
             }
-            
+
             state_helpers.transition(
                 state_helpers.get_current_phase(),
                 new_phase=ExperimentPhase.LOADING,
@@ -725,7 +797,7 @@ def subject_interface():
         .stSpinner > div > div {
             font-size: 3.5rem !important;
             margin-top: 2rem !important;
-            font-weight: 500 !import
+            font-weight: 500 !important;
         }
 
         .stSpinner svg {
@@ -784,7 +856,7 @@ def subject_interface():
         protocol = get_session_protocol(session_id)
 
         # Initialize PhaseEngine if protocol has custom phase_sequence
-        if protocol and 'phase_sequence' in protocol:
+        if protocol and "phase_sequence" in protocol:
             phase_engine = PhaseEngine(protocol, session_id)
 
             # Check if current phase is a custom phase
@@ -796,9 +868,11 @@ def subject_interface():
                 render_custom_phase(current_phase_str, phase_content)
 
                 # Handle phase completion and transition
-                if st.session_state.get('phase_complete'):
+                if st.session_state.get("phase_complete"):
                     # Check if auto-advance is enabled
-                    should_advance, duration_ms = phase_engine.should_auto_advance(current_phase_str)
+                    should_advance, duration_ms = phase_engine.should_auto_advance(
+                        current_phase_str
+                    )
 
                     if should_advance and duration_ms:
                         logger.info(f"Auto-advancing after {duration_ms}ms")
@@ -807,11 +881,12 @@ def subject_interface():
                     # Get next phase from engine
                     current_cycle = get_current_cycle(session_id)
                     next_phase_str = phase_engine.get_next_phase(
-                        current_phase_str,
-                        current_cycle=current_cycle
+                        current_phase_str, current_cycle=current_cycle
                     )
 
-                    logger.info(f"Transitioning from {current_phase_str} to {next_phase_str}")
+                    logger.info(
+                        f"Transitioning from {current_phase_str} to {next_phase_str}"
+                    )
 
                     # Update phase in database
                     state_helpers.transition(
@@ -834,6 +909,9 @@ def subject_interface():
         time.sleep(2)
         st.rerun()
 
+    elif current_phase_str == ExperimentPhase.CONSENT.value:
+        render_consent_screen()
+
     elif current_phase_str == ExperimentPhase.REGISTRATION.value:
         render_registration_screen()
 
@@ -854,33 +932,79 @@ def subject_interface():
             from robotaste.core.pump_integration import get_pump_operation_for_cycle
 
             existing_operation = get_pump_operation_for_cycle(
-                st.session_state.session_id,
-                cycle_num
+                st.session_state.session_id, cycle_num
             )
 
             # Only execute if no existing operation (fresh entry to phase)
             if existing_operation is None:
-                st.info("🤖 Robot is preparing your sample...")
+                # Get loading screen configuration
+                from robotaste.utils.ui_helpers import get_loading_screen_config
 
-                # Execute pumps synchronously
+                loading_config = get_loading_screen_config(protocol)
+
+                # Get total cycles for display
+                total_cycles = None
+                if protocol:
+                    stopping_criteria = protocol.get("stopping_criteria", {})
+                    total_cycles = stopping_criteria.get("max_cycles")
+
+                # Display cycle information
+                if loading_config.get("show_cycle_info", True):
+                    if total_cycles:
+                        st.markdown(
+                            f"<div style='text-align: center; font-size: 3rem; "
+                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
+                            f"Cycle {cycle_num} of {total_cycles}</div>",
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(
+                            f"<div style='text-align: center; font-size: 3rem; "
+                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
+                            f"Cycle {cycle_num}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                # Display loading message
+                message = loading_config.get("message", "Rinse your mouth while the robot prepares the next sample.")
+                size_map = {
+                    "normal": "1.5rem",
+                    "large": "2.5rem",
+                    "extra_large": "3.5rem"
+                }
+                font_size = size_map.get(loading_config.get("message_size", "large"), "2.5rem")
+
+                st.markdown(
+                    f"<div style='text-align: center; font-size: {font_size}; "
+                    f"font-weight: 500; color: #333; margin: 2rem 0; line-height: 1.4;'>"
+                    f"{message}</div>",
+                    unsafe_allow_html=True
+                )
+
+                # Execute pumps synchronously with spinner
                 from robotaste.core.pump_integration import execute_pumps_synchronously
 
-                result = execute_pumps_synchronously(
-                    session_id=st.session_state.session_id,
-                    cycle_number=cycle_num,
-                    streamlit_container=None  # Disable UI logging
-                )
+                with st.spinner("🤖 Robot is preparing your sample..."):
+                    result = execute_pumps_synchronously(
+                        session_id=st.session_state.session_id,
+                        cycle_number=cycle_num,
+                        streamlit_container=None,  # Disable UI logging
+                    )
 
                 # Check result
                 if result["success"]:
-                    st.success(f"✅ Sample prepared successfully in {result['duration']:.1f}s")
+                    # Show brief success message
+                    st.success(
+                        f"✅ Sample prepared successfully in {result['duration']:.1f}s"
+                    )
+                    time.sleep(1)  # Brief pause to show success
 
                     # Transition to next phase
                     transition_to_next_phase(
                         current_phase_str=current_phase_str,
                         default_next_phase=ExperimentPhase.QUESTIONNAIRE,
                         session_id=st.session_state.session_id,
-                        current_cycle=cycle_num
+                        current_cycle=cycle_num,
                     )
                     st.rerun()
 
@@ -899,7 +1023,7 @@ def subject_interface():
                         current_phase_str=current_phase_str,
                         default_next_phase=ExperimentPhase.QUESTIONNAIRE,
                         session_id=st.session_state.session_id,
-                        current_cycle=cycle_num
+                        current_cycle=cycle_num,
                     )
                     st.rerun()
 
@@ -928,14 +1052,16 @@ def subject_interface():
                 total_cycles = stopping_criteria.get("max_cycles")
 
             # Get loading screen configuration from protocol
-            from robotaste.utils.ui_helpers import get_loading_screen_config, render_loading_screen
+            from robotaste.utils.ui_helpers import (
+                get_loading_screen_config,
+                render_loading_screen,
+            )
+
             loading_config = get_loading_screen_config(protocol)
 
             # Render dedicated loading screen
             render_loading_screen(
-                cycle_number=cycle_num,
-                total_cycles=total_cycles,
-                **loading_config
+                cycle_number=cycle_num, total_cycles=total_cycles, **loading_config
             )
 
             # Transition to next phase
@@ -943,7 +1069,7 @@ def subject_interface():
                 current_phase_str=current_phase_str,
                 default_next_phase=ExperimentPhase.QUESTIONNAIRE,
                 session_id=st.session_state.session_id,
-                current_cycle=cycle_num
+                current_cycle=cycle_num,
             )
             st.rerun()
 
@@ -959,7 +1085,11 @@ def subject_interface():
             total_cycles = stopping_criteria.get("max_cycles")
 
         # Get loading screen configuration from protocol
-        from robotaste.utils.ui_helpers import get_loading_screen_config, render_loading_screen
+        from robotaste.utils.ui_helpers import (
+            get_loading_screen_config,
+            render_loading_screen,
+        )
+
         loading_config = get_loading_screen_config(protocol)
 
         # Check if we should use dynamic pump time
@@ -971,8 +1101,12 @@ def subject_interface():
             # Use calculated pump time if available
             pump_time_key = f"pump_time_cycle_{cycle_num}"
             if pump_time_key in st.session_state:
-                duration_seconds = int(st.session_state[pump_time_key]) + 2  # Add 2s for safety
-                logger.info(f"Using dynamic loading duration: {duration_seconds}s (from pump time)")
+                duration_seconds = (
+                    int(st.session_state[pump_time_key]) + 2
+                )  # Add 2s for safety
+                logger.info(
+                    f"Using dynamic loading duration: {duration_seconds}s (from pump time)"
+                )
             else:
                 duration_seconds = loading_config.get("duration_seconds", 5)
         else:
@@ -983,7 +1117,7 @@ def subject_interface():
             cycle_number=cycle_num,
             total_cycles=total_cycles,
             duration_seconds=duration_seconds,
-            **{k: v for k, v in loading_config.items() if k != "duration_seconds"}
+            **{k: v for k, v in loading_config.items() if k != "duration_seconds"},
         )
 
         # Transition to next phase
@@ -991,26 +1125,34 @@ def subject_interface():
             current_phase_str=current_phase_str,
             default_next_phase=ExperimentPhase.QUESTIONNAIRE,
             session_id=st.session_state.session_id,
-            current_cycle=cycle_num
+            current_cycle=cycle_num,
         )
         st.rerun()
 
     elif current_phase_str == ExperimentPhase.QUESTIONNAIRE.value:
         cycle_num = get_current_cycle(st.session_state.session_id)
-        st.info(f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted")
+        st.info(
+            f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted"
+        )
 
         questionnaire_type = get_questionnaire_type_from_config()
-        responses = render_questionnaire(questionnaire_type, st.session_state.participant)
+        responses = render_questionnaire(
+            questionnaire_type, st.session_state.participant
+        )
 
         if responses:
             st.session_state.questionnaire_responses = responses
             current_cycle = get_current_cycle(st.session_state.session_id)
-            ingredient_concentrations = st.session_state.get("current_tasted_sample", {})
+            ingredient_concentrations = st.session_state.get(
+                "current_tasted_sample", {}
+            )
             selection_data = st.session_state.get("next_selection_data", {})
 
             # GUARD: Don't save if sample is empty (not yet prepared)
             if not ingredient_concentrations:
-                logger.warning(f"Cycle {current_cycle}: Sample not prepared yet, skipping save")
+                logger.warning(
+                    f"Cycle {current_cycle}: Sample not prepared yet, skipping save"
+                )
                 st.warning("Please wait for sample to be prepared...")
                 time.sleep(1)
                 st.rerun()
@@ -1021,8 +1163,13 @@ def subject_interface():
                 selection_mode = selection_data.get("selection_mode", "user_selected")
                 if not selection_mode or selection_mode == "unknown":
                     # Fall back to determining from protocol
-                    from robotaste.core.trials import get_selection_mode_for_cycle_runtime
-                    selection_mode = get_selection_mode_for_cycle_runtime(st.session_state.session_id, current_cycle)
+                    from robotaste.core.trials import (
+                        get_selection_mode_for_cycle_runtime,
+                    )
+
+                    selection_mode = get_selection_mode_for_cycle_runtime(
+                        st.session_state.session_id, current_cycle
+                    )
 
                 # Save the questionnaire data for current cycle
                 save_sample_cycle(
@@ -1035,25 +1182,32 @@ def subject_interface():
                     selection_mode=selection_mode,
                 )
 
-                # Check if we should stop BEFORE incrementing
-                session = get_session(st.session_state.session_id)
-                if session:
-                    protocol = session.get("experiment_config", {})
-                    max_cycles = protocol.get('stopping_criteria', {}).get('max_cycles')
+                # Determine stopping logic
+                protocol = get_session_protocol(st.session_state.session_id)
+                max_cycles = None
+                has_custom_phases = False
 
-                    if max_cycles and current_cycle >= max_cycles:
-                        # We've completed all required cycles - go to completion
-                        logger.info(f"Completed all {max_cycles} cycles. Transitioning to completion.")
-                        state_helpers.transition(
-                            state_helpers.get_current_phase(),
-                            new_phase=ExperimentPhase.COMPLETE,
-                            session_id=st.session_state.session_id,
-                        )
-                        st.success(f"Experiment complete! You have finished all {max_cycles} cycles.")
-                        st.rerun()
-                        return
+                if protocol:
+                    max_cycles = protocol.get("stopping_criteria", {}).get("max_cycles")
+                    has_custom_phases = "phase_sequence" in protocol
 
-                # Not stopping - increment to next cycle
+                if max_cycles and current_cycle >= max_cycles and not has_custom_phases:
+                    # Legacy behavior: force completion
+                    logger.info(
+                        f"Completed all {max_cycles} cycles. Transitioning to completion."
+                    )
+                    state_helpers.transition(
+                        state_helpers.get_current_phase(),
+                        new_phase=ExperimentPhase.COMPLETE,
+                        session_id=st.session_state.session_id,
+                    )
+                    st.success(
+                        f"Experiment complete! You have finished all {max_cycles} cycles."
+                    )
+                    st.rerun()
+                    return
+
+                # Increment and continue (PhaseEngine will handle loop exit if needed)
                 increment_cycle(st.session_state.session_id)
 
                 # Transition to next phase
@@ -1061,9 +1215,11 @@ def subject_interface():
                     current_phase_str=current_phase_str,
                     default_next_phase=ExperimentPhase.SELECTION,
                     session_id=st.session_state.session_id,
-                    current_cycle=current_cycle + 1  # Pass the NEW cycle number
+                    current_cycle=current_cycle + 1,  # Pass the NEW cycle number
                 )
-                st.success("Questionnaire saved! Now make your selection for the next cycle.")
+                st.success(
+                    "Questionnaire saved! Now make your selection for the next cycle."
+                )
                 st.rerun()
             except Exception as e:
                 st.error(f"Failed to save questionnaire: {e}")
@@ -1076,20 +1232,25 @@ def subject_interface():
         st.session_state.cycle_data = cycle_info
 
         # For predetermined/BO samples, populate current_tasted_sample and auto-advance
-        if cycle_info.get('concentrations') and cycle_info['mode'] in ['predetermined', 'bo_selected']:
-            st.session_state.current_tasted_sample = cycle_info['concentrations'].copy()
+        if cycle_info.get("concentrations") and cycle_info["mode"] in [
+            "predetermined",
+            "bo_selected",
+        ]:
+            st.session_state.current_tasted_sample = cycle_info["concentrations"].copy()
             st.session_state.next_selection_data = {
-                "mode": cycle_info['mode'],
-                "timestamp": datetime.now().isoformat()
+                "mode": cycle_info["mode"],
+                "timestamp": datetime.now().isoformat(),
             }
 
             # Check if pump control is enabled to determine next phase
             next_phase = get_next_phase_after_selection(st.session_state.session_id)
-            logger.info(f"Auto-advancing to {next_phase.value} for {cycle_info['mode']} sample")
+            logger.info(
+                f"Auto-advancing to {next_phase.value} for {cycle_info['mode']} sample"
+            )
             state_helpers.transition(
                 state_helpers.get_current_phase(),
                 new_phase=next_phase,
-                session_id=st.session_state.session_id
+                session_id=st.session_state.session_id,
             )
             st.rerun()
             return
@@ -1106,17 +1267,19 @@ def subject_interface():
             sync_session_state(st.session_state.session_id, "subject")
             time.sleep(2)
             st.rerun()
-    
+
     elif current_phase_str == ExperimentPhase.COMPLETE.value:
         # Cleanup pumps when session completes
         try:
             from robotaste.core.pump_manager import cleanup_pumps
+
             cleanup_pumps(st.session_state.session_id)
             logger.info(f"Cleaned up pumps for session {st.session_state.session_id}")
         except Exception as e:
             logger.warning(f"Error cleaning up pumps: {e}")
 
         from robotaste.views.completion import show_subject_completion_screen
+
         show_subject_completion_screen()
 
     else:

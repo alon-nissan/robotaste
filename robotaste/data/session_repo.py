@@ -16,6 +16,7 @@ Version: 3.0 (Refactored Architecture)
 import qrcode
 import io
 import base64
+import uuid
 from typing import Optional, Dict, Any
 import logging
 
@@ -134,28 +135,64 @@ def generate_session_urls(
 
 def join_session(session_code: str) -> Optional[str]:
     """
-    Check if session exists and is active (subject can join).
+    Check if session exists and is active, then generate UUID for participant.
+
+    This is the SINGLE POINT OF UUID GENERATION for participants.
+    The UUID is stored in session_state but NOT linked to the session in the database
+    until the participant completes registration.
 
     Args:
         session_code: 6-character session code
 
     Returns:
         session_id (UUID) if session exists and is active, None otherwise
+
+    Note:
+        The participant UUID is stored in st.session_state.participant and will be
+        linked to the session in the database when registration is completed.
     """
     try:
-        session = db.get_session_by_code(session_code)
-        if session and session["state"] == "active":
-            session_id = session["session_id"]
-            logger.info(f"Subject joined session {session_code} (ID: {session_id})")
-            return session_id
+        import streamlit as st
 
-        logger.warning(
-            f"Cannot join session {session_code} - not found or not active"
+        session = db.get_session_by_code(session_code)
+        if not session:
+            logger.warning(f"Session {session_code} not found")
+            return None
+
+        if session["state"] != "active":
+            logger.warning(f"Session {session_code} is not active")
+            return None
+
+        session_id = session["session_id"]
+
+        # Check if session already has a participant (enforce 1:1 relationship)
+        if session.get("user_id"):
+            logger.warning(
+                f"Session {session_code} already has participant {session['user_id']}. "
+                "Multiple subjects cannot join the same session."
+            )
+            return None
+
+        # Generate new UUID for this participant
+        user_id = str(uuid.uuid4())
+        logger.info(f"Generated user ID {user_id} for session {session_code}")
+
+        # Create user record in database (demographics will be added during registration)
+        if not db.create_user(user_id):
+            logger.error(f"Failed to create user {user_id}")
+            return None
+
+        # Store UUID in session_state (will be linked to session after registration)
+        st.session_state.participant = user_id
+
+        logger.info(
+            f"Subject joined session {session_code} (ID: {session_id}, user: {user_id}). "
+            "User will be linked to session after registration."
         )
-        return None
+        return session_id
 
     except Exception as e:
-        logger.error(f"Error checking session {session_code}: {e}")
+        logger.error(f"Error joining session {session_code}: {e}")
         return None
 
 
@@ -208,6 +245,26 @@ def sync_session_state_to_streamlit(session_id: str, role: str) -> bool:
         st.session_state.session_info = session_info
         st.session_state.device_role = role
         st.session_state.last_sync = datetime.now()
+
+        # Sync participant ID from session's user_id
+        # IMPORTANT: Don't overwrite if we have a UUID in session_state but DB has None
+        # (this happens when subject joins but hasn't completed registration yet)
+        db_user_id = session_info.get("user_id")
+        current_participant = st.session_state.get("participant")
+
+        if db_user_id:
+            # Database has a user_id, use it (participant has registered)
+            st.session_state.participant = db_user_id
+            logger.info(f"Synced participant {db_user_id} from database for {role}")
+        elif not current_participant:
+            # Database has no user_id AND session_state has no participant
+            # Set to None (no one has joined yet)
+            st.session_state.participant = None
+            logger.debug(f"No participant has joined session {session_id} yet")
+        else:
+            # Database has no user_id BUT session_state has a participant UUID
+            # Keep the session_state value (participant joined but hasn't registered yet)
+            logger.debug(f"Preserving participant {current_participant} from session_state (not yet registered)")
 
         # Get experiment configuration (already parsed by database layer)
         experiment_config = session_info.get("experiment_config")

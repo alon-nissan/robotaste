@@ -345,6 +345,40 @@ def update_session_state(session_id: str, state: str) -> bool:
         return False
 
 
+def update_session_user_id(session_id: str, user_id: str) -> bool:
+    """
+    Link a user to a session (1:1 relationship).
+
+    Args:
+        session_id: Session UUID
+        user_id: User UUID to link to session
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET user_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (user_id, session_id),
+            )
+            conn.commit()
+
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"Linked user {user_id} to session {session_id}")
+            return success
+
+    except Exception as e:
+        logger.error(f"Failed to update session user_id: {e}")
+        return False
+
+
 def update_current_phase(session_id: str, phase: str) -> bool:
     """
     Update current phase for multi-device synchronization.
@@ -534,7 +568,7 @@ def get_sessions_by_protocol(protocol_id: str) -> List[Dict]:
 
 def update_session_with_config(
     session_id: str,
-    user_id: str,
+    user_id: Optional[str],
     num_ingredients: int,
     interface_type: str,
     method: str,
@@ -558,7 +592,7 @@ def update_session_with_config(
 
     Args:
         session_id: Session UUID (must exist from prior create_session() call)
-        user_id: Participant/user ID
+        user_id: Optional participant/user ID (may be None if participant hasn't joined yet)
         num_ingredients: Number of ingredients (1 or 2)
         interface_type: 'grid_2d' or 'slider_based'
         method: Mapping method ('linear', 'logarithmic', 'exponential')
@@ -798,6 +832,36 @@ def update_user_profile(user_id: str, name: str, gender: str, age: int) -> bool:
             return cursor.rowcount > 0
     except Exception as e:
         logger.error(f"Failed to update profile: {e}")
+        return False
+
+
+def save_consent_response(session_id: str, consent_given: bool) -> bool:
+    """Save consent response with timestamp to the sessions table.
+
+    Args:
+        session_id: The session ID
+        consent_given: Whether the user gave consent (True/False)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET consent_given = ?,
+                    consent_timestamp = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                (1 if consent_given else 0, session_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error saving consent response: {e}")
         return False
 
 
@@ -1084,6 +1148,137 @@ def get_questionnaire_type_id(questionnaire_type_name: str) -> Optional[int]:
     except Exception as e:
         logger.error(f"Failed to get questionnaire type ID: {e}")
         return None
+
+
+# ============================================================================
+# Section 5.5: Sample Bank State Operations
+# ============================================================================
+
+
+def get_session_bank_state(
+    session_id: str,
+    schedule_index: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Get sample bank state for a session.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+
+    Returns:
+        Dict with bank state information or None if not found
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT randomized_order, current_position, latin_square_session_number,
+                       design_type, created_at, updated_at
+                FROM session_sample_bank_state
+                WHERE session_id = ? AND protocol_schedule_index = ?
+                """,
+                (session_id, schedule_index)
+            )
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                "randomized_order": json.loads(row["randomized_order"]),
+                "current_position": row["current_position"],
+                "latin_square_session_number": row["latin_square_session_number"],
+                "design_type": row["design_type"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to get session bank state: {e}")
+        return None
+
+
+def save_session_bank_state(
+    session_id: str,
+    schedule_index: int,
+    randomized_order: List[str],
+    design_type: str,
+    latin_square_session_number: Optional[int] = None
+) -> bool:
+    """
+    Save or update session bank state.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+        randomized_order: List of sample IDs in randomized order
+        design_type: "randomized" or "latin_square"
+        latin_square_session_number: Session number for latin square (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO session_sample_bank_state
+                (session_id, protocol_schedule_index, randomized_order, current_position,
+                 latin_square_session_number, design_type, created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(session_id, protocol_schedule_index) DO UPDATE SET
+                    randomized_order = excluded.randomized_order,
+                    design_type = excluded.design_type,
+                    latin_square_session_number = excluded.latin_square_session_number,
+                    updated_at = datetime('now')
+                """,
+                (session_id, schedule_index, json.dumps(randomized_order),
+                 latin_square_session_number, design_type)
+            )
+            conn.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Failed to save session bank state: {e}")
+        return False
+
+
+def update_bank_position(
+    session_id: str,
+    schedule_index: int,
+    new_position: int
+) -> bool:
+    """
+    Update current position in sample bank.
+
+    Args:
+        session_id: Session UUID
+        schedule_index: Protocol schedule entry index (0-indexed)
+        new_position: New position value
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE session_sample_bank_state
+                SET current_position = ?, updated_at = datetime('now')
+                WHERE session_id = ? AND protocol_schedule_index = ?
+                """,
+                (new_position, session_id, schedule_index)
+            )
+            conn.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Failed to update bank position: {e}")
+        return False
 
 
 # ============================================================================
@@ -1423,3 +1618,46 @@ def get_session_protocol(session_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to get protocol for session {session_id}: {e}")
         return None
+
+
+def cleanup_orphaned_sessions(max_age_minutes: int = 30) -> int:
+    """
+    Delete sessions that have no configuration and are older than max_age_minutes.
+
+    Orphaned sessions are created when a user clicks "Create New Session" but then
+    abandons the flow or closes the browser before configuring the session. This
+    function removes these incomplete sessions to maintain database hygiene.
+
+    Args:
+        max_age_minutes: Maximum age in minutes for orphaned sessions
+
+    Returns:
+        Number of sessions deleted
+
+    Example:
+        >>> deleted = cleanup_orphaned_sessions(30)
+        >>> print(f"Cleaned up {deleted} orphaned sessions")
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM sessions
+                WHERE experiment_config IS NULL
+                AND user_id IS NULL
+                AND datetime(created_at) < datetime('now', ? || ' minutes')
+                AND deleted_at IS NULL
+                """,
+                (f"-{max_age_minutes}",)
+            )
+            conn.commit()
+            deleted_count = cursor.rowcount
+
+            if deleted_count > 0:
+                logger.info(f"Cleaned up {deleted_count} orphaned sessions older than {max_age_minutes} minutes")
+
+            return deleted_count
+    except Exception as e:
+        logger.error(f"Failed to cleanup orphaned sessions: {e}")
+        return 0

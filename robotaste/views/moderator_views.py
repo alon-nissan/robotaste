@@ -79,9 +79,14 @@ def render_overview_tab(session_id: str, mode_info: Dict[str, Any]):
                     for key, value in config.items():
                         st.markdown(f"  - {key}: {value}")
 
-                if mode == "predetermined":
+                if mode in ["predetermined", "predetermined_absolute"]:
                     predetermined_samples = entry.get("predetermined_samples", [])
                     st.markdown(f"  - Predetermined samples: {len(predetermined_samples)}")
+                elif mode == "predetermined_randomized":
+                    sample_bank = entry.get("sample_bank", {})
+                    samples = sample_bank.get("samples", [])
+                    design_type = sample_bank.get("design_type", "randomized")
+                    st.markdown(f"  - Sample bank: {len(samples)} samples ({design_type})")
 
                 st.markdown("")
     else:
@@ -163,8 +168,9 @@ def render_predetermined_view(session_id: str):
 
             # Add concentrations
             conc = sample.get("ingredient_concentration", {})
-            for ing_name, conc_val in conc.items():
-                row[f"{ing_name} (mM)"] = f"{conc_val:.2f}"
+            if conc:  # Only iterate if conc is not None
+                for ing_name, conc_val in conc.items():
+                    row[f"{ing_name} (mM)"] = f"{conc_val:.2f}"
 
             # Add questionnaire response (only for completed samples)
             if is_completed:
