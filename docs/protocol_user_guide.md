@@ -156,6 +156,17 @@ For participants who need more time:
 
 ---
 
+### Step 2.6: Configure Pumps (Optional)
+
+If your experiment uses automated pumps, add a `pump_config` block to the
+protocol JSON. Each pump entry can specify its own `volume_unit`.
+
+**Per-pump volume units:**
+- `ML` uses milliliters for volume commands.
+- `UL` uses microliters (max 9999).
+
+See `docs/pump_config.md` for the full pump configuration fields and examples.
+
 ### Step 3: Design Sample Selection Schedule
 
 This is where you define **when to use each selection mode**.

@@ -130,6 +130,11 @@ def initialize_pumps(pump_config: Dict, db_path: str) -> bool:
     serial_port = pump_config.get('serial_port')
     baud_rate = pump_config.get('baud_rate', 19200)
     pump_configs = pump_config.get('pumps', [])
+    pump_config_by_ingredient = {
+        cfg.get('ingredient'): cfg
+        for cfg in pump_configs
+        if cfg.get('ingredient')
+    }
 
     if not serial_port:
         logger.error("No serial port specified in pump configuration")
@@ -221,6 +226,12 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
 
     # Get pump configuration
     pump_config = protocol.get('pump_config', {})
+    pump_configs = pump_config.get('pumps', [])
+    pump_config_by_ingredient = {
+        cfg.get('ingredient'): cfg
+        for cfg in pump_configs
+        if cfg.get('ingredient')
+    }
     if not pump_config:
         raise ValueError("Protocol does not have pump configuration")
 
@@ -288,10 +299,20 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
         # Start all pumps without waiting
         for ingredient, pump, volume_ul in pump_info:
             try:
+                volume_unit = pump_config_by_ingredient.get(
+                    ingredient, {}
+                ).get('volume_unit', 'ML')
+                if volume_unit not in ['ML', 'UL']:
+                    raise ValueError(
+                        f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
+                    )
                 log_pump_command(
                     operation_id=operation_id,
                     pump_address=pump.address,
-                    command=f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min",
+                    command=(
+                        f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min "
+                        f"(unit {volume_unit})"
+                    ),
                     response=None,
                     success=True,
                     db_path=db_path
@@ -300,7 +321,8 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                 pump.dispense_volume(
                     volume_ul=volume_ul,
                     rate_ul_min=dispensing_rate,
-                    wait=False  # Don't wait, start next pump
+                    wait=False,  # Don't wait, start next pump
+                    volume_unit=volume_unit,
                 )
                 logger.info(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL")
 
@@ -396,11 +418,21 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                 continue
 
             try:
+                volume_unit = pump_config_by_ingredient.get(
+                    ingredient, {}
+                ).get('volume_unit', 'ML')
+                if volume_unit not in ['ML', 'UL']:
+                    raise ValueError(
+                        f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
+                    )
                 # Log start
                 log_pump_command(
                     operation_id=operation_id,
                     pump_address=pump.address,
-                    command=f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min",
+                    command=(
+                        f"START DISPENSE {volume_ul:.3f} µL at {dispensing_rate} µL/min "
+                        f"(unit {volume_unit})"
+                    ),
                     response=None,
                     success=True,
                     db_path=db_path
@@ -410,7 +442,8 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                 pump.dispense_volume(
                     volume_ul=volume_ul,
                     rate_ul_min=dispensing_rate,
-                    wait=True
+                    wait=True,
+                    volume_unit=volume_unit,
                 )
 
                 # Record actual volume (assuming successful dispense = requested volume)

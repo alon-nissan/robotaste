@@ -5,18 +5,26 @@ Tests the BurstCommandBuilder class and burst command generation.
 """
 
 import pytest
-from robotaste.hardware.pump_controller import (
-    BurstCommandBuilder,
-    PumpBurstConfig,
-    NE4000Pump
-)
+from robotaste.hardware.pump_controller import BurstCommandBuilder, PumpBurstConfig
 
 
 def test_burst_command_builder_two_pumps():
     """Test burst command generation matches manual example."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=60000, volume_ul=3000, direction="INF"),
-        PumpBurstConfig(address=1, rate_ul_min=30000, volume_ul=1000, direction="INF"),
+        PumpBurstConfig(
+            address=0,
+            rate_ul_min=60000,
+            volume_ul=3000,
+            diameter_mm=29.0,
+            direction="INF",
+        ),
+        PumpBurstConfig(
+            address=1,
+            rate_ul_min=30000,
+            volume_ul=1000,
+            diameter_mm=29.0,
+            direction="INF",
+        ),
     ]
 
     commands = BurstCommandBuilder.build_burst_commands(configs)
@@ -41,7 +49,13 @@ def test_burst_command_builder_two_pumps():
 def test_burst_command_builder_single_pump():
     """Test burst command generation with single pump."""
     configs = [
-        PumpBurstConfig(address=5, rate_ul_min=1000, volume_ul=500, direction="WDR"),
+        PumpBurstConfig(
+            address=5,
+            rate_ul_min=1000,
+            volume_ul=500,
+            diameter_mm=29.0,
+            direction="WDR",
+        ),
     ]
 
     commands = BurstCommandBuilder.build_burst_commands(configs)
@@ -60,9 +74,9 @@ def test_burst_command_builder_single_pump():
 def test_burst_command_builder_three_pumps():
     """Test burst command generation with three pumps."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100),
-        PumpBurstConfig(address=1, rate_ul_min=2000, volume_ul=200),
-        PumpBurstConfig(address=2, rate_ul_min=3000, volume_ul=300),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
+        PumpBurstConfig(address=1, rate_ul_min=2000, volume_ul=200, diameter_mm=29.0),
+        PumpBurstConfig(address=2, rate_ul_min=3000, volume_ul=300, diameter_mm=29.0),
     ]
 
     commands = BurstCommandBuilder.build_burst_commands(configs)
@@ -80,7 +94,7 @@ def test_burst_command_builder_three_pumps():
 def test_burst_validation_address_out_of_range():
     """Test that addresses > 9 are rejected."""
     configs = [
-        PumpBurstConfig(address=10, rate_ul_min=1000, volume_ul=100),
+        PumpBurstConfig(address=10, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="address.*out of range"):
@@ -90,7 +104,7 @@ def test_burst_validation_address_out_of_range():
 def test_burst_validation_address_negative():
     """Test that negative addresses are rejected."""
     configs = [
-        PumpBurstConfig(address=-1, rate_ul_min=1000, volume_ul=100),
+        PumpBurstConfig(address=-1, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="address.*out of range"):
@@ -100,8 +114,8 @@ def test_burst_validation_address_negative():
 def test_burst_validation_duplicate_addresses():
     """Test that duplicate addresses are rejected."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100),
-        PumpBurstConfig(address=0, rate_ul_min=2000, volume_ul=200),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
+        PumpBurstConfig(address=0, rate_ul_min=2000, volume_ul=200, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="Duplicate"):
@@ -111,7 +125,7 @@ def test_burst_validation_duplicate_addresses():
 def test_burst_validation_zero_rate():
     """Test that zero rate is rejected."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=0, volume_ul=100),
+        PumpBurstConfig(address=0, rate_ul_min=0, volume_ul=100, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="Rate must be positive"):
@@ -121,7 +135,7 @@ def test_burst_validation_zero_rate():
 def test_burst_validation_negative_rate():
     """Test that negative rate is rejected."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=-1000, volume_ul=100),
+        PumpBurstConfig(address=0, rate_ul_min=-1000, volume_ul=100, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="Rate must be positive"):
@@ -131,7 +145,7 @@ def test_burst_validation_negative_rate():
 def test_burst_validation_zero_volume():
     """Test that zero volume is rejected."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=0),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=0, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="Volume must be positive"):
@@ -141,7 +155,7 @@ def test_burst_validation_zero_volume():
 def test_burst_validation_negative_volume():
     """Test that negative volume is rejected."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=-100),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=-100, diameter_mm=29.0),
     ]
 
     with pytest.raises(ValueError, match="Volume must be positive"):
@@ -151,8 +165,8 @@ def test_burst_validation_negative_volume():
 def test_burst_command_format_with_asterisks():
     """Test that all commands end with proper asterisk separators."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100),
-        PumpBurstConfig(address=1, rate_ul_min=2000, volume_ul=200),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
+        PumpBurstConfig(address=1, rate_ul_min=2000, volume_ul=200, diameter_mm=29.0),
     ]
 
     commands = BurstCommandBuilder.build_burst_commands(configs)
@@ -171,7 +185,7 @@ def test_burst_command_format_with_asterisks():
 def test_burst_command_volume_conversion():
     """Test that volumes are properly converted from µL to mL."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=3000),  # 3000 µL = 3.0 mL
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=3000, diameter_mm=29.0),
     ]
 
     commands = BurstCommandBuilder.build_burst_commands(configs)
@@ -183,9 +197,9 @@ def test_burst_command_volume_conversion():
 def test_validate_burst_config_valid():
     """Test that valid configurations pass validation."""
     configs = [
-        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100),
-        PumpBurstConfig(address=5, rate_ul_min=2000, volume_ul=200),
-        PumpBurstConfig(address=9, rate_ul_min=3000, volume_ul=300),
+        PumpBurstConfig(address=0, rate_ul_min=1000, volume_ul=100, diameter_mm=29.0),
+        PumpBurstConfig(address=5, rate_ul_min=2000, volume_ul=200, diameter_mm=29.0),
+        PumpBurstConfig(address=9, rate_ul_min=3000, volume_ul=300, diameter_mm=29.0),
     ]
 
     errors = BurstCommandBuilder.validate_burst_config(configs)
@@ -195,8 +209,8 @@ def test_validate_burst_config_valid():
 def test_validate_burst_config_multiple_errors():
     """Test that multiple validation errors are all reported."""
     configs = [
-        PumpBurstConfig(address=10, rate_ul_min=-1000, volume_ul=-100),  # All invalid
-        PumpBurstConfig(address=10, rate_ul_min=2000, volume_ul=200),  # Duplicate address
+        PumpBurstConfig(address=10, rate_ul_min=-1000, volume_ul=-100, diameter_mm=29.0),
+        PumpBurstConfig(address=10, rate_ul_min=2000, volume_ul=200, diameter_mm=29.0),
     ]
 
     errors = BurstCommandBuilder.validate_burst_config(configs)

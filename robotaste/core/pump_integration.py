@@ -145,7 +145,7 @@ def create_pump_operation_for_cycle(
             return None
 
         # Get pump configuration
-        pump_config = protocol.get("pump_config", {})
+        pump_config = protocol.get("pump_config") or {}
         total_volume_ml = pump_config.get("total_volume_ml", 10.0)
 
         # Calculate required stock volumes
@@ -504,6 +504,8 @@ def execute_pumps_synchronously(
             raise ValueError(f"No protocol found for session {session_id}")
 
         protocol = get_protocol_by_id(row[0])
+        if not protocol:
+            raise ValueError(f"Could not load protocol {row[0]}")
         pump_config = protocol.get("pump_config", {})
 
         if not pump_config.get("enabled", False):
@@ -539,6 +541,11 @@ def execute_pumps_synchronously(
 
         # Add water dilution if needed
         pump_configs = pump_config.get("pumps", [])
+        pump_config_by_ingredient = {
+            cfg.get("ingredient"): cfg
+            for cfg in pump_configs
+            if cfg.get("ingredient")
+        }
         for pump_cfg in pump_configs:
             ingredient_name = pump_cfg.get("ingredient", "")
             if ingredient_name.lower() == "water":
@@ -591,10 +598,23 @@ def execute_pumps_synchronously(
                 for ingredient, volume_ul in stock_volumes.items():
                     if ingredient in pumps and volume_ul > 0.001:  # Skip ~0 volumes
                         pump = pumps[ingredient]
+                        pump_cfg = pump_config_by_ingredient.get(ingredient, {})
+                        diameter_mm = pump_cfg.get("syringe_diameter_mm")
+                        if diameter_mm is None:
+                            raise ValueError(
+                                f"Missing syringe_diameter_mm for pump '{ingredient}'"
+                            )
+                        volume_unit = pump_cfg.get("volume_unit", "ML")
+                        if volume_unit not in ["ML", "UL"]:
+                            raise ValueError(
+                                f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
+                            )
                         burst_configs.append(PumpBurstConfig(
                             address=pump.address,
                             rate_ul_min=dispensing_rate,
                             volume_ul=volume_ul,
+                            diameter_mm=diameter_mm,
+                            volume_unit=volume_unit,
                             direction="INF"
                         ))
 
@@ -602,7 +622,8 @@ def execute_pumps_synchronously(
                 if not burst_configs:
                     ui_log("⚠️ All pump volumes are ~0, skipping dispensing", "warning")
                     logger.info("Skipping burst mode: all volumes are ~0")
-                    return
+                    result["success"] = True
+                    return result
 
                 # Build burst commands
                 commands = BurstCommandBuilder.build_burst_commands(burst_configs)
@@ -640,8 +661,20 @@ def execute_pumps_synchronously(
                 for ingredient, volume_ul in stock_volumes.items():
                     if ingredient in pumps:
                         pump = pumps[ingredient]
+                        volume_unit = pump_config_by_ingredient.get(
+                            ingredient, {}
+                        ).get("volume_unit", "ML")
+                        if volume_unit not in ["ML", "UL"]:
+                            raise ValueError(
+                                f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
+                            )
                         ui_log(f"  Starting {ingredient}: {volume_ul:.1f} µL...")
-                        pump.dispense_volume(volume_ul, dispensing_rate, wait=False)
+                        pump.dispense_volume(
+                            volume_ul,
+                            dispensing_rate,
+                            wait=False,
+                            volume_unit=volume_unit,
+                        )
 
                 # Calculate max time (only for non-zero volumes)
                 non_zero_volumes = [vol for vol in stock_volumes.values() if vol > 0.001]
@@ -666,8 +699,20 @@ def execute_pumps_synchronously(
             for ingredient, volume_ul in stock_volumes.items():
                 if ingredient in pumps:
                     pump = pumps[ingredient]
+                    volume_unit = pump_config_by_ingredient.get(
+                        ingredient, {}
+                    ).get("volume_unit", "ML")
+                    if volume_unit not in ["ML", "UL"]:
+                        raise ValueError(
+                            f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
+                        )
                     ui_log(f"  Dispensing {ingredient}: {volume_ul:.1f} µL...")
-                    pump.dispense_volume(volume_ul, dispensing_rate, wait=True)
+                    pump.dispense_volume(
+                        volume_ul,
+                        dispensing_rate,
+                        wait=True,
+                        volume_unit=volume_unit,
+                    )
                     ui_log(f"  ✅ {ingredient} complete", "success")
 
         # 5. Success

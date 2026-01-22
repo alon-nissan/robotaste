@@ -678,6 +678,13 @@ def _validate_pump_config(protocol: Dict[str, Any]) -> List[str]:
         if max_rate is not None and (not isinstance(max_rate, (int, float)) or max_rate <= 0):
             errors.append(f"Pump {pump_num}: max_rate_ul_min must be positive, got {max_rate}")
 
+        # Validate volume unit (optional)
+        volume_unit = pump.get("volume_unit", "ML")
+        if volume_unit not in ["ML", "UL"]:
+            errors.append(
+                f"Pump {pump_num}: volume_unit must be 'ML' or 'UL', got {volume_unit}"
+            )
+
         # Validate stock concentration (optional)
         stock_conc = pump.get("stock_concentration_mM")
         if stock_conc is not None and (not isinstance(stock_conc, (int, float)) or stock_conc < 0):

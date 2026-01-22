@@ -51,6 +51,8 @@ class PumpBurstConfig:
     address: int  # 0-9 only (burst mode constraint)
     rate_ul_min: float
     volume_ul: float
+    diameter_mm: float
+    volume_unit: Literal["ML", "UL"] = "ML"
     direction: Literal["INF", "WDR"] = "INF"
 
 
@@ -60,6 +62,48 @@ class BurstCommandSet:
     config_command: str      # e.g., "0 RAT 60 MM * 0 DIR INF * 0 VOL ML * 0 VOL 3.0 * 1 RAT 30 MM * 1 DIR INF * 1 VOL ML * 1 VOL 1.0 *"
     validation_command: str  # e.g., "0 RAT * 0 VOL * 1 RAT * 1 VOL *"
     run_command: str        # e.g., "0 RUN * 1 RUN *"
+
+
+class _BurstCommandFormatter:
+    """Helper for burst command formatting without serial setup."""
+
+    @staticmethod
+    def format_rate(rate: float, unit: str) -> tuple[str, str]:
+        if unit == "UM" and rate > 9999:
+            rate = rate / 1000.0
+            unit = "MM"
+
+        if unit in ["UM", "UH"]:
+            if rate >= 1000:
+                rate_str = f"{rate:.0f}"
+            elif rate >= 100:
+                rate_str = f"{rate:.1f}"
+            else:
+                rate_str = f"{rate:.2f}"
+        else:
+            rate_str = f"{rate:.2f}"
+
+        return rate_str, unit
+
+    @staticmethod
+    def format_volume_ml(volume_ml: float) -> str:
+        if volume_ml >= 100:
+            return f"{volume_ml:.1f}"
+        if volume_ml >= 10:
+            return f"{volume_ml:.2f}"
+        if volume_ml >= 1:
+            return f"{volume_ml:.3f}"
+        if volume_ml == 0:
+            return "0.000"
+        return f"{volume_ml:.3f}"
+
+    @staticmethod
+    def format_volume_ul(volume_ul: float) -> str:
+        if volume_ul >= 1000:
+            return f"{volume_ul:.0f}"
+        if volume_ul >= 100:
+            return f"{volume_ul:.1f}"
+        return f"{volume_ul:.2f}"
 
 
 class BurstCommandBuilder:
@@ -94,6 +138,20 @@ class BurstCommandBuilder:
                 errors.append(f"Pump {config.address}: Rate must be positive")
             if config.volume_ul <= 0:
                 errors.append(f"Pump {config.address}: Volume must be positive")
+            if config.diameter_mm <= 0:
+                errors.append(f"Pump {config.address}: Diameter must be positive")
+            if config.diameter_mm < 0.1 or config.diameter_mm > 50.0:
+                errors.append(
+                    f"Pump {config.address}: Diameter must be 0.1-50.0 mm"
+                )
+            if config.volume_unit not in ["ML", "UL"]:
+                errors.append(
+                    f"Pump {config.address}: Volume unit must be ML or UL"
+                )
+            if config.volume_unit == "UL" and config.volume_ul > 9999:
+                errors.append(
+                    f"Pump {config.address}: Volume exceeds UL limit (max 9999 UL)"
+                )
 
         return errors
 
@@ -109,7 +167,7 @@ class BurstCommandBuilder:
             BurstCommandSet with config, validation, and run commands
 
         Example output for 2 pumps (3mL @ 60mL/min, 1mL @ 30mL/min):
-            config: "0 RAT 60.00 MM * 0 DIR INF * 0 VOL ML * 0 VOL 3.000 * 1 RAT 30.00 MM * 1 DIR INF * 1 VOL ML * 1 VOL 1.000 *"
+            config: "0 DIA 29.00 * 0 RAT 60.00 MM * 0 DIR INF * 0 VOL ML * 0 VOL 3.000 * 1 DIA 29.00 * 1 RAT 30.00 MM * 1 DIR INF * 1 VOL ML * 1 VOL 1.000 *"
             validation: "0 RAT * 0 VOL * 1 RAT * 1 VOL *"
             run: "0 RUN * 1 RUN *"
         """
@@ -124,28 +182,32 @@ class BurstCommandBuilder:
 
         # Create a temporary pump instance to access formatting methods
         # (we'll use address 0, but we only need the formatting logic)
-        temp_pump = NE4000Pump(port="dummy", address=0)
+        temp_pump = _BurstCommandFormatter()
 
         for config in configs:
             addr = config.address
 
             # Format rate (auto-converts to MM if needed)
-            rate_str, rate_unit = temp_pump._format_rate_for_pump(
+            rate_str, rate_unit = temp_pump.format_rate(
                 config.rate_ul_min, "UM"
             )
 
-            # Format volume (always in mL)
-            volume_ml = config.volume_ul / 1000.0
-            volume_str = temp_pump._format_volume_for_pump(volume_ml)
+            # Format volume
+            if config.volume_unit == "UL":
+                volume_str = temp_pump.format_volume_ul(config.volume_ul)
+            else:
+                volume_ml = config.volume_ul / 1000.0
+                volume_str = temp_pump.format_volume_ml(volume_ml)
 
             # Direction
             direction = config.direction
 
             # Build config command parts
-            # Format: <addr> RAT <value> <unit> * <addr> DIR <direction> * <addr> VOL <unit> * <addr> VOL <value> *
+            # Format: <addr> DIA <value> * <addr> RAT <value> <unit> * <addr> DIR <direction> * <addr> VOL <unit> * <addr> VOL <value> *
+            config_parts.append(f"{addr} DIA {config.diameter_mm:.2f}")
             config_parts.append(f"{addr} RAT {rate_str} {rate_unit}")
             config_parts.append(f"{addr} DIR {direction}")
-            config_parts.append(f"{addr} VOL ML")  # Set volume units to milliliters
+            config_parts.append(f"{addr} VOL {config.volume_unit}")
             config_parts.append(f"{addr} VOL {volume_str}")
 
             # Build validation command parts
@@ -458,29 +520,45 @@ class NE4000Pump:
         else:
             logger.warning(f"[Pump {self.address}] Could not verify rate")
 
-    def set_volume(self, volume_ul: float) -> None:
+    def set_volume(
+        self, volume_ul: float, volume_unit: Literal["ML", "UL"] = "ML"
+    ) -> None:
         """
         Set volume to dispense with verification (does not start pumping).
 
         Args:
             volume_ul: Volume in microliters
+            volume_unit: "ML" or "UL" for pump volume units
 
         Raises:
             ValueError: If volume is negative
             PumpCommandError: If pump rejects command
         """
-        if volume_ul < 0:
+        if volume_ul <= 0:
             raise ValueError(f"Volume must be positive, got {volume_ul}")
 
-        # Convert to mL and format for NE-4000's 4-digit constraint
+        if volume_unit not in ["ML", "UL"]:
+            raise ValueError(f"Volume unit must be 'ML' or 'UL', got {volume_unit}")
+
+        if volume_unit == "UL" and volume_ul > 9999:
+            raise ValueError(
+                f"Volume exceeds UL limit (max 9999 UL), got {volume_ul}"
+            )
+
         volume_ml = volume_ul / 1000.0
-        volume_str = self._format_volume_for_pump(volume_ml)
+        if volume_unit == "UL":
+            volume_str = self._format_volume_ul_for_pump(volume_ul)
+        else:
+            # Convert to mL and format for NE-4000's 4-digit constraint
+            volume_str = self._format_volume_for_pump(volume_ml)
 
         logger.info(
-            f"[Pump {self.address}] Programming volume: {volume_ul:.1f} µL ({volume_str} mL)"
+            f"[Pump {self.address}] Programming volume: {volume_ul:.1f} µL "
+            f"({volume_str} {volume_unit})"
         )
-        cmd = f"{self.CMD_VOLUME} {volume_str}"
-        response = self._send_command(cmd)
+        response = self._send_command(f"{self.CMD_VOLUME} {volume_unit}")
+        logger.debug(f"[Pump {self.address}] Set volume unit response: {response}")
+        response = self._send_command(f"{self.CMD_VOLUME} {volume_str}")
         logger.info(f"[Pump {self.address}] Set volume response: {response}")
 
         # Check if command was rejected
@@ -498,7 +576,8 @@ class NE4000Pump:
                 abs(actual_volume_ml - expected_volume_ml) < 0.001
             ):  # Within 1µL tolerance
                 logger.info(
-                    f"[Pump {self.address}] ✅ Volume verified: {actual_volume_ml:.6f} mL ({actual_volume_ml * 1000:.1f} µL)"
+                    f"[Pump {self.address}] ✅ Volume verified: {actual_volume_ml:.6f} mL "
+                    f"({actual_volume_ml * 1000:.1f} µL)"
                 )
             else:
                 logger.error(
@@ -627,6 +706,27 @@ class NE4000Pump:
             # 0.001-0.999 mL: use 4 decimals "0.001" to "0.999"
             return f"{volume_ml:.3f}"
 
+    def _format_volume_ul_for_pump(self, volume_ul: float) -> str:
+        """
+        Format volume in microliters to fit NE-4000's 4-digit constraint.
+
+        Args:
+            volume_ul: Volume in microliters
+
+        Returns:
+            Formatted volume string (always in µL)
+
+        Examples:
+            1000 → "1000"
+            250.5 → "250.5"
+            25.12 → "25.12"
+        """
+        if volume_ul >= 1000:
+            return f"{volume_ul:.0f}"
+        if volume_ul >= 100:
+            return f"{volume_ul:.1f}"
+        return f"{volume_ul:.2f}"
+
     def get_diameter(self) -> Optional[float]:
         """
         Query current syringe diameter setting from pump.
@@ -650,14 +750,13 @@ class NE4000Pump:
                     f"[Pump {self.address}] Current diameter: {diameter:.3f} mm"
                 )
                 return diameter
-            else:
-                logger.warning(
-                    f"[Pump {self.address}] Unexpected diameter response format: {response}"
-                )
-                return None
+            logger.warning(
+                f"[Pump {self.address}] Unexpected diameter response format: {response}"
+            )
         except (ValueError, IndexError) as e:
             logger.error(f"[Pump {self.address}] Error parsing diameter response: {e}")
-            return None
+
+        return None
 
     def get_rate(self) -> tuple[Optional[float], Optional[str]]:
         """
@@ -705,22 +804,27 @@ class NE4000Pump:
         Returns:
             Current programmed volume in mL, or None if query fails
 
-        Actual NE-4000 response format: "S21.10ML" (S prefix + value + unit)
+        Actual NE-4000 response format: "S21.10ML" or "S500UL" (S prefix + value + unit)
         """
         logger.debug(f"[Pump {self.address}] Querying volume...")
         response = self._send_command(self.CMD_VOLUME)
 
         try:
-            # Parse NE-4000 format: "S21.10ML" or "S10.00"
-            # Note: VOL command always uses mL, may include ML suffix or not
+            # Parse NE-4000 format: "S21.10ML", "S500UL", or "S10.00"
+            # Convert UL responses to mL for consistent return value
             if response.startswith("S"):
                 # Remove 'S' prefix
                 value_and_unit = response[1:].strip()
 
-                # Extract numeric value (remove "ML" suffix if present)
-                match = re.match(r"([\d.]+)(ML)?", value_and_unit)
+                # Extract numeric value (remove unit suffix if present)
+                match = re.match(r"([\d.]+)([A-Z]{2})?", value_and_unit)
                 if match:
-                    volume_ml = float(match.group(1))
+                    volume_value = float(match.group(1))
+                    unit = match.group(2) or "ML"
+                    if unit == "UL":
+                        volume_ml = volume_value / 1000.0
+                    else:
+                        volume_ml = volume_value
                     logger.debug(
                         f"[Pump {self.address}] Current volume: {volume_ml:.6f} mL"
                     )
@@ -733,6 +837,7 @@ class NE4000Pump:
             logger.error(f"[Pump {self.address}] Error parsing volume response: {e}")
 
         return None
+
 
     def get_direction(self) -> Optional[str]:
         """
@@ -828,7 +933,11 @@ class NE4000Pump:
             return False
 
     def dispense_volume(
-        self, volume_ul: float, rate_ul_min: Optional[float] = None, wait: bool = True
+        self,
+        volume_ul: float,
+        rate_ul_min: Optional[float] = None,
+        wait: bool = True,
+        volume_unit: Literal["ML", "UL"] = "ML",
     ) -> None:
         """
         Dispense a specific volume (high-level convenience method).
@@ -841,6 +950,7 @@ class NE4000Pump:
             volume_ul: Volume to dispense in microliters
             rate_ul_min: Pumping rate in µL/min (optional, uses current rate if None)
             wait: If True, block until dispensing completes
+            volume_unit: "ML" or "UL" for pump volume units
 
         Raises:
             ValueError: If rate is not specified and no current rate is set
@@ -877,7 +987,7 @@ class NE4000Pump:
         )
 
         # Set volume
-        self.set_volume(volume_ul)
+        self.set_volume(volume_ul, volume_unit=volume_unit)
 
         # Start pumping
         self.start()
@@ -940,6 +1050,9 @@ class NE4000Pump:
         """
         if not self.is_connected():
             raise PumpConnectionError("Not connected to pump")
+
+        if self.serial is None:
+            raise PumpConnectionError("Serial connection not available")
 
         # Format command with network address
         if self.address > 0:
@@ -1036,6 +1149,9 @@ class NE4000Pump:
         """
         if not self.is_connected():
             raise PumpConnectionError("Not connected to pump")
+
+        if self.serial is None:
+            raise PumpConnectionError("Serial connection not available")
 
         # Burst commands don't use address prefix - they're already in the command
         full_command = f"{command}\r"

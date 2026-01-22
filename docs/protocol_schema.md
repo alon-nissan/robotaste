@@ -274,6 +274,14 @@ Configures the BO algorithm when using `bo_selected` mode.
 
 ---
 
+## Pump Configuration
+
+Pump configuration lives under `pump_config` and provides per-pump hardware
+settings. The per-pump `volume_unit` controls whether each pump uses `ML` or
+`UL` for `VOL` commands.
+
+See `docs/pump_config.md` for the full field list and examples.
+
 ## Stopping Criteria
 
 Defines when the experiment should end.

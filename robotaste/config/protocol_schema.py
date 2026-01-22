@@ -320,6 +320,12 @@ PROTOCOL_JSON_SCHEMA = {
                                 "maximum": 50.0,
                                 "description": "Syringe inner diameter in millimeters",
                             },
+                            "volume_unit": {
+                                "type": "string",
+                                "enum": ["ML", "UL"],
+                                "description": "Pump volume unit (mL or µL)",
+                                "default": "ML",
+                            },
                             "max_rate_ul_min": {
                                 "type": "number",
                                 "minimum": 0.1,

@@ -20,7 +20,12 @@ Version: 1.0 (Session-persistent caching)
 
 import logging
 from typing import Dict, Optional, Any, Tuple
-from robotaste.hardware.pump_controller import NE4000Pump, PumpConnectionError
+from robotaste.hardware.pump_controller import (
+    NE4000Pump,
+    PumpConnectionError,
+    BurstCommandBuilder,
+    PumpBurstConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +111,8 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
     serial_port = pump_config.get("serial_port")
     baud_rate = pump_config.get("baud_rate", 19200)
     pump_configs = pump_config.get("pumps", [])
+    dispensing_rate = pump_config.get("dispensing_rate_ul_min", 2000)
+    use_burst_mode = pump_config.get("use_burst_mode", False)
 
     if not serial_port:
         raise ValueError("serial_port is required in pump_config")
@@ -113,7 +120,10 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
     if not pump_configs:
         raise ValueError("No pumps configured in pump_config")
 
-    def init_single_pump(cfg: Dict[str, Any]) -> Tuple[str, NE4000Pump, Optional[Exception]]:
+    def init_single_pump(
+        cfg: Dict[str, Any],
+        configure_diameter: bool,
+    ) -> Tuple[str, Optional[NE4000Pump], Optional[Exception]]:
         """
         Thread worker to initialize one pump.
 
@@ -126,14 +136,16 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
             - If failed: (ingredient, None, exception)
         """
         address = cfg.get("address")
-        ingredient = cfg.get("ingredient")
+        ingredient = cfg.get("ingredient") or "unknown"
         diameter = cfg.get("syringe_diameter_mm")
 
         try:
             if address is None:
                 raise ValueError(f"Pump configuration missing 'address' for {ingredient}")
-            if not ingredient:
-                raise ValueError(f"Pump configuration missing 'ingredient' for address {address}")
+            if ingredient == "unknown":
+                raise ValueError(
+                    f"Pump configuration missing 'ingredient' for address {address}"
+                )
             if not diameter:
                 raise ValueError(f"Pump configuration missing 'syringe_diameter_mm' for {ingredient}")
 
@@ -149,7 +161,8 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
 
             # Connect and configure
             pump.connect()
-            pump.set_diameter(diameter)
+            if configure_diameter:
+                pump.set_diameter(diameter)
 
             logger.info(f"  ✅ [Thread] Pump {address} ({ingredient}) connected and configured")
 
@@ -167,19 +180,57 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
 
     pumps = {}
     errors = []
+    burst_compatible = use_burst_mode and all(
+        cfg.get("address", 99) <= 9 for cfg in pump_configs
+    )
+    burst_configs: list[PumpBurstConfig] = []
 
     for cfg in pump_configs:
-        ingredient, pump, error = init_single_pump(cfg)
+        ingredient, pump, error = init_single_pump(cfg, not burst_compatible)
         if error:
-            errors.append(f"{ingredient}: {error}")
-        elif pump:
+            error_name = ingredient or "unknown"
+            errors.append(f"{error_name}: {error}")
+        elif pump and ingredient:
             pumps[ingredient] = pump
+            if burst_compatible:
+                volume_unit = cfg.get("volume_unit", "ML")
+                if volume_unit not in ["ML", "UL"]:
+                    errors.append(
+                        f"{ingredient}: Invalid volume_unit '{volume_unit}'"
+                    )
+                    continue
+                burst_configs.append(
+                    PumpBurstConfig(
+                        address=cfg["address"],
+                        rate_ul_min=dispensing_rate,
+                        volume_ul=1.0,
+                        diameter_mm=cfg["syringe_diameter_mm"],
+                        volume_unit=volume_unit,
+                        direction="INF",
+                    )
+                )
 
     # If any pump failed, raise combined error
     if errors:
         error_msg = "Failed to initialize pumps:\n" + "\n".join(errors)
         logger.error(error_msg)
         raise PumpConnectionError(error_msg)
+
+    if burst_compatible and burst_configs:
+        logger.info("  ⚡ Using burst command for diameter setup")
+        commands = BurstCommandBuilder.build_burst_commands(burst_configs)
+        any_pump = next(iter(pumps.values()))
+        try:
+            any_pump._send_burst_command(commands.config_command)
+        except Exception as exc:
+            logger.warning(
+                f"  ⚠️ Burst configuration failed, falling back to per-pump diameter: {exc}"
+            )
+            for cfg in pump_configs:
+                ingredient = cfg.get("ingredient")
+                pump = pumps.get(ingredient)
+                if pump:
+                    pump.set_diameter(cfg["syringe_diameter_mm"])
 
     logger.info(f"  ✅ All {len(pumps)} pumps initialized successfully")
 

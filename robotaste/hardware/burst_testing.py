@@ -5,10 +5,10 @@ from pump_controller import (
 )
 
 config_0 = PumpBurstConfig(
-    address=0, rate_ul_min=60000, volume_ul=3000, direction="INF"
+    address=0, rate_ul_min=60000, volume_ul=3000, diameter_mm=29.0, direction="INF"
 )
 config_1 = PumpBurstConfig(
-    address=1, rate_ul_min=30000, volume_ul=1000, direction="INF"
+    address=1, rate_ul_min=30000, volume_ul=1000, diameter_mm=29.0, direction="INF"
 )
 
 commnads = BurstCommandBuilder.build_burst_commands([config_0])
