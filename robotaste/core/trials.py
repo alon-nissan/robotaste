@@ -192,9 +192,9 @@ def start_trial(
 
         st.success(f"Trial started successfully for {participant_id}")
 
-        # === Early pump initialization ===
-        # Initialize pumps in background while subject is registering
-        # This eliminates the visible delay during ROBOT_PREPARING phase
+        # === Early pump connection establishment ===
+        # Connect to pumps while subject is registering to reduce delay during ROBOT_PREPARING
+        # Note: Burst mode configuration (diameter, rate, direction) happens during dispensing
         try:
             from robotaste.data.protocol_repo import get_protocol_by_id
             from robotaste.core.pump_manager import get_or_create_pumps
@@ -206,13 +206,13 @@ def start_trial(
                 pump_config = protocol_config.get("pump_config", {})
 
                 if pump_config.get("enabled", False):
-                    logger.info(f"🔌 Pre-initializing pumps for session {session_id}")
+                    logger.info(f"🔌 Connecting to pumps for session {session_id}")
                     pumps = get_or_create_pumps(session_id, pump_config)
-                    logger.info(f"✅ Pumps pre-initialized ({len(pumps)} pump(s))")
+                    logger.info(f"✅ Pumps connected ({len(pumps)} pump(s))")
         except Exception as e:
-            # Non-fatal: pumps will be initialized later if early init fails
-            logger.warning(f"Early pump initialization failed (will retry later): {e}")
-        # === END early pump initialization ===
+            # Non-fatal: pumps will be initialized later if early connection fails
+            logger.warning(f"Early pump connection failed (will retry later): {e}")
+        # === END early pump connection ===
 
         return True
 

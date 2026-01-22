@@ -23,8 +23,6 @@ from typing import Dict, Optional, Any, Tuple
 from robotaste.hardware.pump_controller import (
     NE4000Pump,
     PumpConnectionError,
-    BurstCommandBuilder,
-    PumpBurstConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -180,35 +178,24 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
 
     pumps = {}
     errors = []
+
+    # Determine if pumps are burst-compatible (all addresses 0-9)
     burst_compatible = use_burst_mode and all(
         cfg.get("address", 99) <= 9 for cfg in pump_configs
     )
-    burst_configs: list[PumpBurstConfig] = []
 
     for cfg in pump_configs:
-        ingredient, pump, error = init_single_pump(cfg, not burst_compatible)
+        # When burst mode is enabled, skip individual diameter configuration
+        # (will be configured during actual dispensing via burst command)
+        configure_diameter = not burst_compatible
+        ingredient, pump, error = init_single_pump(cfg, configure_diameter)
+
         if error:
             error_name = ingredient or "unknown"
             errors.append(f"{error_name}: {error}")
         elif pump and ingredient:
             pumps[ingredient] = pump
-            if burst_compatible:
-                volume_unit = cfg.get("volume_unit", "ML")
-                if volume_unit not in ["ML", "UL"]:
-                    errors.append(
-                        f"{ingredient}: Invalid volume_unit '{volume_unit}'"
-                    )
-                    continue
-                burst_configs.append(
-                    PumpBurstConfig(
-                        address=cfg["address"],
-                        rate_ul_min=dispensing_rate,
-                        volume_ul=1.0,
-                        diameter_mm=cfg["syringe_diameter_mm"],
-                        volume_unit=volume_unit,
-                        direction="INF",
-                    )
-                )
+            # Burst configuration removed - will happen during dispensing phase
 
     # If any pump failed, raise combined error
     if errors:
@@ -216,23 +203,14 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
         logger.error(error_msg)
         raise PumpConnectionError(error_msg)
 
-    if burst_compatible and burst_configs:
-        logger.info("  ⚡ Using burst command for diameter setup")
-        commands = BurstCommandBuilder.build_burst_commands(burst_configs)
-        any_pump = next(iter(pumps.values()))
-        try:
-            any_pump._send_burst_command(commands.config_command)
-        except Exception as exc:
-            logger.warning(
-                f"  ⚠️ Burst configuration failed, falling back to per-pump diameter: {exc}"
-            )
-            for cfg in pump_configs:
-                ingredient = cfg.get("ingredient")
-                pump = pumps.get(ingredient)
-                if pump:
-                    pump.set_diameter(cfg["syringe_diameter_mm"])
+    # Burst configuration removed - will happen during dispensing phase
+    # If burst mode is disabled, diameters are already set via init_single_pump
+    if burst_compatible:
+        logger.info("  ⚡ Burst mode enabled - diameter will be configured during dispensing")
+    else:
+        logger.info("  ✅ Individual diameters configured during initialization")
 
-    logger.info(f"  ✅ All {len(pumps)} pumps initialized successfully")
+    logger.info(f"  ✅ All {len(pumps)} pumps connected successfully")
 
     return pumps
 
