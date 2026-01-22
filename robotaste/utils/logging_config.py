@@ -69,7 +69,3 @@ def setup_pump_logging(log_level=logging.INFO):
     logging.info(f"Pump logging configured: {log_file}")
 
     return log_file
-
-
-# Auto-setup when imported
-setup_pump_logging()

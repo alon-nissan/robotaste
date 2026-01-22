@@ -46,20 +46,9 @@ st.set_page_config(
 
 def setup_logging():
     """Sets up logging to a file and the console."""
-    log_filename = f"session_log_{datetime.now().strftime('%d%m%y')}.txt"
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename, mode='a'),
-            logging.StreamHandler()
-        ]
-    )
+    from robotaste.utils.logging_manager import setup_logging as configure_logging
+    configure_logging(component="app")
     logging.info("Logging configured to file and console.")
-
-    # Configure pump logging
-    from robotaste.utils.logging_config import setup_pump_logging
-    setup_pump_logging()
 
 # Initialize viewport detection EARLY (before CSS)
 # This must be done before rendering CSS that depends on viewport

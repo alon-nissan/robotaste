@@ -221,7 +221,7 @@ class RoboTasteBO:
         self.X_train = None
         self.y_train = None
 
-        logger.info(
+        logger.debug(
             f"Initialized RoboTasteBO with {self.n_dim} ingredients: {self.ingredient_names}, "
             f"kernel_nu={kernel_nu}, alpha={alpha}, acquisition={self.config['acquisition_function']}"
         )
@@ -435,7 +435,7 @@ class RoboTasteBO:
                     xi_exploration,
                     xi_exploitation,
                 )
-                logger.info(
+                logger.debug(
                     f"Adaptive EI: cycle {current_cycle}/{max_cycles}, "
                     f"xi={acq_kwargs['xi']:.4f}"
                 )
@@ -449,7 +449,7 @@ class RoboTasteBO:
                     kappa_exploration,
                     kappa_exploitation,
                 )
-                logger.info(
+                logger.debug(
                     f"Adaptive UCB: cycle {current_cycle}/{max_cycles}, "
                     f"kappa={acq_kwargs['kappa']:.4f}"
                 )

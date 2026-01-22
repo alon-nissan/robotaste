@@ -71,17 +71,17 @@ def get_or_create_pumps(session_id: str, pump_config: Dict[str, Any]) -> Dict[st
         all_connected = all(p.is_connected() for p in cached_pumps.values())
 
         if all_connected:
-            logger.info(f"♻️ Reusing existing pump connections for session {session_id} ({len(cached_pumps)} pumps)")
+            logger.info(f"Reusing existing pump connections for session {session_id} ({len(cached_pumps)} pumps)")
             return cached_pumps
         else:
             logger.warning(f"Cached pumps for session {session_id} are disconnected, reinitializing")
             cleanup_pumps(session_id)
 
     # Initialize new pumps
-    logger.info(f"🔌 Initializing new pumps for session {session_id}")
+    logger.info(f"Initializing new pumps for session {session_id}")
     pumps = _initialize_pumps(pump_config)
     _pump_cache[session_id] = pumps
-    logger.info(f"✅ Cached {len(pumps)} pump(s) for session {session_id}")
+    logger.info(f"Cached {len(pumps)} pump(s) for session {session_id}")
 
     return pumps
 
@@ -162,7 +162,7 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
             if configure_diameter:
                 pump.set_diameter(diameter)
 
-            logger.info(f"  ✅ [Thread] Pump {address} ({ingredient}) connected and configured")
+            logger.info(f"  [Thread] Pump {address} ({ingredient}) connected and configured")
 
             return (ingredient, pump, None)
 
@@ -208,9 +208,9 @@ def _initialize_pumps(pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
     if burst_compatible:
         logger.info("  ⚡ Burst mode enabled - diameter will be configured during dispensing")
     else:
-        logger.info("  ✅ Individual diameters configured during initialization")
+        logger.info("  Individual diameters configured during initialization")
 
-    logger.info(f"  ✅ All {len(pumps)} pumps connected successfully")
+    logger.info(f"  All {len(pumps)} pumps connected successfully")
 
     return pumps
 
@@ -233,7 +233,7 @@ def cleanup_pumps(session_id: str) -> None:
         return
 
     pumps = _pump_cache[session_id]
-    logger.info(f"🧹 Cleaning up {len(pumps)} pump(s) for session {session_id}")
+    logger.info(f"Cleaning up {len(pumps)} pump(s) for session {session_id}")
 
     for ingredient, pump in pumps.items():
         try:
@@ -244,7 +244,7 @@ def cleanup_pumps(session_id: str) -> None:
             logger.warning(f"  Error disconnecting pump {ingredient}: {e}")
 
     del _pump_cache[session_id]
-    logger.info(f"✅ Cleaned up pumps for session {session_id}")
+    logger.info(f"Cleaned up pumps for session {session_id}")
 
 
 def get_cached_pump_count() -> int:
@@ -310,9 +310,9 @@ def cleanup_all_pumps() -> None:
         logger.debug("No pumps to cleanup")
         return
 
-    logger.warning(f"🧹 Cleaning up ALL cached pumps ({len(session_ids)} sessions)")
+    logger.warning(f"Cleaning up ALL cached pumps ({len(session_ids)} sessions)")
 
     for session_id in session_ids:
         cleanup_pumps(session_id)
 
-    logger.info("✅ All pumps cleaned up")
+    logger.info("All pumps cleaned up")

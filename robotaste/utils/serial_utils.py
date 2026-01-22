@@ -72,7 +72,7 @@ def validate_port(port_name: str, baud: int = 19200, timeout: float = 2.0) -> Tu
             timeout=timeout
         ) as ser:
             # Port opened successfully
-            logger.info(f"Port {port_name} is accessible")
+            logger.debug(f"Port {port_name} is accessible")
             return (True, None)
 
     except serial.SerialException as e:
