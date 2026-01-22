@@ -45,6 +45,32 @@ RoboTaste uses a **shared SQLite database** as the central coordination mechanis
 
 All devices poll the database for state changes. Session state is stored in the `sessions` table.
 
+### Multi-Device Synchronization Flow Diagram
+```
+Moderator (Streamlit)          Database (SQLite)           Subject (Streamlit)           Pump Service (Python)
+       │                              │                            │                              │
+       ├─ UPDATE sessions ────────────►                            │                              │
+       │  SET current_phase=SELECTION  │                            │                              │
+       │                              │                            │                              │
+       │                              │ ◄──── SELECT current_phase ┤                              │
+       │                              │       (polls every 5s)      │                              │
+       │                              │                            │                              │
+       │                              │                            ├─ User clicks grid (x,y)      │
+       │                              │ ◄──── INSERT samples ──────┤                              │
+       │                              │                            │                              │
+       ├─ UPDATE sessions ────────────►                            │                              │
+       │  SET current_phase=ROBOT_PREP │                            │                              │
+       │                              │                            │                              │
+       │  INSERT pump_operations ──────►                            │                              │
+       │  (recipe_json)                │                            │                              │
+       │                              │                            │                              │
+       │                              │ ◄──── SELECT pending ───────────────────────────────────────┤
+       │                              │       pump_operations       │                              │
+       │                              │                            │                              ├─ Dispense sample
+       │                              │ ◄──── UPDATE completed ─────────────────────────────────────┤
+       │                              │                            │                              │
+```
+
 ### State Machine & Phase Flow
 Experiment progression is governed by `robotaste/core/state_machine.py` (`ExperimentStateMachine`):
 
@@ -60,6 +86,33 @@ WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → ROBOT_PREPARING → 
 - **Manager:** `robotaste/core/pump_manager.py` handles connection caching
 
 **Burst Mode:** Enables simultaneous dispensing from multiple pumps using NE-4000 Network Command Burst protocol (addresses 0-9 only).
+
+## Key Architectural Decisions
+
+### Why Database Polling Instead of WebSockets?
+- **Simplicity**: No server infrastructure, no connection management
+- **Reliability**: Works across networks, survives disconnections
+- **Multi-process**: Separate pump service process needs shared state
+- **Portability**: SQLite file-based, no server setup required
+
+### Why Pump Connection Caching?
+- **Performance**: Initialization takes ~21 seconds per pump
+- **User experience**: First cycle = 21s, subsequent cycles = 0s (25% time savings)
+- **Implementation**: `pump_manager.py` maintains session-persistent connections
+
+### Why Streamlit?
+- **Rapid prototyping**: Research tool needs fast iteration
+- **Python ecosystem**: Direct access to scikit-learn, numpy, pandas for BO
+- **Multi-page**: Native support for moderator/subject interfaces
+
+### Why SQLite?
+- **Portability**: Single file, no server, cross-platform
+- **Sufficient performance**: ~20 samples/session, <100 sessions typical
+- **Development**: Easy to inspect/debug with DB Browser
+
+### Why Serial Communication for Pumps?
+- **Hardware constraint**: NE-4000 pumps only support RS-232 serial protocol
+- **Network Command Burst**: Proprietary protocol for simultaneous dispensing
 
 ### Bayesian Optimization Integration
 - Training data: `samples` table (`ingredient_concentration` + `questionnaire_answer`)
@@ -84,6 +137,17 @@ robotaste/
 - `protocol_library`: Reusable protocol templates
 - `pump_operations`: Pending/in-progress/completed dispensing operations
 - `bo_configuration`: BO hyperparameters per session
+
+## Troubleshooting Index
+
+| Issue | Likely Cause | File to Check |
+|-------|-------------|---------------|
+| Pump not responding | Serial config, baud rate, port | `robotaste/hardware/pump_controller.py:150` |
+| Invalid phase transition | Missing entry in VALID_TRANSITIONS | `robotaste/core/state_machine.py:45` |
+| BO not suggesting | Column order mismatch, <3 samples | `robotaste/core/bo_integration.py:80`, check `samples` table |
+| Devices out of sync | Polling not running | `robotaste/data/session_repo.py` (`sync_session_state_to_streamlit()`) |
+| Units wrong | µL/mL conversion missing | `robotaste/core/pump_integration.py` (`calculate_volumes()`) |
+| Phase validation error | Protocol phase_sequence invalid | `robotaste/config/protocol_schema.py`, `robotaste/core/phase_engine.py` |
 
 ## Multi-Device Session Flow
 1. **Moderator**: Creates session → `session_code` generated.

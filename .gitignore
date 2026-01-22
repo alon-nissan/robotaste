@@ -44,11 +44,12 @@ Thumbs.db
 .streamlit/secrets.toml
 
 # Logs
-*.logbackup_v0/
-*.txt
 *.log
+backup_v0/
+session_log_*.txt
 
 # AI assistance tools
 .claude/
-CLAUDE.md
-AGENTS.md
+
+# Archived code (tracked for reference, not active development)
+# Note: archive/ is INCLUDED in git for historical reference
