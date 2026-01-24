@@ -17,7 +17,7 @@ MODE_COLORS = {
     "predetermined_absolute": "#3B82F6",  # Blue
     "predetermined_randomized": "#F59E0B",  # Amber/Orange
     "user_selected": "#10B981",  # Green
-    "bo_selected": "#8B5CF6",    # Purple
+    "bo_selected": "#fda50f",    # Saffron
     "predetermined": "#3B82F6",  # Legacy - maps to predetermined_absolute
     "default": "#D1D5DB"        # Gray
 }

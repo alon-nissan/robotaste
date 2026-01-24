@@ -6,12 +6,36 @@ across different view modules, preventing circular imports.
 """
 
 import logging
+import streamlit as st
 from robotaste.core.state_machine import ExperimentPhase
 from robotaste.core import state_helpers
 from robotaste.data.database import get_session_protocol
 from robotaste.core.phase_engine import PhaseEngine
 
 logger = logging.getLogger(__name__)
+
+# Keys to clear during phase transitions to prevent UI overlap
+PHASE_SPECIFIC_KEYS = [
+    "questionnaire_responses",
+    "canvas_result",
+    "last_saved_position",
+    "phase_complete",
+    "cycle_data",
+    "override_bo",
+    "pending_canvas_result",
+    "pending_slider_result",
+    "pending_method",
+]
+
+
+def cleanup_phase_state() -> None:
+    """
+    Clear phase-specific session state keys to prevent UI leakage between phases.
+    Call this during phase transitions.
+    """
+    for key in PHASE_SPECIFIC_KEYS:
+        if key in st.session_state:
+            del st.session_state[key]
 
 
 def transition_to_next_phase(
@@ -23,12 +47,17 @@ def transition_to_next_phase(
     """
     Transition to next phase using PhaseEngine if available, otherwise use default.
 
+    Clears phase-specific session state before transitioning to prevent UI overlap.
+
     Args:
         current_phase_str: Current phase as string
         default_next_phase: Default next phase (fallback if no protocol)
         session_id: Session ID
         current_cycle: Current cycle number (optional, for loop logic)
     """
+    # Clean up phase-specific state to prevent UI leakage
+    cleanup_phase_state()
+
     # Try to load protocol and use PhaseEngine
     protocol = get_session_protocol(session_id)
 

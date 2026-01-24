@@ -20,6 +20,10 @@ import time
 
 def landing_page():
     """Multi-device landing page with session management."""
+    # Render logo at the top of the view
+    from main_app import render_logo
+    render_logo()
+    
     # Check URL parameters for session joining
     role = st.query_params.get("role", "")
     session_code = st.query_params.get("session", "")

@@ -45,47 +45,123 @@ def go_to(view_name: str, **kwargs):
 # --- UI Views ---
 
 def protocol_selection_screen():
-    """Displays a screen for selecting an existing protocol."""
-    st.header("Protocol Selection")
-    st.write("Choose a protocol to apply to the current session, or manage the protocol library.")
-
-    protocols = list_protocols()
-    
-    if not protocols:
-        st.warning("No protocols found. Go to 'Manage Protocols' to create one.")
-        if st.button("Manage Protocols"):
-            go_to('list_viewer')
-        return
-
-    protocol_names = {p['protocol_id']: p['name'] for p in protocols}
-    
-    selected_id = st.selectbox(
-        "Select a Protocol",
-        options=list(protocol_names.keys()),
-        format_func=lambda x: protocol_names[x],
-        key="protocol_selector"
+    """
+    Streamlined protocol selection with clean, scientific aesthetic.
+    Matches mashaniv.wixsite.com/niv-taste-lab design.
+    """
+    st.markdown(
+        """
+        <h2 style='font-weight: 300; color: #2C3E50;
+        letter-spacing: 0.05em; margin-bottom: 2rem;'>
+        Protocol Selection
+        </h2>
+        """,
+        unsafe_allow_html=True
     )
 
-    if selected_id:
-        st.session_state.selected_protocol_id = selected_id
-        st.info(f"You have selected **{protocol_names[selected_id]}**.")
+    protocols = list_protocols()
 
-    col1, col2 = st.columns(2)
+    if not protocols:
+        st.info("📋 No protocols found in the library.")
+        if st.button("Create First Protocol", type="primary"):
+            go_to('editor')
+        return
+
+    # === SECTION 1: Protocol Selection (Primary Focus) ===
+    st.markdown("### Choose Protocol")
+
+    protocol_options = {p['protocol_id']: p for p in protocols}
+
+    selected_id = st.selectbox(
+        "Select a protocol for this experiment session:",
+        options=list(protocol_options.keys()),
+        format_func=lambda x: f"{protocol_options[x]['name']} (v{protocol_options[x].get('version', '1.0')})",
+        key="protocol_selector",
+        help="Choose from your saved experiment protocols",
+        label_visibility="collapsed"
+    )
+
+    # === SECTION 2: Protocol Details (When Selected) ===
+    if selected_id:
+        selected_protocol = protocol_options[selected_id]
+        st.session_state.selected_protocol_id = selected_id
+
+        # Clean protocol card with key information
+        st.markdown(
+            f"""
+            <div style='background: #F8F9FA; padding: 1.5rem;
+            border-radius: 8px; border-left: 4px solid #521924;
+            margin: 1.5rem 0;'>
+                <h3 style='margin: 0 0 0.5rem 0; font-weight: 400;
+                color: #2C3E50;'>{selected_protocol['name']}</h3>
+                <p style='margin: 0; color: #7F8C8D;
+                font-size: 0.95rem; line-height: 1.6;'>
+                {selected_protocol.get('description', 'No description provided.')}
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Key metrics in columns
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            cycles = selected_protocol.get('stopping_criteria', {}).get('max_cycles', 'N/A')
+            st.metric("Cycles", cycles)
+
+        with col2:
+            num_ingredients = len(selected_protocol.get('ingredients', []))
+            st.metric("Ingredients", num_ingredients)
+
+        with col3:
+            q_type = selected_protocol.get('questionnaire_type', 'N/A')
+            display_type = q_type.replace('_', ' ').title() if q_type != 'N/A' else 'N/A'
+            st.metric("Questionnaire", display_type)
+
+        with col4:
+            if st.button("👁️ Preview", key="preview_btn", use_container_width=True):
+                go_to('preview', preview_protocol_id=selected_id)
+
+    # === SECTION 3: Action Buttons ===
+    st.markdown("---")
+
+    col1, col2, col3 = st.columns([2, 2, 1])
+
     with col1:
-        st.button("Use Selected Protocol", type="primary", help="This will apply the protocol to the session (Not Implemented).")
+        use_disabled = not selected_id
+        if st.button(
+            "Use This Protocol",
+            type="primary",
+            disabled=use_disabled,
+            use_container_width=True
+        ):
+            if selected_id:
+                st.success(f"✓ Protocol '{protocol_options[selected_id]['name']}' applied")
+
     with col2:
-        if st.button("Manage Protocols"):
+        if st.button("Protocol Library", use_container_width=True):
             go_to('list_viewer')
 
+    with col3:
+        if st.button("+ New", use_container_width=True):
+            go_to('editor')
+
 def protocol_list_viewer():
-    """Displays a list of all saved protocols with options to edit, delete, etc."""
-    st.header("Protocol Library")
-    
-    col1, col2 = st.columns([3, 1])
+    """Clean protocol library with card-based layout."""
+    st.markdown(
+        """
+        <h2 style='font-weight: 300; color: #2C3E50;
+        letter-spacing: 0.05em;'>Protocol Library</h2>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2 = st.columns([4, 1])
     with col1:
-        st.write("Here you can view, edit, or create new experiment protocols.")
+        st.caption("Manage your experiment protocols")
     with col2:
-        if st.button("＋ Create New Protocol", type="primary"):
+        if st.button("+ Create New", type="primary", use_container_width=True):
             go_to('editor')
 
     st.markdown("---")
@@ -100,24 +176,30 @@ def protocol_list_viewer():
             p_col1, p_col2 = st.columns([3, 1])
             with p_col1:
                 name = p['name']
-                if p['is_archived']: name += " (Archived)"
+                if p['is_archived']:
+                    name += " (Archived)"
                 st.markdown(f"**{name}**")
-                st.caption(f"ID: `{p['protocol_id']}` | Last updated: {p['updated_at']}")
-            
+                desc = p.get('description', 'No description')
+                if len(desc) > 100:
+                    desc = desc[:100] + "..."
+                st.caption(desc)
+                st.caption(f"Last updated: {p['updated_at'][:10] if p['updated_at'] else 'Unknown'}")
+
             with p_col2:
                 b_col1, b_col2, b_col3, b_col4 = st.columns(4)
-                if b_col1.button("✏️", key=f"edit_{p['protocol_id']}", help="Edit Protocol"):
+                if b_col1.button("✏️", key=f"edit_{p['protocol_id']}", help="Edit"):
                     go_to('editor', edit_protocol_id=p['protocol_id'])
-                if b_col2.button("👁️", key=f"preview_{p['protocol_id']}", help="Preview Protocol"):
+                if b_col2.button("👁️", key=f"preview_{p['protocol_id']}", help="Preview"):
                     go_to('preview', preview_protocol_id=p['protocol_id'])
+                archive_icon = "📦" if p['is_archived'] else "🗄️"
                 archive_verb = "Unarchive" if p['is_archived'] else "Archive"
-                if b_col3.button("🗄️", key=f"archive_{p['protocol_id']}", help=f"{archive_verb} Protocol"):
+                if b_col3.button(archive_icon, key=f"archive_{p['protocol_id']}", help=archive_verb):
                     archive_protocol(p['protocol_id'], archived=not p['is_archived'])
                     st.rerun()
-                if b_col4.button("🗑️", key=f"delete_{p['protocol_id']}", help="Delete Protocol"):
+                if b_col4.button("🗑️", key=f"delete_{p['protocol_id']}", help="Delete"):
                     delete_protocol(p['protocol_id'])
                     st.rerun()
-    
+
     st.markdown("---")
     if st.button("← Back to Session Setup"):
         go_to('selection')

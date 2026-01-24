@@ -2,6 +2,11 @@
 Robotaste Styling and CSS Configuration
 
 Provides responsive styling with viewport detection for the RoboTaste application.
+Matches the clean, scientific aesthetic of mashaniv.wixsite.com/niv-taste-lab
+
+Target devices:
+- Moderator: 13" laptop (1366x768 or 1440x900)
+- Subject: 11" tablet (1024x768)
 
 Author: RoboTaste Team
 Version: 3.0 (Refactored Architecture)
@@ -21,8 +26,8 @@ def initialize_viewport_detection():
     """
     # Use Streamlit's built-in viewport detection via JavaScript
     viewport_data = {
-        'width': 1920,  # Default fallback
-        'height': 1080,  # Default fallback
+        'width': 1366,  # Default fallback (13" laptop)
+        'height': 768,
     }
 
     # Try to get actual viewport dimensions
@@ -49,7 +54,7 @@ def get_responsive_font_scale():
     if "viewport_data" not in st.session_state:
         return 1.0
 
-    viewport_width = st.session_state.viewport_data.get('width', 1920)
+    viewport_width = st.session_state.viewport_data.get('width', 1366)
 
     # Scale fonts based on viewport width
     if viewport_width < 480:
@@ -57,14 +62,17 @@ def get_responsive_font_scale():
     elif viewport_width < 768:
         return 0.9  # Tablet: slightly smaller
     elif viewport_width < 1024:
-        return 1.0  # Small desktop: normal
+        return 0.95  # Small tablet: nearly normal
+    elif viewport_width < 1440:
+        return 1.0  # Laptop: normal
     else:
-        return 1.1  # Large desktop: slightly larger
+        return 1.05  # Large desktop: slightly larger
 
 
 def get_style_css() -> str:
     """
     Generate the main CSS stylesheet for the application.
+    Matches the clean, scientific aesthetic of the reference site.
 
     Returns:
         String containing CSS styles
@@ -81,129 +89,477 @@ def get_style_css() -> str:
 
     return f"""
 <style>
-    /* Dynamic viewport-based constraints and color palette */
+    /* === CSS VARIABLES (Niv Taste Lab Palette) === */
     :root {{
-        --viewport-width: {viewport.get('width', 1920)}px;
-        --viewport-height: {viewport.get('height', 1080)}px;
+        --viewport-width: {viewport.get('width', 1366)}px;
+        --viewport-height: {viewport.get('height', 768)}px;
         --font-scale: {font_scale};
 
-        /* Purple Accents */
-        --primary-color: #8B5CF6;
-        --primary-hover: #7C3AED;
+        /* Primary Colors (Burgundy + Saffron) */
+        --primary: #521924;
+        --primary-light: #7a2e3d;
+        --primary-dark: #3a1119;
+        --accent: #fda50f;
+        --accent-light: #ffc04d;
 
-        /* Semantic Colors */
-        --success-color: #10B981;
-        --warning-color: #F59E0B;
-        --error-color: #EF4444;
-        --info-color: #3B82F6;
-
-        /* Neutral Colors */
-        --text-primary: #111827;
-        --text-secondary: #6B7280;
+        /* Neutral Colors (Clean, scientific) */
+        --text-primary: #1a1a1a;
+        --text-secondary: #4a4a4a;
+        --text-light: #6a6a6a;
         --bg-primary: #FFFFFF;
-        --bg-secondary: #F9FAFB;
-        --border-color: #E5E7EB;
-        --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+        --bg-secondary: #F8F9FA;
+        --bg-tertiary: #F3F4F6;
+        --border-light: #E5E7EB;
+        --border-medium: #D1D5DB;
+
+        /* Semantic Colors (Muted, professional) */
+        --success: #27AE60;
+        --success-light: #E8F5E9;
+        --warning: #F39C12;
+        --warning-light: #FFF8E1;
+        --error: #E74C3C;
+        --error-light: #FFEBEE;
+        --info: #3498DB;
+        --info-light: #E3F2FD;
+
+        /* Minimal shadows (flat design) */
+        --shadow-minimal: 0 1px 2px rgba(0,0,0,0.05);
+        --shadow-subtle: 0 1px 3px rgba(0,0,0,0.08);
+
+        /* Spacing */
+        --spacing-xs: 0.5rem;
+        --spacing-sm: 1rem;
+        --spacing-md: 1.5rem;
+        --spacing-lg: 2rem;
+        --spacing-xl: 3rem;
+
+        /* Transitions */
+        --transition: 0.2s ease;
     }}
 
-    /* Base Typography */
+    /* === BASE TYPOGRAPHY (Light-weight headers, readable body) === */
     body {{
-        font-size: calc(1.25rem * var(--font-scale));
-        color: var(--text-primary);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                     "Roboto", "Oxygen", "Ubuntu", "Helvetica Neue",
+                     Arial, sans-serif !important;
+        color: var(--text-primary) !important;
+        line-height: 1.7 !important;
+        font-weight: 400 !important;
     }}
 
-    h1 {{ font-size: 3rem; font-weight: 600; }}
-    h2 {{ font-size: 2.5rem; font-weight: 600; }}
-    h3 {{ font-size: 2rem; font-weight: 600; }}
-    p, div, span, label {{ font-size: calc(1.25rem * var(--font-scale)); }}
+    h1 {{
+        font-size: clamp(2rem, 3vw, 2.5rem) !important;
+        font-weight: 300 !important;
+        color: var(--text-primary) !important;
+        letter-spacing: 0.05em !important;
+        margin: var(--spacing-lg) 0 var(--spacing-md) 0 !important;
+        line-height: 1.3 !important;
+    }}
 
-    /* --- SELECTBOX FIXES --- */
+    h2 {{
+        font-size: clamp(1.75rem, 2.5vw, 2rem) !important;
+        font-weight: 300 !important;
+        color: var(--text-primary) !important;
+        letter-spacing: 0.03em !important;
+        margin: var(--spacing-md) 0 var(--spacing-sm) 0 !important;
+    }}
 
-    /* 1. Force text visibility and wrapping in the main box */
+    h3 {{
+        font-size: clamp(1.5rem, 2vw, 1.75rem) !important;
+        font-weight: 400 !important;
+        color: var(--text-primary) !important;
+        margin: var(--spacing-md) 0 var(--spacing-sm) 0 !important;
+    }}
+
+    p, div, span, label {{
+        font-size: clamp(1rem, 1.5vw, 1.125rem) !important;
+        line-height: 1.7 !important;
+        color: var(--text-primary) !important;
+    }}
+
+    .stCaption {{
+        font-size: 0.9rem !important;
+        color: var(--text-secondary) !important;
+        font-weight: 400 !important;
+    }}
+
+    /* === MAIN CONTAINER (Optimized for laptop/tablet) === */
+    .main .block-container {{
+        max-width: 100% !important;
+        padding: var(--spacing-md) var(--spacing-lg) !important;
+        max-height: calc(var(--viewport-height) - 3rem) !important;
+        overflow-y: auto !important;
+        animation: fadeIn 0.3s ease-in !important;
+    }}
+
+    /* === BUTTONS (Clean, Flat Design) === */
+    .stButton > button {{
+        background: var(--primary) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 0.75rem 1.75rem !important;
+        font-size: clamp(0.95rem, 1.5vw, 1.1rem) !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.02em !important;
+        transition: all var(--transition) !important;
+        box-shadow: none !important;
+        cursor: pointer !important;
+        min-height: 44px !important;
+    }}
+
+    /* Ensure all text elements inside buttons are white */
+    .stButton > button p,
+    .stButton > button span,
+    .stButton > button div {{
+        color: white !important;
+    }}
+
+    .stButton > button:hover {{
+        background: var(--primary-light) !important;
+        color: white !important;
+        transform: translateY(-1px) !important;
+        box-shadow: var(--shadow-subtle) !important;
+    }}
+
+    .stButton > button:active {{
+        transform: translateY(0) !important;
+    }}
+
+    /* === FORM SUBMIT BUTTONS (Same styling as regular buttons) === */
+    .stFormSubmitButton > button {{
+        background: var(--primary) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 0.75rem 1.75rem !important;
+        font-size: clamp(0.95rem, 1.5vw, 1.1rem) !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.02em !important;
+        transition: all var(--transition) !important;
+        box-shadow: none !important;
+        cursor: pointer !important;
+        min-height: 44px !important;
+    }}
+
+    /* Ensure all text elements inside form submit buttons are white */
+    .stFormSubmitButton > button p,
+    .stFormSubmitButton > button span,
+    .stFormSubmitButton > button div {{
+        color: white !important;
+    }}
+
+    .stFormSubmitButton > button:hover {{
+        background: var(--primary-light) !important;
+        color: white !important;
+        transform: translateY(-1px) !important;
+        box-shadow: var(--shadow-subtle) !important;
+    }}
+
+    .stFormSubmitButton > button:active {{
+        transform: translateY(0) !important;
+    }}
+
+    .stButton > button[kind="secondary"] {{
+        background: transparent !important;
+        color: var(--primary) !important;
+        border: 2px solid var(--primary) !important;
+    }}
+
+    /* Ensure text elements in secondary buttons stay burgundy */
+    .stButton > button[kind="secondary"] p,
+    .stButton > button[kind="secondary"] span,
+    .stButton > button[kind="secondary"] div {{
+        color: var(--primary) !important;
+    }}
+
+    .stButton > button[kind="secondary"]:hover {{
+        background: var(--bg-secondary) !important;
+        color: var(--primary) !important;
+    }}
+
+    .stButton > button[kind="secondary"]:hover p,
+    .stButton > button[kind="secondary"]:hover span,
+    .stButton > button[kind="secondary"]:hover div {{
+        color: var(--primary) !important;
+    }}
+
+    /* === SELECTBOX STYLING (Enhanced) === */
+    .stSelectbox [data-baseweb="select"] {{
+        min-height: 3.5rem !important;
+        border: 2px solid var(--border-medium) !important;
+        border-radius: 8px !important;
+        background-color: white !important;
+        transition: all var(--transition) !important;
+    }}
+
+    .stSelectbox [data-baseweb="select"]:hover {{
+        border-color: var(--text-secondary) !important;
+    }}
+
+    .stSelectbox [data-baseweb="select"]:focus-within {{
+        border-color: var(--primary) !important;
+        box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.1) !important;
+    }}
+
     .stSelectbox [data-baseweb="select"] div,
     .stSelectbox [data-baseweb="select"] span {{
-        font-size: calc(1.1rem * var(--font-scale)) !important;
+        font-size: 1.1rem !important;
         color: var(--text-primary) !important;
+        font-weight: 400 !important;
         visibility: visible !important;
         opacity: 1 !important;
         white-space: normal !important;
     }}
 
-    /* 2. Style the container itself */
-    .stSelectbox [data-baseweb="select"] {{
-        min-height: 3.5rem !important;
-        border-radius: 8px !important;
-        border: 1px solid var(--border-color) !important;
-        background-color: var(--bg-primary) !important;
-    }}
-
-    /* 3. Ensure the dropdown list (popover) is visible and readable */
     [data-baseweb="popover"] [role="listbox"] {{
         background-color: white !important;
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
     }}
 
     [data-baseweb="popover"] li {{
-        font-size: calc(1.1rem * var(--font-scale)) !important;
+        font-size: 1rem !important;
         color: var(--text-primary) !important;
-        white-space: normal !important;
+        padding: 12px 16px !important;
+        border-bottom: 1px solid var(--bg-tertiary) !important;
         line-height: 1.4 !important;
-        padding: 10px !important;
     }}
 
-    /* 4. Fix the focus purple border */
-    .stSelectbox [data-baseweb="select"]:focus-within {{
-        border-color: var(--primary-color) !important;
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2) !important;
+    [data-baseweb="popover"] li:hover {{
+        background-color: var(--bg-secondary) !important;
     }}
 
-    /* --- GENERAL INPUT STYLING --- */
-
-    .stTextInput input, .stNumberInput input {{
-        border-radius: 8px !important;
-        border: 1px solid var(--border-color) !important;
+    /* === FORMS & INPUTS (Clean, Professional) === */
+    .stTextInput input, .stNumberInput input, .stTextArea textarea {{
+        border: 2px solid var(--border-medium) !important;
+        border-radius: 6px !important;
         padding: 0.75rem !important;
-        font-size: calc(1.25rem * var(--font-scale)) !important;
+        font-size: clamp(1rem, 1.5vw, 1.125rem) !important;
+        color: var(--text-primary) !important;
+        background: white !important;
+        transition: border-color var(--transition) !important;
+        box-shadow: none !important;
+        min-height: 44px !important;
     }}
 
-    /* --- COMPONENT STYLING --- */
+    .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {{
+        border-color: var(--primary) !important;
+        box-shadow: 0 0 0 3px rgba(82, 25, 36, 0.08) !important;
+        outline: none !important;
+    }}
 
+    .stTextInput label, .stNumberInput label, .stTextArea label {{
+        font-size: 0.95rem !important;
+        font-weight: 500 !important;
+        color: var(--text-primary) !important;
+        margin-bottom: 0.5rem !important;
+    }}
+
+    /* === METRICS (Clean Cards) === */
+    [data-testid="stMetric"] {{
+        background: var(--bg-secondary) !important;
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+        padding: 1.25rem !important;
+        transition: all var(--transition) !important;
+    }}
+
+    [data-testid="stMetric"]:hover {{
+        border-color: var(--border-medium) !important;
+    }}
+
+    [data-testid="stMetric"] label {{
+        font-size: 0.85rem !important;
+        font-weight: 500 !important;
+        color: var(--text-secondary) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+        margin-bottom: 0.5rem !important;
+    }}
+
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        font-size: 2rem !important;
+        font-weight: 600 !important;
+        color: var(--primary) !important;
+        line-height: 1.2 !important;
+    }}
+
+    /* === CARDS & CONTAINERS (Minimal, Scientific) === */
     .card {{
-        background: var(--bg-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 2rem;
-        margin-bottom: 1.5rem;
-        box-shadow: var(--shadow-sm);
+        background: white !important;
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+        padding: 1.5rem !important;
+        margin: 1rem 0 !important;
+        box-shadow: none !important;
     }}
 
-    .stButton > button {{
-        border-radius: 8px;
-        padding: 0.75rem 2rem;
-        font-size: 1.25rem;
-        transition: all 0.2s;
+    .highlight-card {{
+        border-left: 4px solid var(--primary) !important;
+        background: var(--bg-secondary) !important;
     }}
 
-    .stButton > button[kind="primary"] {{
-        background: var(--primary-color);
-        color: white;
-        border: none;
+    /* === ALERTS & MESSAGES (Minimal Design) === */
+    .stSuccess, [data-testid="stAlert"][data-baseweb="notification"][kind="success"] {{
+        background: var(--success-light) !important;
+        border: none !important;
+        border-left: 4px solid var(--success) !important;
+        border-radius: 6px !important;
+        padding: 1rem 1.25rem !important;
+        color: var(--text-primary) !important;
     }}
 
-    /* --- LAYOUT & RESPONSIVENESS --- */
+    .stError, [data-testid="stAlert"][data-baseweb="notification"][kind="error"] {{
+        background: var(--error-light) !important;
+        border: none !important;
+        border-left: 4px solid var(--error) !important;
+        border-radius: 6px !important;
+        padding: 1rem 1.25rem !important;
+        color: var(--text-primary) !important;
+    }}
 
+    .stWarning, [data-testid="stAlert"][data-baseweb="notification"][kind="warning"] {{
+        background: var(--warning-light) !important;
+        border: none !important;
+        border-left: 4px solid var(--warning) !important;
+        border-radius: 6px !important;
+        padding: 1rem 1.25rem !important;
+        color: var(--text-primary) !important;
+    }}
+
+    .stInfo, [data-testid="stAlert"][data-baseweb="notification"][kind="info"] {{
+        background: var(--info-light) !important;
+        border: none !important;
+        border-left: 4px solid var(--info) !important;
+        border-radius: 6px !important;
+        padding: 1rem 1.25rem !important;
+        color: var(--text-primary) !important;
+    }}
+
+    /* === LOADING SCREEN STYLING === */
+    .stSpinner {{
+        text-align: center !important;
+        margin: var(--spacing-xl) 0 !important;
+    }}
+
+    .stSpinner > div {{
+        font-size: 1.5rem !important;
+        font-weight: 300 !important;
+        color: var(--text-primary) !important;
+        letter-spacing: 0.05em !important;
+    }}
+
+    /* Progress bar - clean, minimal styling */
+    .stProgress > div > div {{
+        background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%) !important;
+        height: 8px !important;
+        border-radius: 4px !important;
+        transition: width 0.3s ease !important;
+    }}
+
+    .stProgress > div {{
+        background-color: var(--border-light) !important;
+        border-radius: 4px !important;
+        height: 8px !important;
+    }}
+
+    /* === EXPANDERS === */
+    .streamlit-expanderHeader {{
+        background: var(--bg-secondary) !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+    }}
+
+    /* === TABLES (Clean, Scientific) === */
+    .stDataFrame {{
+        border: 1px solid var(--border-light) !important;
+        border-radius: 8px !important;
+    }}
+
+    /* === HORIZONTAL DIVIDERS === */
+    hr {{
+        border: none !important;
+        border-top: 1px solid var(--border-light) !important;
+        margin: var(--spacing-lg) 0 !important;
+    }}
+
+    /* === PHASE TRANSITION ANIMATIONS === */
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(5px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    .element-container {{
+        animation: fadeIn 0.3s ease-in !important;
+    }}
+
+    /* === DEVICE-SPECIFIC ADJUSTMENTS === */
+
+    /* 11" Tablet (Subject Interface) */
+    @media (max-width: 1024px) {{
+        .main .block-container {{
+            padding: var(--spacing-sm) var(--spacing-md) !important;
+        }}
+
+        /* Larger touch targets */
+        .stButton > button {{
+            min-height: 48px !important;
+            padding: 1rem 2rem !important;
+        }}
+
+        /* Optimize canvas for tablet */
+        .canvas-container {{
+            max-width: 95vw !important;
+        }}
+    }}
+
+    /* 13" Laptop (Moderator Interface) */
+    @media (max-width: 1440px) and (min-width: 1025px) {{
+        .main .block-container {{
+            max-width: 1300px !important;
+            margin: 0 auto !important;
+        }}
+
+        /* Optimize sidebar width */
+        section[data-testid="stSidebar"] {{
+            width: 250px !important;
+            min-width: 250px !important;
+        }}
+    }}
+
+    /* Short screens (optimize vertical space) */
+    @media (max-height: 800px) {{
+        h1 {{
+            margin-top: var(--spacing-sm) !important;
+            margin-bottom: var(--spacing-xs) !important;
+        }}
+
+        .main .block-container {{
+            padding-top: var(--spacing-sm) !important;
+        }}
+
+        [data-testid="stMetric"] {{
+            padding: 0.75rem !important;
+        }}
+    }}
+
+    /* Mobile fallback */
     @media (max-width: 480px) {{
-        h1 {{ font-size: 1.75rem; }}
-        .card {{ padding: 1rem; }}
+        h1 {{ font-size: 1.75rem !important; }}
+        .card {{ padding: 1rem !important; }}
     }}
 
-    /* Prevent page-level scrolling and constrain to viewport */
-    .main .block-container {{
-        max-height: calc(var(--viewport-height) - 2rem);
-        overflow-y: auto;
-        padding-top: 2rem;
+    /* === CANVAS CONTAINER === */
+    .canvas-container {{
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        margin: var(--spacing-lg) 0 !important;
     }}
 
-    /* Force Light Mode */
+    /* === FORCE LIGHT MODE === */
     * {{ color-scheme: light !important; }}
 </style>
 """

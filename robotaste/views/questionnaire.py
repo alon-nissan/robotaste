@@ -40,7 +40,9 @@ def render_questionnaire(
         return None
 
     # Create unique session state keys for this questionnaire instance
-    instance_key = f"questionnaire_{questionnaire_type}_{participant_id}"
+    # Include cycle number to ensure unique keys per cycle (prevents form overlap)
+    cycle_num = st.session_state.get("current_cycle", 1)
+    instance_key = f"questionnaire_{questionnaire_type}_{participant_id}_{cycle_num}"
 
     # Display questionnaire header
     st.markdown(f"### {config.get('name', 'Questionnaire')}")

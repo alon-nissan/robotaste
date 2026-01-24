@@ -66,26 +66,33 @@ def get_responsive_canvas_size() -> int:
     """
     Calculate optimal canvas size based on current viewport.
     Returns square canvas dimension that fits viewport without scrolling.
+
+    Target devices:
+    - Moderator: 13" laptop (1366x768 or 1440x900)
+    - Subject: 11" tablet (1024x768)
     """
-    viewport = st.session_state.get("viewport_data", {"width": 1920, "height": 1080})
+    viewport = st.session_state.get("viewport_data", {"width": 1024, "height": 768})
 
-    # Get available dimensions (accounting for UI chrome)
-    available_width = viewport["width"] - 100  # Margins/padding
-    available_height = viewport["height"] - 300  # Header, buttons, instructions
+    viewport_width = viewport.get("width", 1024)
+    viewport_height = viewport.get("height", 768)
 
-    # Canvas must be square, so use smaller dimension
-    available_space = min(available_width, available_height)
+    # Calculate based on device type
+    # Tablets (subject): More screen space for canvas
+    if viewport_width <= 1024:
+        # 11" tablet - use larger portion of screen
+        canvas_size = min(int(viewport_width * 0.65), 500)
 
-    # Default max size
-    max_canvas = 500
+    # Small laptops (moderator)
+    elif viewport_width <= 1440:
+        # 13" laptop - moderate canvas size
+        canvas_size = min(int(viewport_width * 0.45), 500)
 
-    # Calculate responsive size
-    responsive_size = min(max_canvas, int(available_space * 0.9))
+    # Larger screens
+    else:
+        canvas_size = 600
 
-    # Minimum canvas size for usability
-    min_canvas = 300
-
-    return max(min_canvas, responsive_size)
+    # Ensure minimum size for usability
+    return max(400, canvas_size)
 
 
 def get_responsive_font_scale() -> float:

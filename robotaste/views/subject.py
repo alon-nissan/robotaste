@@ -323,8 +323,8 @@ def grid_interface(cycle_data: dict):
                             "type": "circle",
                             "left": bo_x,
                             "top": bo_y,
-                            "fill": "#8B5CF6",
-                            "stroke": "#6D28D9",
+                            "fill": "#fda50f",
+                            "stroke": "#521924",
                             "radius": 10,
                             "strokeWidth": 2,
                         }
@@ -332,9 +332,9 @@ def grid_interface(cycle_data: dict):
 
                 canvas_size = get_canvas_size()
                 st_canvas(
-                    fill_color="#8B5CF6",
+                    fill_color="#fda50f",
                     stroke_width=2,
-                    stroke_color="#6D28D9",
+                    stroke_color="#521924",
                     background_color="white",
                     update_streamlit=False,
                     height=canvas_size,
@@ -769,6 +769,10 @@ def init_session_state():
 
 
 def subject_interface():
+    # Render logo at the top of the view
+    from main_app import render_logo
+    render_logo()
+    
     init_session_state()
 
     # Get current phase

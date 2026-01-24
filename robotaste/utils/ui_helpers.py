@@ -94,6 +94,7 @@ def _render_progress_bar(container, duration_seconds: int) -> None:
 def _render_loading_message(container, message: str, size: str) -> None:
     """
     Helper to render loading message with appropriate sizing.
+    Matches clean, scientific aesthetic of reference site.
 
     Args:
         container: Streamlit container to render in
@@ -102,16 +103,22 @@ def _render_loading_message(container, message: str, size: str) -> None:
     """
     size_map = {
         "normal": "1.5rem",
-        "large": "2.5rem",
-        "extra_large": "3.5rem"
+        "large": "2rem",
+        "extra_large": "2.5rem"
     }
 
-    font_size = size_map.get(size, "2.5rem")
+    font_size = size_map.get(size, "2rem")
 
     container.markdown(
-        f"<div style='text-align: center; font-size: {font_size}; "
-        f"font-weight: 500; color: #333; margin: 2rem 0; line-height: 1.4;'>"
-        f"{message}</div>",
+        f"""
+        <div style='text-align: center; font-size: {font_size};
+        font-weight: 400; color: #34495E; margin: 3rem auto;
+        max-width: 700px; line-height: 1.8; padding: 2rem;
+        background: #F8F9FA; border-radius: 8px;
+        border-left: 4px solid #521924;'>
+        {message}
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
@@ -127,12 +134,13 @@ def render_loading_screen(
 ) -> None:
     """
     Render a full-page loading screen with cycle information and progress.
+    Matches the clean, scientific aesthetic of mashaniv.wixsite.com/niv-taste-lab
 
     This function displays a minimalist, centered loading view during the
     LOADING and ROBOT_PREPARING phases. It shows:
     - Cycle information (e.g., "Cycle 3 of 10")
     - Loading instructions
-    - Progress bar
+    - Progress bar with time remaining
 
     Args:
         cycle_number: Current cycle number (1-indexed)
@@ -156,30 +164,67 @@ def render_loading_screen(
         if show_cycle_info:
             if total_cycles:
                 st.markdown(
-                    f"<h1 style='text-align: center; color: #1f77b4; font-size: 3.5rem; "
-                    f"margin-bottom: 0.5rem; font-weight: 700;'>"
-                    f"Cycle {cycle_number} of {total_cycles}</h1>",
+                    f"""
+                    <div style='text-align: center; font-size: 3rem;
+                    font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+                    letter-spacing: 0.05em;'>
+                    Cycle <span style='font-weight: 600;'>{cycle_number}</span> of {total_cycles}
+                    </div>
+                    """,
                     unsafe_allow_html=True
                 )
             else:
                 st.markdown(
-                    f"<h1 style='text-align: center; color: #1f77b4; font-size: 3.5rem; "
-                    f"margin-bottom: 0.5rem; font-weight: 700;'>"
-                    f"Cycle {cycle_number}</h1>",
+                    f"""
+                    <div style='text-align: center; font-size: 3rem;
+                    font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+                    letter-spacing: 0.05em;'>
+                    Cycle <span style='font-weight: 600;'>{cycle_number}</span>
+                    </div>
+                    """,
                     unsafe_allow_html=True
                 )
-
-            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
 
         # === MESSAGE ===
         message_placeholder = st.empty()
         _render_loading_message(message_placeholder, message, message_size)
 
-        # === PROGRESS BAR ===
+        # === PROGRESS BAR WITH TIME REMAINING ===
         if show_progress:
-            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-            progress_placeholder = st.empty()
-            _render_progress_bar(progress_placeholder, duration_seconds)
+            st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+            progress_container = st.empty()
+            time_container = st.empty()
+
+            for i in range(duration_seconds + 1):
+                progress = i / duration_seconds
+
+                # Update progress bar
+                progress_container.progress(progress)
+
+                # Update time remaining
+                remaining = duration_seconds - i
+                if remaining > 0:
+                    time_container.markdown(
+                        f"""
+                        <div style='text-align: center; font-size: 1.25rem;
+                        color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                        {remaining} seconds remaining
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    time_container.markdown(
+                        f"""
+                        <div style='text-align: center; font-size: 1.25rem;
+                        color: #27AE60; margin-top: 1rem; font-weight: 400;'>
+                        ✓ Ready
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                time.sleep(1)
         else:
             # Just sleep without progress bar
             time.sleep(duration_seconds)

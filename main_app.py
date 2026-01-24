@@ -34,21 +34,27 @@ from robotaste.data.session_repo import (
     get_session_info,
     sync_session_state_to_streamlit as sync_session_state,
 )
-from robotaste.utils.viewport import initialize_viewport_detection, get_responsive_font_scale
+from robotaste.utils.viewport import (
+    initialize_viewport_detection,
+    get_responsive_font_scale,
+)
 
 # Page configuration
 st.set_page_config(
     page_title="Taste Experiment System",
     page_icon="",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="auto",
 )
+
 
 def setup_logging():
     """Sets up logging to a file and the console."""
     from robotaste.utils.logging_manager import setup_logging as configure_logging
+
     configure_logging(component="app")
     logging.info("Logging configured to file and console.")
+
 
 # Initialize viewport detection EARLY (before CSS)
 # This must be done before rendering CSS that depends on viewport
@@ -110,7 +116,7 @@ def add_accessibility_features():
             """
         <style>
             :root {
-                --primary-color: #6D28D9 !important;
+                --primary-color: #521924 !important;
                 --success-color: #008000 !important;
                 --warning-color: #ff8800 !important;
                 --error-color: #cc0000 !important;
@@ -137,6 +143,39 @@ def add_accessibility_features():
 
 # Add accessibility features
 add_accessibility_features()
+
+
+def render_logo():
+    """
+    Render the Niv Lab logo in the top left corner with persistent positioning.
+    
+    Must be called at the start of each view function to ensure it persists
+    through Streamlit's rerun mechanism.
+    """
+    import base64
+    from pathlib import Path
+
+    logo_path = Path(__file__).parent / "docs" / "niv_lab_logo.png"
+    if logo_path.exists():
+        logo_data = base64.b64encode(logo_path.read_bytes()).decode()
+        st.markdown(
+            f"""
+            <div style="position: fixed !important; 
+                        top: 10px !important; 
+                        left: 10px !important; 
+                        z-index: 9999 !important;
+                        pointer-events: none !important;">
+                <img src="data:image/png;base64,{logo_data}" 
+                     alt="Niv Taste Lab" 
+                     style="height: 50px !important; 
+                            width: auto !important;
+                            display: block !important;
+                            opacity: 1 !important;
+                            visibility: visible !important;">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # Import interface modules after initialization to avoid circular imports
@@ -189,7 +228,7 @@ def main():
                 st.query_params.clear()
                 role = ""
                 session_code = ""
-
+    
     # Route to appropriate interface - no placeholder to avoid blank screen issues
     if role and session_code:
         if role == "subject":

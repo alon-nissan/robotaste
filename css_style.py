@@ -5,7 +5,7 @@ from robotaste.utils.viewport import initialize_viewport_detection, get_responsi
 st.set_page_config(
     page_title="Taste Experiment System",
     page_icon="",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="auto",
 )
 

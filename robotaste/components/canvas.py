@@ -106,10 +106,10 @@ def create_canvas_drawing(
             # Determine color based on selection type (BO vs manual)
             is_bo = selection.get("is_bo_suggestion", False)
             fill_color = (
-                "#8B5CF6" if is_bo else "#14B8A6"
+                "#fda50f" if is_bo else "#14B8A6"
             )  # Purple for BO, teal for manual
             stroke_color = (
-                "#6D28D9" if is_bo else "#0D9488"
+                "#521924" if is_bo else "#0D9488"
             )  # Darker purple/teal for stroke
 
             # Add selection circle

@@ -1337,7 +1337,7 @@ def single_bo():
                 y=pred_mean,
                 mode="lines",
                 name="GP Mean",
-                line=dict(color="#8B5CF6", width=2),
+                line=dict(color="#fda50f", width=2),
                 showlegend=True,
             ),
             secondary_y=False,
@@ -1381,10 +1381,10 @@ def single_bo():
                 mode="markers",
                 name="Observed Data",
                 marker=dict(
-                    color="#8B5CF6",
+                    color="#fda50f",
                     size=10,
                     symbol="circle",
-                    line=dict(width=2, color="#6D28D9"),
+                    line=dict(width=2, color="#521924"),
                 ),
                 showlegend=True,
             ),
@@ -1399,10 +1399,10 @@ def single_bo():
                 mode="markers",
                 name="Next Observation",
                 marker=dict(
-                    color="#8B5CF6",
+                    color="#fda50f",
                     size=15,
                     symbol="triangle-down",
-                    line=dict(width=2, color="#6D28D9"),
+                    line=dict(width=2, color="#521924"),
                 ),
                 showlegend=True,
                 text=[f"Next: {next_x:.2f} mM<br>Predicted: {next_pred:.2f}"],
@@ -1661,10 +1661,10 @@ def binary_bo():
                 mode="markers",
                 name="Next",
                 marker=dict(
-                    color="#8B5CF6",
+                    color="#fda50f",
                     size=15,
                     symbol="star",
-                    line=dict(width=2, color="#6D28D9"),
+                    line=dict(width=2, color="#521924"),
                 ),
                 showlegend=True,
                 hovertemplate=f"{ing1_name}: %{{x:.2f}} mM<br>{ing2_name}: %{{y:.2f}} mM<br>Predicted: {next_pred:.2f}<extra>Next Suggestion</extra>",
@@ -1712,10 +1712,10 @@ def binary_bo():
                 y=[next_x[1]],
                 mode="markers",
                 marker=dict(
-                    color="#8B5CF6",
+                    color="#fda50f",
                     size=15,
                     symbol="star",
-                    line=dict(width=2, color="#6D28D9"),
+                    line=dict(width=2, color="#521924"),
                 ),
                 showlegend=False,
                 hovertemplate=f"Max Acquisition<extra></extra>",
@@ -1784,41 +1784,6 @@ def binary_bo():
 def show_moderator_monitoring():
     """Monitor active trial with dynamic mode-based layout."""
 
-    # ========== AUTO-REFRESH CONTROL ==========
-    # Add auto-refresh toggle at the very top
-    refresh_col1, refresh_col2, refresh_col3 = st.columns([2, 1, 1])
-    with refresh_col1:
-        auto_refresh = st.checkbox("🔄 Auto-refresh", value=False, key="auto_refresh_toggle")
-    with refresh_col2:
-        if auto_refresh:
-            refresh_interval = st.selectbox(
-                "Interval",
-                options=[5, 10, 30, 60],
-                format_func=lambda x: f"{x}s",
-                key="refresh_interval"
-            )
-        else:
-            refresh_interval = None
-    with refresh_col3:
-        if st.button("🔄 Refresh Now", key="manual_refresh_btn"):
-            st.rerun()
-
-    # Auto-refresh logic
-    if auto_refresh and refresh_interval:
-        if "last_refresh_time" not in st.session_state:
-            st.session_state.last_refresh_time = time.time()
-
-        elapsed = time.time() - st.session_state.last_refresh_time
-        if elapsed >= refresh_interval:
-            st.session_state.last_refresh_time = time.time()
-            st.rerun()
-
-        # Show countdown
-        time_remaining = refresh_interval - elapsed
-        st.caption(f"Next refresh in {int(time_remaining)}s")
-
-    st.markdown("---")
-
     # ========== GET SESSION INFO ==========
     session_info = get_session_info(st.session_state.session_id)
     if not session_info:
@@ -1831,6 +1796,12 @@ def show_moderator_monitoring():
         return
 
     experiment_config = session["experiment_config"]
+    session_code = session_info.get("session_code", "unknown")
+
+    # ========== SUBJECT ACCESS AT TOP ==========
+    st.markdown("### 📱 Subject Access")
+    display_subject_access_section(session_code)
+    st.markdown("---")
 
     # ========== HEADER WITH END SESSION BUTTON ==========
     header_col1, header_col2 = st.columns([3, 1])
@@ -2084,7 +2055,6 @@ def show_moderator_monitoring():
             st.error(f"Error loading responses: {e}")
 
     # Session Information
-    session_code = session_info.get("session_code", "unknown")
     participant = st.session_state.get("participant", "unknown")
     with st.expander("ℹ️ Session Information", expanded=False):
         info_col1, info_col2, info_col3 = st.columns(3)
@@ -2104,12 +2074,6 @@ def show_moderator_monitoring():
             st.metric("Ingredients", num_ingredients)
             questionnaire_type = experiment_config.get("questionnaire_type", "unknown")
             st.metric("Questionnaire", questionnaire_type.title())
-
-        st.markdown("---")
-
-        # Subject access section
-        st.markdown("### Subject Access")
-        display_subject_access_section(session_code)
 
     # ========== BO CONFIGURATION SUMMARY EXPANDER ==========
     with st.expander("⚙️ BO Configuration Summary", expanded=False):
@@ -2623,6 +2587,10 @@ def start_session_with_protocol(protocol_id: str):
 
 
 def moderator_interface():
+    # Render logo at the top of the view
+    from main_app import render_logo
+    render_logo()
+    
     st.markdown(STYLE, unsafe_allow_html=True)
     if "phase" not in st.session_state:
         # Recover phase from database on reload

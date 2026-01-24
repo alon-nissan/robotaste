@@ -382,8 +382,7 @@ def display_session_qr_code(
 def display_subject_access_section(session_code: str, base_url: Optional[str] = None):
     """
     Display compact subject access section with QR code and link for moderator overview.
-
-    This is a more compact version designed for the moderator overview tab.
+    Matches the clean, scientific aesthetic of mashaniv.wixsite.com/niv-taste-lab
 
     Args:
         session_code: 6-character session code
@@ -398,24 +397,46 @@ def display_subject_access_section(session_code: str, base_url: Optional[str] = 
     subject_url = urls["subject"]
     qr_code_data = create_qr_code(subject_url)
 
-    st.markdown("**Subject Interface Access**")
+    # Clean header with session code in prominent display
+    st.markdown(
+        f"""
+        <div style='text-align: center; padding: 1.5rem;
+        background: #F8F9FA; border-radius: 8px;
+        border-left: 4px solid #521924; margin-bottom: 1.5rem;'>
+            <div style='font-size: 0.85rem; color: #7F8C8D;
+            font-weight: 400; margin-bottom: 0.25rem;
+            letter-spacing: 0.1em; text-transform: uppercase;'>
+            Session Code
+            </div>
+            <div style='font-size: 2rem; color: #2C3E50;
+            font-weight: 600; letter-spacing: 0.3rem;
+            font-family: "Monaco", "Courier New", monospace;'>
+            {session_code}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        # Display QR code
+        # Display QR code with cleaner styling
+        st.markdown("**Scan to Join**")
         st.markdown(
             f"""
             <div style="text-align: center;">
-                <img src="{qr_code_data}" alt="QR Code" style="max-width: 150px; border: 2px solid #e0e0e0; border-radius: 8px; padding: 5px;">
+                <img src="{qr_code_data}" alt="QR Code"
+                style="max-width: 150px; border: 1px solid #E5E7EB;
+                border-radius: 8px; padding: 8px; background: white;">
             </div>
             """,
             unsafe_allow_html=True,
         )
 
     with col2:
-        st.markdown("**Share this link with participants:**")
-        st.markdown(f"[{subject_url}]({subject_url})")
+        st.markdown("**Share This Link**")
+        st.code(subject_url, language=None)
         st.caption(
-            "Scan the QR code or share the link above to allow subjects to join this session."
+            "Subjects can scan the QR code or click the link to join the experiment."
         )
