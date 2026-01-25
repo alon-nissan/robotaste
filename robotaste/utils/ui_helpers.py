@@ -2,9 +2,10 @@
 RoboTaste UI Helper Functions
 
 Utility functions for Streamlit UI operations.
+Provides reusable styling components for loading screens and cycle displays.
 
 Author: RoboTaste Team
-Version: 3.0 (Refactored Architecture)
+Version: 3.1 (Unified Loading Screen Styling)
 """
 
 import streamlit as st
@@ -91,10 +92,74 @@ def _render_progress_bar(container, duration_seconds: int) -> None:
     progress_bar.progress(1.0)
 
 
+def render_cycle_info(cycle_number: int, total_cycles: Optional[int] = None) -> None:
+    """
+    Render cycle information display with clean, scientific styling.
+    Matches the aesthetic of render_loading_screen.
+
+    Args:
+        cycle_number: Current cycle number (1-indexed)
+        total_cycles: Total number of cycles (optional)
+    """
+    if total_cycles:
+        st.markdown(
+            f"""
+            <div style='text-align: center; font-size: 3rem;
+            font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+            letter-spacing: 0.05em;'>
+            Cycle <span style='font-weight: 600;'>{cycle_number}</span> of {total_cycles}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f"""
+            <div style='text-align: center; font-size: 3rem;
+            font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+            letter-spacing: 0.05em;'>
+            Cycle <span style='font-weight: 600;'>{cycle_number}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+def render_loading_message(message: str, size: str = "large") -> None:
+    """
+    Render loading message with appropriate sizing.
+    Matches clean, scientific aesthetic of reference site.
+
+    Args:
+        message: Message text to display
+        size: Size setting ("normal", "large", "extra_large")
+    """
+    size_map = {
+        "normal": "1.5rem",
+        "large": "2rem",
+        "extra_large": "2.5rem"
+    }
+
+    font_size = size_map.get(size, "2rem")
+
+    st.markdown(
+        f"""
+        <div style='text-align: center; font-size: {font_size};
+        font-weight: 400; color: #34495E; margin: 3rem auto;
+        max-width: 700px; line-height: 1.8; padding: 2rem;
+        background: #F8F9FA; border-radius: 8px;
+        border-left: 4px solid #521924;'>
+        {message}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 def _render_loading_message(container, message: str, size: str) -> None:
     """
-    Helper to render loading message with appropriate sizing.
-    Matches clean, scientific aesthetic of reference site.
+    DEPRECATED: Use render_loading_message() instead.
+    Helper to render loading message with appropriate sizing in a container.
 
     Args:
         container: Streamlit container to render in
