@@ -9,7 +9,18 @@ Multi-device taste experiment platform with Bayesian Optimization and hardware p
 pip install -r requirements.txt
 ```
 
-### Running
+### Running with ngrok (Multi-Device)
+```bash
+# Single command - starts Streamlit + ngrok
+python start_robotaste.py
+
+# With hardware pumps
+python start_robotaste.py --with-pump
+```
+
+Full setup guide: **[docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)**
+
+### Running Locally (Same Computer)
 ```bash
 # Terminal 1: Web application
 streamlit run main_app.py

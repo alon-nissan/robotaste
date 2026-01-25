@@ -48,6 +48,9 @@ Thumbs.db
 backup_v0/
 session_log_*.txt
 
+# ngrok
+.ngrok_url
+
 # AI assistance tools
 .claude/
 

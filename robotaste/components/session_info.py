@@ -60,6 +60,10 @@ def get_subject_url(session_code: str) -> str:
     """
     Construct subject URL based on current host.
 
+    Uses HTTP headers to detect the actual URL (works with ngrok).
+    Checks X-Forwarded-Host (ngrok), X-Original-Host, then Host header.
+    Falls back to localhost if detection fails.
+
     Args:
         session_code: 6-character session code
 
@@ -67,20 +71,54 @@ def get_subject_url(session_code: str) -> str:
         Full URL for subject to join session
     """
     try:
-        # Try to get from query params (works in deployed environments)
-        base_url = st.query_params.get("_host", "")
-        if not base_url:
-            # Fallback to localhost
-            base_url = "localhost:8501"
+        headers = st.context.headers
+        
+        # ngrok and reverse proxies set forwarding headers
+        # Check in order of preference: forwarded headers first, then Host
+        host = (
+            headers.get("X-Forwarded-Host", "") or
+            headers.get("X-Original-Host", "") or
+            headers.get("Host", "")
+        )
+        
+        # Also check X-Forwarded-Proto for protocol detection
+        proto = headers.get("X-Forwarded-Proto", "")
+        
+        if host:
+            # Determine protocol
+            if proto:
+                base_url = f"{proto}://{host}"
+            elif "ngrok" in host or "ngrok-free.app" in host:
+                base_url = f"https://{host}"
+            elif host.startswith("localhost") or host.startswith("127.0.0.1"):
+                base_url = f"http://{host}"
+            else:
+                # Other hosts (e.g., LAN IP) - default to HTTP
+                base_url = f"http://{host}"
+        else:
+            base_url = "http://localhost:8501"
 
-        # Ensure http:// prefix
-        if not base_url.startswith("http"):
-            base_url = f"http://{base_url}"
-
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to detect host URL: {e}")
         base_url = "http://localhost:8501"
 
+    logger.debug(f"Generated subject URL: {base_url}/?role=subject&session={session_code}")
     return f"{base_url}/?role=subject&session={session_code}"
+
+
+def debug_headers() -> dict:
+    """
+    Debug helper to see all HTTP headers received.
+    Call this to diagnose URL detection issues with ngrok.
+    
+    Returns:
+        Dictionary of all headers
+    """
+    try:
+        headers = st.context.headers
+        return dict(headers)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def render_session_info_panel(session_code: str, expanded: bool = True) -> None:
@@ -138,3 +176,8 @@ def render_session_info_panel(session_code: str, expanded: bool = True) -> None:
                 "**Instructions:** Subjects can scan the QR code or "
                 "enter the session code to join the experiment."
             )
+            
+            # Debug toggle for troubleshooting URL detection
+            if st.checkbox("🔧 Debug headers", value=False, key="debug_headers"):
+                headers = debug_headers()
+                st.json(headers)
