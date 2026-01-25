@@ -33,15 +33,17 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - **Components**: `robotaste/components/` (reusable UI widgets)
 
 ## Build / Run Commands
-- App UI: `streamlit run main_app.py`.
-- Pump service: `python pump_control_service.py --db-path robotaste.db --poll-interval 0.5`.
-- Tests (all): `pytest`.
-- Tests (single file): `pytest tests/test_protocol_integration.py`.
-- Tests (single test): `pytest tests/test_protocol_integration.py::test_name`.
-- Tests (by keyword): `pytest -k "protocol"`.
-- Hardware tests (requires pumps):
-  - `python robotaste/hardware/test_pump_movement.py`.
-  - `python robotaste/hardware/test_dual_pump.py`.
+- **App UI**: `streamlit run main_app.py`
+- **Pump service**: `python pump_control_service.py --db-path robotaste.db --poll-interval 0.5`
+- **Tests (all)**: `pytest`
+- **Tests (single file)**: `pytest tests/test_protocol_integration.py`
+- **Tests (single test)**: `pytest tests/test_protocol_integration.py::test_name`
+- **Tests (by keyword)**: `pytest -k "protocol"`
+- **Tests (verbose)**: `pytest -v` or `pytest -vv`
+- **Hardware tests** (requires physical pump connection):
+  - `python robotaste/hardware/test_pump_movement.py`
+  - `python robotaste/hardware/test_dual_pump.py`
+  - `python robotaste/hardware/test_burst_commands.py`
 
 ## Lint / Format
 - No lint or formatter configured in-repo.
