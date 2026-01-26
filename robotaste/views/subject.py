@@ -946,6 +946,12 @@ def subject_interface():
                     get_loading_screen_config,
                     render_cycle_info,
                     render_loading_message,
+                    init_async_progress,
+                    complete_async_progress,
+                )
+                from robotaste.core.pump_integration import (
+                    execute_pumps_synchronously,
+                    get_pump_operation_duration,
                 )
 
                 loading_config = get_loading_screen_config(protocol)
@@ -967,24 +973,30 @@ def subject_interface():
                 message_size = loading_config.get("message_size", "large")
                 render_loading_message(message, message_size)
 
-                # Execute pumps synchronously with spinner
-                from robotaste.core.pump_integration import execute_pumps_synchronously
+                # Get estimated duration for progress display
+                estimated_duration = get_pump_operation_duration(
+                    st.session_state.session_id, cycle_num
+                )
 
-                with st.spinner("🤖 Robot is preparing your sample..."):
-                    result = execute_pumps_synchronously(
-                        session_id=st.session_state.session_id,
-                        cycle_number=cycle_num,
-                        streamlit_container=None,  # Disable UI logging
-                    )
+                # Initialize progress display (matches LOADING phase styling)
+                progress_containers = init_async_progress(
+                    estimated_duration=estimated_duration,
+                    show_progress=loading_config.get("show_progress", True),
+                )
+
+                # Execute pumps (synchronous - blocks until complete)
+                result = execute_pumps_synchronously(
+                    session_id=st.session_state.session_id,
+                    cycle_number=cycle_num,
+                    streamlit_container=None,  # Disable UI logging
+                )
+
+                # Show completion state
+                complete_async_progress(progress_containers)
+                time.sleep(1)  # Brief pause to show "✓ Ready"
 
                 # Check result
                 if result["success"]:
-                    # Show brief success message
-                    st.success(
-                        f"✅ Sample prepared successfully in {result['duration']:.1f}s"
-                    )
-                    time.sleep(1)  # Brief pause to show success
-
                     # Transition to next phase
                     transition_to_next_phase(
                         current_phase_str=current_phase_str,

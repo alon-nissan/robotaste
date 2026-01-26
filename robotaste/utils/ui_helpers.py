@@ -295,6 +295,130 @@ def render_loading_screen(
             time.sleep(duration_seconds)
 
 
+def init_async_progress(
+    estimated_duration: Optional[float] = None,
+    show_progress: bool = True,
+) -> Dict[str, Any]:
+    """
+    Initialize non-blocking progress display for ROBOT_PREPARING phase.
+    
+    Returns container handles that can be updated during pump execution.
+    Uses same styling as render_loading_screen() for visual consistency.
+    
+    Args:
+        estimated_duration: Estimated time in seconds (None for indeterminate)
+        show_progress: Whether to show progress bar
+        
+    Returns:
+        Dict with:
+            - progress_container: st.empty() for progress bar
+            - time_container: st.empty() for time text
+            - estimated_duration: The estimated duration (or None)
+    """
+    result = {
+        "progress_container": None,
+        "time_container": None,
+        "estimated_duration": estimated_duration,
+    }
+    
+    if show_progress:
+        st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+        result["progress_container"] = st.empty()
+        result["time_container"] = st.empty()
+        
+        # Initial state
+        if estimated_duration:
+            result["progress_container"].progress(0.0)
+            remaining = int(estimated_duration)
+            result["time_container"].markdown(
+                f"""
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                ~{remaining} seconds remaining
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            # Indeterminate mode - show spinner-like message
+            result["progress_container"].progress(0.0)
+            result["time_container"].markdown(
+                """
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                Preparing sample...
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    
+    return result
+
+
+def update_async_progress(
+    containers: Dict[str, Any],
+    elapsed_seconds: float,
+) -> None:
+    """
+    Update progress display during pump execution.
+    
+    Args:
+        containers: Dict returned from init_async_progress()
+        elapsed_seconds: Time elapsed since pump started
+    """
+    if not containers.get("progress_container"):
+        return
+        
+    estimated = containers.get("estimated_duration")
+    progress_container = containers["progress_container"]
+    time_container = containers["time_container"]
+    
+    if estimated:
+        # Estimated mode - show countdown
+        progress = min(elapsed_seconds / estimated, 0.95)  # Cap at 95% until complete
+        remaining = max(0, int(estimated - elapsed_seconds))
+        
+        progress_container.progress(progress)
+        
+        if remaining > 0:
+            time_container.markdown(
+                f"""
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                ~{remaining} seconds remaining
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        # Indeterminate mode - pulse between 0.3 and 0.7
+        import math
+        pulse = 0.3 + 0.4 * (0.5 + 0.5 * math.sin(elapsed_seconds * 2))
+        progress_container.progress(pulse)
+
+
+def complete_async_progress(containers: Dict[str, Any]) -> None:
+    """
+    Show completion state for progress display.
+    
+    Args:
+        containers: Dict returned from init_async_progress()
+    """
+    if not containers.get("progress_container"):
+        return
+        
+    containers["progress_container"].progress(1.0)
+    containers["time_container"].markdown(
+        """
+        <div style='text-align: center; font-size: 1.25rem;
+        color: #27AE60; margin-top: 1rem; font-weight: 400;'>
+        ✓ Ready
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 def get_concentration_display(x: float, y: float, method: str) -> Dict[str, Any]:
     """
     Get formatted concentration display for UI.
