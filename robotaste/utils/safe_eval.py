@@ -74,10 +74,8 @@ def _eval_node(node: ast.AST, variables: Dict[str, Any]) -> Union[float, int]:
     Raises:
         ValueError: If node contains unsafe operations
     """
-    if isinstance(node, ast.Constant):  # Python 3.8+
+    if isinstance(node, ast.Constant):
         return node.value
-    elif isinstance(node, ast.Num):  # Python 3.7 compatibility
-        return node.n
     elif isinstance(node, ast.Name):
         # Look up variable value
         if node.id not in variables:

@@ -67,18 +67,22 @@ def create_protocol_in_db(protocol: Dict[str, Any]) -> Optional[str]:
         # Insert into database using the connection context manager
         with get_database_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO protocol_library (
+            try:
+                cursor.execute("""
+                    INSERT INTO protocol_library (
+                        protocol_id, name, description, protocol_json,
+                        protocol_hash, version, created_by, tags,
+                        created_at, updated_at, is_archived
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
                     protocol_id, name, description, protocol_json,
                     protocol_hash, version, created_by, tags,
-                    created_at, updated_at, is_archived
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                protocol_id, name, description, protocol_json,
-                protocol_hash, version, created_by, tags,
-                datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), 0
-            ))
-            conn.commit()
+                    datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), 0
+                ))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
         logger.info(f"Created protocol in database: {name} (ID: {protocol_id})")
         return protocol_id
@@ -239,20 +243,24 @@ def update_protocol(protocol: Dict[str, Any]) -> bool:
 
         with get_database_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE protocol_library
-                SET name = ?, description = ?, protocol_json = ?,
-                    protocol_hash = ?, version = ?, tags = ?,
-                    updated_at = ?
-                WHERE protocol_id = ? AND deleted_at IS NULL
-            """, (
-                name, description, protocol_json,
-                protocol_hash, version, tags,
-                datetime.utcnow().isoformat(),
-                protocol_id
-            ))
-            rows_affected = cursor.rowcount
-            conn.commit()
+            try:
+                cursor.execute("""
+                    UPDATE protocol_library
+                    SET name = ?, description = ?, protocol_json = ?,
+                        protocol_hash = ?, version = ?, tags = ?,
+                        updated_at = ?
+                    WHERE protocol_id = ? AND deleted_at IS NULL
+                """, (
+                    name, description, protocol_json,
+                    protocol_hash, version, tags,
+                    datetime.utcnow().isoformat(),
+                    protocol_id
+                ))
+                rows_affected = cursor.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
         if rows_affected == 0:
             logger.warning(f"Protocol not found for update: {protocol_id}")
@@ -280,23 +288,27 @@ def delete_protocol(protocol_id: str, hard_delete: bool = False) -> bool:
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
+            
+            try:
+                if hard_delete:
+                    # Permanent deletion
+                    cursor.execute("""
+                        DELETE FROM protocol_library
+                        WHERE protocol_id = ?
+                    """, (protocol_id,))
+                else:
+                    # Soft deletion
+                    cursor.execute("""
+                        UPDATE protocol_library
+                        SET deleted_at = ?
+                        WHERE protocol_id = ? AND deleted_at IS NULL
+                    """, (datetime.utcnow().isoformat(), protocol_id))
 
-            if hard_delete:
-                # Permanent deletion
-                cursor.execute("""
-                    DELETE FROM protocol_library
-                    WHERE protocol_id = ?
-                """, (protocol_id,))
-            else:
-                # Soft deletion
-                cursor.execute("""
-                    UPDATE protocol_library
-                    SET deleted_at = ?
-                    WHERE protocol_id = ? AND deleted_at IS NULL
-                """, (datetime.utcnow().isoformat(), protocol_id))
-
-            rows_affected = cursor.rowcount
-            conn.commit()
+                rows_affected = cursor.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
         if rows_affected == 0:
             logger.warning(f"Protocol not found for deletion: {protocol_id}")
