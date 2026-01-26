@@ -167,6 +167,27 @@ protocol JSON. Each pump entry can specify its own `volume_unit`.
 
 See `docs/pump_config.md` for the full pump configuration fields and examples.
 
+#### Pump Rate Limits
+
+The NE-4000 pump has **maximum flow rate limits** based on syringe diameter.
+Exceeding these limits will cause an Out-Of-Range (OOR) error and pump failure.
+
+**Maximum Flow Rates by Syringe Size (B-D Syringes):**
+
+| Syringe Size | Diameter (mm) | Max Rate (mL/min) | Max Rate (µL/min) |
+|-------------|---------------|-------------------|-------------------|
+| 1 mL        | 4.699         | 3.135             | 3,135             |
+| 3 mL        | 8.585         | 10.46             | 10,460            |
+| 5 mL        | 11.99         | 20.41             | 20,410            |
+| 10 mL       | 14.43         | 29.56             | 29,560            |
+| 20 mL       | 19.05         | 51.53             | 51,530            |
+| 30 mL       | 21.59         | 66.19             | 66,190            |
+| 60 mL       | 26.59         | 100.3             | 100,300           |
+
+**Example:** If using 20mL syringes (19.05mm diameter), set `dispensing_rate_ul_min` to **51000 or less**.
+
+⚠️ The protocol validator will **reject protocols** where the rate exceeds the limit for any configured syringe.
+
 ### Step 3: Design Sample Selection Schedule
 
 This is where you define **when to use each selection mode**.
@@ -492,6 +513,25 @@ The protocol controls:
 **Solution:**
 - BO needs 3-5 samples before it can make good suggestions
 - Make sure you have predetermined or user-selected cycles first
+
+#### Pump OOR (Out Of Range) Error
+
+**Problem:** Pump shows OOR error or fails to dispense
+
+**Solution:**
+- The dispensing rate exceeds the maximum for your syringe size
+- Check the [Pump Rate Limits](#pump-rate-limits) table above
+- Reduce `dispensing_rate_ul_min` in your protocol's pump_config
+- For 20mL syringes (19.05mm): max 51,530 µL/min
+- For 30mL syringes (21.59mm): max 66,190 µL/min
+
+**Example fix:**
+```json
+"pump_config": {
+  "dispensing_rate_ul_min": 50000,  // Reduced from 66300
+  ...
+}
+```
 
 ---
 

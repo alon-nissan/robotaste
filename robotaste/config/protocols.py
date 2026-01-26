@@ -638,6 +638,69 @@ def _validate_phase_sequence(protocol: Dict[str, Any]) -> List[str]:
     return errors
 
 
+def _validate_pump_rate_for_syringe(pumps: List[Dict[str, Any]], dispensing_rate_ul_min: float) -> List[str]:
+    """
+    Validate dispensing rate is within limits for each pump's syringe diameter.
+    
+    Uses NE-4000 rate limits from user manual Table 11.7.
+    
+    Args:
+        pumps: List of pump configuration dictionaries
+        dispensing_rate_ul_min: Requested rate in µL/min
+        
+    Returns:
+        List of error messages (empty if all valid)
+    """
+    errors = []
+    
+    # Convert rate to mL/min for comparison
+    rate_ml_min = dispensing_rate_ul_min / 1000.0
+    
+    # NE-4000 rate limits by syringe diameter (from manual Table 11.7, B-D syringes)
+    # Format: (diameter_mm, max_rate_ml_min)
+    BD_SYRINGE_RATE_TABLE = [
+        (4.699, 3.135),    # 1mL BD syringe
+        (8.585, 10.46),    # 3mL BD
+        (11.99, 20.41),    # 5mL BD
+        (14.43, 29.56),    # 10mL BD
+        (19.05, 51.53),    # 20mL BD
+        (21.59, 66.19),    # 30mL BD
+        (26.59, 100.3),    # 60mL BD
+    ]
+    
+    def get_max_rate_for_diameter(diameter_mm: float) -> float:
+        """Get max rate (mL/min) for a syringe diameter."""
+        for i, (d, rate) in enumerate(BD_SYRINGE_RATE_TABLE):
+            if diameter_mm <= d:
+                if i == 0:
+                    return rate
+                # Linear interpolation
+                prev_d, prev_rate = BD_SYRINGE_RATE_TABLE[i - 1]
+                ratio = (diameter_mm - prev_d) / (d - prev_d)
+                return prev_rate + ratio * (rate - prev_rate)
+        # Above largest diameter
+        return min(95.0, BD_SYRINGE_RATE_TABLE[-1][1])
+    
+    for i, pump in enumerate(pumps):
+        pump_num = i + 1
+        diameter = pump.get("syringe_diameter_mm")
+        ingredient = pump.get("ingredient", f"Pump {pump_num}")
+        
+        if diameter is None:
+            continue  # Already validated elsewhere
+            
+        max_rate = get_max_rate_for_diameter(diameter)
+        
+        if rate_ml_min > max_rate:
+            errors.append(
+                f"Pump {pump_num} ({ingredient}): Dispensing rate {rate_ml_min:.1f} mL/min "
+                f"exceeds maximum {max_rate:.1f} mL/min for {diameter:.2f}mm diameter syringe. "
+                f"Reduce dispensing_rate_ul_min to {int(max_rate * 1000)} or less."
+            )
+    
+    return errors
+
+
 def _validate_pump_config(protocol: Dict[str, Any]) -> List[str]:
     """
     Validate pump configuration.
@@ -762,6 +825,10 @@ def _validate_pump_config(protocol: Dict[str, Any]) -> List[str]:
     if dispensing_rate is not None:
         if not isinstance(dispensing_rate, (int, float)) or dispensing_rate <= 0:
             errors.append(f"Pump config: dispensing_rate_ul_min must be positive, got {dispensing_rate}")
+        else:
+            # Validate rate against syringe diameter limits
+            rate_errors = _validate_pump_rate_for_syringe(pumps, dispensing_rate)
+            errors.extend(rate_errors)
 
     # Validate burst mode compatibility
     use_burst = pump_config.get("use_burst_mode", False)

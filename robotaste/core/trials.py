@@ -192,12 +192,12 @@ def start_trial(
 
         st.success(f"Trial started successfully for {participant_id}")
 
-        # === Early pump connection establishment ===
-        # Connect to pumps while subject is registering to reduce delay during ROBOT_PREPARING
-        # Note: Burst mode configuration (diameter, rate, direction) happens during dispensing
+        # === Early pump connection and parameter initialization ===
+        # Connect to pumps and configure DIA/RAT/DIR/VOL unit while subject is registering
+        # This reduces delay during ROBOT_PREPARING phase
         try:
             from robotaste.data.protocol_repo import get_protocol_by_id
-            from robotaste.core.pump_manager import get_or_create_pumps
+            from robotaste.core.pump_manager import get_or_create_pumps, initialize_pump_parameters
             from robotaste.data.database import get_database_connection
 
             # Get protocol to check if pumps are enabled
@@ -209,6 +209,13 @@ def start_trial(
                     logger.info(f"🔌 Connecting to pumps for session {session_id}")
                     pumps = get_or_create_pumps(session_id, pump_config)
                     logger.info(f"✅ Pumps connected ({len(pumps)} pump(s))")
+                    
+                    # Initialize pump parameters (DIA, RAT, DIR, VOL unit) using separated burst commands
+                    # This is done once per session to ensure all parameters are set correctly
+                    if pump_config.get("use_burst_mode", False):
+                        logger.info(f"🔧 Initializing pump parameters for burst mode...")
+                        initialize_pump_parameters(session_id, pump_config)
+                        logger.info(f"✅ Pump parameters initialized")
         except Exception as e:
             # Non-fatal: pumps will be initialized later if early connection fails
             logger.warning(f"Early pump connection failed (will retry later): {e}")

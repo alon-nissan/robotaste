@@ -5,7 +5,7 @@ Handles the integration between the experiment workflow and pump control system.
 Creates pump operations when entering ROBOT_PREPARING phase.
 
 Author: RoboTaste Team
-Version: 1.0
+Version: 1.1 (Separated burst commands)
 """
 
 import json
@@ -585,13 +585,23 @@ def execute_pumps_synchronously(
             logger.info(f"Burst mode check: use_burst_mode={use_burst_mode}, addresses={pump_addresses}, burst_compatible={burst_compatible}")
 
             if use_burst_mode and burst_compatible:
-                ui_log("⚡ Executing burst mode dispensing...")
+                ui_log("⚡ Executing burst mode dispensing (separated commands)...")
 
-                # Import burst command builder
+                # Import separated burst command builder and manager functions
                 from robotaste.hardware.pump_controller import (
-                    BurstCommandBuilder,
+                    SeparatedBurstCommandBuilder,
                     PumpBurstConfig
                 )
+                from robotaste.core.pump_manager import (
+                    is_pump_initialized,
+                    initialize_pump_parameters,
+                    send_volume_and_run
+                )
+
+                # Check if pump parameters are initialized
+                if not is_pump_initialized(session_id):
+                    ui_log("  🔧 Initializing pump parameters (first cycle)...")
+                    initialize_pump_parameters(session_id, pump_config)
 
                 # Build pump configurations (filter out 0 volume pumps)
                 burst_configs = []
@@ -625,20 +635,23 @@ def execute_pumps_synchronously(
                     result["success"] = True
                     return result
 
-                # Build burst commands
-                commands = BurstCommandBuilder.build_burst_commands(burst_configs)
-
-                # Use any pump to send commands (they share the serial port)
+                # Use separated commands: only send volume + run (DIA/RAT/DIR already set)
                 any_pump = next(iter(pumps.values()))
+                builder = SeparatedBurstCommandBuilder
 
-                ui_log(f"  Configuring {len(burst_configs)} pumps...")
-                any_pump._send_burst_command(commands.config_command)
+                ui_log(f"  💧 Setting volumes for {len(burst_configs)} pumps...")
+                vol_cmd = builder.build_volume_value_command(burst_configs)
+                any_pump._send_burst_command(vol_cmd)
+                time.sleep(0.2)
 
-                ui_log(f"  Validating settings...")
-                any_pump._send_burst_command(commands.validation_command)
+                ui_log(f"  🔍 Verifying volumes...")
+                verify_cmd = builder.build_verification_command(burst_configs, "VOL")
+                any_pump._send_burst_command(verify_cmd)
+                time.sleep(0.2)
 
-                ui_log(f"  Starting all pumps simultaneously...")
-                any_pump._send_burst_command(commands.run_command)
+                ui_log(f"  🚀 Starting all pumps simultaneously...")
+                run_cmd = builder.build_run_command(burst_configs)
+                any_pump._send_burst_command(run_cmd)
 
                 # Calculate max wait time (only for pumps actually dispensing)
                 max_time = max((config.volume_ul / dispensing_rate) * 60 * 1.1 for config in burst_configs)

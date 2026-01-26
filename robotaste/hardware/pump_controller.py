@@ -105,6 +105,58 @@ class _BurstCommandFormatter:
             return f"{volume_ul:.1f}"
         return f"{volume_ul:.2f}"
 
+    @staticmethod
+    def calculate_max_rate_for_diameter(diameter_mm: float) -> float:
+        """
+        Calculate maximum flow rate (mL/min) for a given syringe diameter.
+        
+        Based on NE-4000 Multi-Phaser User Manual, Section 11.7:
+        "Syringe Diameters and Rate Limits"
+        
+        The pump has a maximum linear velocity that translates to different
+        flow rates depending on syringe cross-sectional area.
+        
+        Args:
+            diameter_mm: Syringe inner diameter in mm
+            
+        Returns:
+            Maximum flow rate in mL/min
+            
+        Note:
+            Values from B-D (Becton-Dickinson) syringe table in manual.
+            Other manufacturers (HSW, Terumo, etc.) have similar limits.
+        """
+        # From NE-4000 manual Table 11.7 - B-D Syringes
+        # Format: (diameter_mm, max_rate_ml_min)
+        BD_SYRINGE_RATE_TABLE = [
+            (4.699, 3.135),    # 1mL BD syringe
+            (8.585, 10.46),    # 3mL BD
+            (11.99, 20.41),    # 5mL BD
+            (14.43, 29.56),    # 10mL BD
+            (19.05, 51.53),    # 20mL BD
+            (21.59, 66.19),    # 30mL BD
+            (26.59, 100.3),    # 60mL BD (pump absolute max is ~95, but spec shows 100.3)
+        ]
+        
+        # Find closest diameter and interpolate
+        for i, (d, rate) in enumerate(BD_SYRINGE_RATE_TABLE):
+            if diameter_mm <= d:
+                if i == 0:
+                    # Below smallest syringe - use smallest rate
+                    return rate
+                # Linear interpolation between this and previous entry
+                prev_d, prev_rate = BD_SYRINGE_RATE_TABLE[i - 1]
+                ratio = (diameter_mm - prev_d) / (d - prev_d)
+                return prev_rate + ratio * (rate - prev_rate)
+        
+        # Above largest diameter in table - extrapolate but cap at absolute max
+        # The pump absolute max is 95 mL/min (hardware limit)
+        last_d, last_rate = BD_SYRINGE_RATE_TABLE[-1]
+        if diameter_mm > last_d:
+            # Extrapolate assuming linear relationship with diameter^2
+            # But cap at 95 mL/min (NE-4000 absolute hardware limit)
+            return min(95.0, last_rate)
+
 
 class BurstCommandBuilder:
     """Builds Network Command Burst commands for NE-4000 pumps."""
@@ -227,6 +279,128 @@ class BurstCommandBuilder:
             validation_command=validation_cmd,
             run_command=run_cmd
         )
+
+
+class SeparatedBurstCommandBuilder:
+    """
+    Builds single-parameter burst commands for NE-4000 pumps.
+    
+    The NE-4000 burst mode only applies ONE parameter per command when
+    multiple parameters are sent. This builder creates separate commands
+    for each parameter type to ensure all settings are applied correctly.
+    
+    Usage:
+        configs = [PumpBurstConfig(...), PumpBurstConfig(...)]
+        
+        # Init phase (once per session)
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_diameter_command(configs))
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_rate_command(configs))
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_volume_unit_command(configs))
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_direction_command(configs))
+        
+        # Per-cycle
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_volume_value_command(configs))
+        pump._send_burst_command(SeparatedBurstCommandBuilder.build_run_command(configs))
+    """
+
+    @staticmethod
+    def validate_rate_for_diameter(configs: List[PumpBurstConfig]) -> List[str]:
+        """
+        Validate that rates are within limits for each pump's syringe diameter.
+        
+        Args:
+            configs: List of pump configurations
+            
+        Returns:
+            List of warning messages (empty if all valid)
+        """
+        warnings = []
+        for c in configs:
+            # Convert rate to mL/min for comparison
+            rate_ml_min = c.rate_ul_min / 1000.0
+            max_rate = _BurstCommandFormatter.calculate_max_rate_for_diameter(c.diameter_mm)
+            
+            if rate_ml_min > max_rate:
+                warnings.append(
+                    f"Pump {c.address}: Rate {rate_ml_min:.1f} mL/min exceeds "
+                    f"max rate {max_rate:.1f} mL/min for {c.diameter_mm:.2f}mm diameter syringe. "
+                    f"Pump will return OOR error."
+                )
+        return warnings
+
+    @staticmethod
+    def build_diameter_command(configs: List[PumpBurstConfig]) -> str:
+        """Build diameter command: 0 DIA xx.xx * 1 DIA yy.yy *"""
+        parts = [f"{c.address} DIA {c.diameter_mm:.2f}" for c in configs]
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_rate_command(configs: List[PumpBurstConfig], validate: bool = True) -> str:
+        """
+        Build rate command: 0 RAT xx.xx MM * 1 RAT yy.yy MM *
+        
+        Args:
+            configs: List of pump configurations
+            validate: If True, log warnings for rates that may cause OOR
+        """
+        if validate:
+            warnings = SeparatedBurstCommandBuilder.validate_rate_for_diameter(configs)
+            for warning in warnings:
+                logger.warning(f"⚠️ {warning}")
+        
+        parts = []
+        for c in configs:
+            rate_str, unit = _BurstCommandFormatter.format_rate(c.rate_ul_min, "UM")
+            parts.append(f"{c.address} RAT {rate_str} {unit}")
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_volume_unit_command(configs: List[PumpBurstConfig]) -> str:
+        """Build volume unit command: 0 VOL ML * 1 VOL ML *"""
+        parts = [f"{c.address} VOL {c.volume_unit}" for c in configs]
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_direction_command(configs: List[PumpBurstConfig]) -> str:
+        """Build direction command: 0 DIR INF * 1 DIR INF *"""
+        parts = [f"{c.address} DIR {c.direction}" for c in configs]
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_volume_value_command(configs: List[PumpBurstConfig]) -> str:
+        """Build volume value command: 0 VOL xx.xxx * 1 VOL yy.yyy *"""
+        parts = []
+        for c in configs:
+            if c.volume_unit == "UL":
+                vol_str = _BurstCommandFormatter.format_volume_ul(c.volume_ul)
+            else:
+                vol_str = _BurstCommandFormatter.format_volume_ml(c.volume_ul / 1000.0)
+            parts.append(f"{c.address} VOL {vol_str}")
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_run_command(configs: List[PumpBurstConfig]) -> str:
+        """Build run command: 0 RUN * 1 RUN *"""
+        parts = [f"{c.address} RUN" for c in configs]
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_stop_command(configs: List[PumpBurstConfig]) -> str:
+        """Build stop command: 0 STP * 1 STP *"""
+        parts = [f"{c.address} STP" for c in configs]
+        return " * ".join(parts) + " *"
+
+    @staticmethod
+    def build_verification_command(configs: List[PumpBurstConfig], param: str) -> str:
+        """
+        Build verification query for one parameter type.
+        
+        Args:
+            configs: List of pump configurations
+            param: Parameter to query (DIA, RAT, VOL, DIR)
+        """
+        parts = [f"{c.address} {param}" for c in configs]
+        return " * ".join(parts) + " *"
 
 
 class NE4000Pump:
@@ -1132,20 +1306,26 @@ class NE4000Pump:
 
         return ""
 
-    def _send_burst_command(self, command: str) -> str:
+    def _send_burst_command(self, command: str, check_errors: bool = True) -> str:
         """
         Send Network Command Burst (responses will be gibberish per manual).
 
         Args:
             command: Pre-formatted burst command (e.g., "0 RAT 60 MM * 1 RAT 30 MM *")
+            check_errors: If True, parse response for error indicators (default True)
 
         Returns:
             Raw response string (for logging only - content is gibberish)
+
+        Raises:
+            PumpCommandError: If response contains error indicators like ?OOR
 
         Note:
             Per NE-4000 manual page 44: "all of the pumps will be responding
             simultaneously, and therefore the communications response to a
             Network Command Burst will be gibberish and should be ignored."
+            
+            However, error indicators like ?OOR (out of range) can still be detected.
         """
         if not self.is_connected():
             raise PumpConnectionError("Not connected to pump")
@@ -1174,11 +1354,50 @@ class NE4000Pump:
 
                 logger.info(f"[Burst Mode] Response (gibberish): {response!r}")
 
+                # Check for error indicators in the response
+                if check_errors:
+                    self._check_burst_response_for_errors(command, response)
+
                 return response
 
+        except PumpCommandError:
+            raise  # Re-raise our own errors
         except Exception as e:
             logger.error(f"[Burst Mode] Command failed: {e}")
             raise PumpCommandError(f"Burst command failed: {e}")
+
+    def _check_burst_response_for_errors(self, command: str, response: str) -> None:
+        """
+        Check burst response for error indicators.
+        
+        Args:
+            command: The command that was sent
+            response: The raw response from the pump
+            
+        Raises:
+            PumpCommandError: If error indicators are detected
+        """
+        # Common error patterns in NE-4000 responses
+        # ?OOR = Out Of Range
+        # ? alone = Command error
+        # These can appear even in "gibberish" burst responses
+        
+        if "?OOR" in response or "OOR" in response:
+            logger.error(f"[Burst Mode] ❌ OUT OF RANGE error detected!")
+            logger.error(f"  Command: {command}")
+            logger.error(f"  Response: {response!r}")
+            raise PumpCommandError(
+                f"Pump returned OOR (Out Of Range) error. "
+                f"Check that rate/volume/diameter values are within pump limits. "
+                f"Command: {command}"
+            )
+        
+        # Check for standalone error indicator (? followed by non-alphanumeric)
+        # This is trickier because '?' can appear in gibberish
+        # Only flag if we see clear error pattern like "0S?" or similar
+        if "S?" in response and "S?O" not in response:
+            logger.warning(f"[Burst Mode] ⚠️ Possible command error detected: {response!r}")
+            # Don't raise - this might be false positive in gibberish
 
     def __enter__(self):
         """Context manager entry."""

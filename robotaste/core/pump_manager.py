@@ -19,16 +19,22 @@ Version: 1.0 (Session-persistent caching)
 """
 
 import logging
-from typing import Dict, Optional, Any, Tuple
+import time
+from typing import Dict, Optional, Any, Tuple, List
 from robotaste.hardware.pump_controller import (
     NE4000Pump,
     PumpConnectionError,
+    PumpBurstConfig,
+    SeparatedBurstCommandBuilder,
 )
 
 logger = logging.getLogger(__name__)
 
 # Global cache: {session_id: {ingredient: NE4000Pump}}
 _pump_cache: Dict[str, Dict[str, NE4000Pump]] = {}
+
+# Track which sessions have completed pump parameter initialization
+_pump_init_complete: Dict[str, bool] = {}
 
 
 def get_or_create_pumps(session_id: str, pump_config: Dict[str, Any]) -> Dict[str, NE4000Pump]:
@@ -244,6 +250,11 @@ def cleanup_pumps(session_id: str) -> None:
             logger.warning(f"  Error disconnecting pump {ingredient}: {e}")
 
     del _pump_cache[session_id]
+    
+    # Also clear init state
+    if session_id in _pump_init_complete:
+        del _pump_init_complete[session_id]
+    
     logger.info(f"Cleaned up pumps for session {session_id}")
 
 
@@ -316,3 +327,215 @@ def cleanup_all_pumps() -> None:
         cleanup_pumps(session_id)
 
     logger.info("All pumps cleaned up")
+
+
+def is_pump_initialized(session_id: str) -> bool:
+    """
+    Check if pump parameters have been initialized for a session.
+    
+    Args:
+        session_id: Session identifier
+        
+    Returns:
+        True if DIA/RAT/DIR/VOL unit have been configured
+    """
+    return _pump_init_complete.get(session_id, False)
+
+
+def _build_burst_configs(pump_config: Dict[str, Any]) -> List[PumpBurstConfig]:
+    """
+    Build PumpBurstConfig list from pump_config dictionary.
+    
+    Args:
+        pump_config: Pump configuration from protocol
+        
+    Returns:
+        List of PumpBurstConfig for burst command building
+    """
+    pump_configs = pump_config.get("pumps", [])
+    dispensing_rate = pump_config.get("dispensing_rate_ul_min", 2000)
+    
+    configs = []
+    for pump_cfg in pump_configs:
+        address = pump_cfg.get("address")
+        if address is None:
+            continue
+            
+        configs.append(PumpBurstConfig(
+            address=address,
+            rate_ul_min=dispensing_rate,
+            volume_ul=0,  # Will be set per-cycle
+            diameter_mm=pump_cfg.get("syringe_diameter_mm", 26.7),
+            volume_unit=pump_cfg.get("volume_unit", "ML"),
+            direction="INF"
+        ))
+    
+    return configs
+
+
+def initialize_pump_parameters(
+    session_id: str,
+    pump_config: Dict[str, Any],
+    command_delay: float = 0.3
+) -> bool:
+    """
+    Send one-time pump configuration (DIA, RAT, VOL unit, DIR).
+    
+    Called once per session when moderator clicks "Start Experiment".
+    Uses separated burst commands to ensure each parameter is applied correctly.
+    
+    Args:
+        session_id: Session identifier
+        pump_config: Pump configuration from protocol
+        command_delay: Delay between commands in seconds (default 0.3s)
+        
+    Returns:
+        True if initialization succeeded
+        
+    Raises:
+        PumpConnectionError: If pump connection fails
+    """
+    if _pump_init_complete.get(session_id, False):
+        logger.info(f"Pump parameters already initialized for session {session_id}")
+        return True
+    
+    logger.info(f"🔧 Initializing pump parameters for session {session_id}...")
+    
+    # Get or create pumps (this handles connection)
+    pumps = get_or_create_pumps(session_id, pump_config)
+    
+    if not pumps:
+        raise PumpConnectionError("No pumps available for initialization")
+    
+    # Use any pump to send burst commands (they share serial port)
+    any_pump = next(iter(pumps.values()))
+    
+    # Build burst configs
+    configs = _build_burst_configs(pump_config)
+    
+    if not configs:
+        raise ValueError("No pump configurations found")
+    
+    builder = SeparatedBurstCommandBuilder
+    
+    try:
+        # 1. Set diameters
+        logger.info(f"  📏 Setting diameters for {len(configs)} pumps...")
+        cmd = builder.build_diameter_command(configs)
+        any_pump._send_burst_command(cmd)
+        time.sleep(command_delay)
+        
+        # 2. Set rates
+        logger.info(f"  ⚡ Setting rates...")
+        cmd = builder.build_rate_command(configs)
+        any_pump._send_burst_command(cmd)
+        time.sleep(command_delay)
+        
+        # 3. Set volume units
+        logger.info(f"  📐 Setting volume units...")
+        cmd = builder.build_volume_unit_command(configs)
+        any_pump._send_burst_command(cmd)
+        time.sleep(command_delay)
+        
+        # 4. Set directions
+        logger.info(f"  ➡️ Setting directions...")
+        cmd = builder.build_direction_command(configs)
+        any_pump._send_burst_command(cmd)
+        time.sleep(command_delay)
+        
+        # 5. Verify settings
+        logger.info(f"  🔍 Verifying parameters...")
+        verify_cmd = builder.build_verification_command(configs, "DIA")
+        any_pump._send_burst_command(verify_cmd)
+        time.sleep(command_delay)
+        
+        verify_cmd = builder.build_verification_command(configs, "RAT")
+        any_pump._send_burst_command(verify_cmd)
+        
+        # Mark as initialized
+        _pump_init_complete[session_id] = True
+        logger.info(f"✅ Pump parameters initialized successfully for session {session_id}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Pump initialization failed: {e}")
+        raise
+
+
+def send_volume_and_run(
+    session_id: str,
+    pump_config: Dict[str, Any],
+    volumes: Dict[str, float],
+    command_delay: float = 0.2
+) -> bool:
+    """
+    Send volume values and run command for a dispensing cycle.
+    
+    Called once per cycle after pump parameters are initialized.
+    Only sends VOL values and RUN command (DIA/RAT/DIR already set).
+    
+    Args:
+        session_id: Session identifier
+        pump_config: Pump configuration from protocol
+        volumes: Dict of {ingredient: volume_ul}
+        command_delay: Delay between commands in seconds
+        
+    Returns:
+        True if commands sent successfully
+    """
+    if session_id not in _pump_cache:
+        raise PumpConnectionError(f"No pumps cached for session {session_id}")
+    
+    pumps = _pump_cache[session_id]
+    any_pump = next(iter(pumps.values()))
+    
+    # Build configs with actual volumes
+    pump_configs = pump_config.get("pumps", [])
+    dispensing_rate = pump_config.get("dispensing_rate_ul_min", 2000)
+    
+    configs = []
+    for pump_cfg in pump_configs:
+        ingredient = pump_cfg.get("ingredient")
+        address = pump_cfg.get("address")
+        
+        if address is None or ingredient is None:
+            continue
+            
+        volume_ul = volumes.get(ingredient, 0)
+        if volume_ul < 0.001:  # Skip ~0 volumes
+            continue
+            
+        configs.append(PumpBurstConfig(
+            address=address,
+            rate_ul_min=dispensing_rate,
+            volume_ul=volume_ul,
+            diameter_mm=pump_cfg.get("syringe_diameter_mm", 26.7),
+            volume_unit=pump_cfg.get("volume_unit", "ML"),
+            direction="INF"
+        ))
+    
+    if not configs:
+        logger.warning("No volumes to dispense (all ~0)")
+        return True
+    
+    builder = SeparatedBurstCommandBuilder
+    
+    # 1. Set volumes
+    logger.info(f"  💧 Setting volumes for {len(configs)} pumps...")
+    cmd = builder.build_volume_value_command(configs)
+    any_pump._send_burst_command(cmd)
+    time.sleep(command_delay)
+    
+    # 2. Verify volumes
+    logger.info(f"  🔍 Verifying volumes...")
+    verify_cmd = builder.build_verification_command(configs, "VOL")
+    any_pump._send_burst_command(verify_cmd)
+    time.sleep(command_delay)
+    
+    # 3. Run
+    logger.info(f"  🚀 Starting pumps...")
+    cmd = builder.build_run_command(configs)
+    any_pump._send_burst_command(cmd)
+    
+    return True
