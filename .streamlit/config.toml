@@ -13,6 +13,12 @@ enableXsrfProtection = false
 maxUploadSize = 200
 maxMessageSize = 200
 enableWebsocketCompression = false
+runOnSave = false
+fastReruns = true
+
+[runner]
+magicEnabled = false
+fastReruns = true
 
 [browser]
 gatherUsageStats = false

@@ -66,7 +66,9 @@ def get_base_url() -> str:
     """
     Automatically detect the base URL based on the deployment environment.
 
-    Checks for:
+    Checks for (in order):
+    - Stored ngrok URL from launcher (highest priority)
+    - ngrok tunnel (via HTTP headers)
     - Streamlit Cloud deployment (streamlit.app)
     - Local development (localhost with port)
 
@@ -76,8 +78,45 @@ def get_base_url() -> str:
     try:
         import streamlit as st
         import socket
+        from pathlib import Path
 
-        # Check if we're on Streamlit Cloud by examining the hostname
+        # FIRST: Check if launcher saved an ngrok URL to file
+        # This ensures QR codes always use ngrok even when accessing via localhost
+        try:
+            ngrok_file = Path(".ngrok_url")
+            if ngrok_file.exists():
+                stored_url = ngrok_file.read_text().strip()
+                if stored_url:
+                    logger.debug(f"Using stored ngrok URL: {stored_url}")
+                    return stored_url
+        except Exception as e:
+            logger.debug(f"Could not read ngrok URL file: {e}")
+
+        # SECOND: Check HTTP headers for ngrok or reverse proxy
+        # This works when directly accessing via ngrok URL
+        try:
+            headers = st.context.headers
+            # ngrok and reverse proxies set forwarding headers
+            host = (
+                headers.get("X-Forwarded-Host", "") or
+                headers.get("X-Original-Host", "") or
+                headers.get("Host", "")
+            )
+            proto = headers.get("X-Forwarded-Proto", "")
+            
+            if host and ("ngrok" in host or "ngrok-free.app" in host):
+                # ngrok detected via headers
+                return f"https://{host}"
+            elif host and proto:
+                # Other reverse proxy with protocol header
+                return f"{proto}://{host}"
+            elif host and not host.startswith("localhost") and not host.startswith("127.0.0.1"):
+                # Non-localhost host (e.g., LAN IP)
+                return f"http://{host}"
+        except Exception as e:
+            logger.debug(f"Could not read headers: {e}")
+
+        # THIRD: Check if we're on Streamlit Cloud by examining the hostname
         hostname = socket.gethostname()
 
         # Check if running on streamlit.app (cloud deployment)
@@ -87,7 +126,7 @@ def get_base_url() -> str:
         ):
             return "https://robotaste.streamlit.app"
 
-        # For local development, try to get the actual server address and port
+        # FOURTH: For local development, try to get the actual server address and port
         server_port = st.get_option("server.port")
         server_address = st.get_option("browser.serverAddress")
 
@@ -440,3 +479,11 @@ def display_subject_access_section(session_code: str, base_url: Optional[str] = 
         st.caption(
             "Subjects can scan the QR code or click the link to join the experiment."
         )
+        
+        # Debug toggle for troubleshooting URL detection
+        if st.checkbox("🔧 Debug headers", value=False, key=f"debug_headers_{session_code}"):
+            try:
+                headers = st.context.headers
+                st.json(dict(headers))
+            except Exception as e:
+                st.error(f"Could not get headers: {e}")

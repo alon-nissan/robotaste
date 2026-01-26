@@ -942,7 +942,17 @@ def subject_interface():
             # Only execute if no existing operation (fresh entry to phase)
             if existing_operation is None:
                 # Get loading screen configuration
-                from robotaste.utils.ui_helpers import get_loading_screen_config
+                from robotaste.utils.ui_helpers import (
+                    get_loading_screen_config,
+                    render_cycle_info,
+                    render_loading_message,
+                    init_async_progress,
+                    complete_async_progress,
+                )
+                from robotaste.core.pump_integration import (
+                    execute_pumps_synchronously,
+                    get_pump_operation_duration,
+                )
 
                 loading_config = get_loading_screen_config(protocol)
 
@@ -952,57 +962,41 @@ def subject_interface():
                     stopping_criteria = protocol.get("stopping_criteria", {})
                     total_cycles = stopping_criteria.get("max_cycles")
 
-                # Display cycle information
+                # Display cycle information with unified styling
                 if loading_config.get("show_cycle_info", True):
-                    if total_cycles:
-                        st.markdown(
-                            f"<div style='text-align: center; font-size: 3rem; "
-                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
-                            f"Cycle {cycle_num} of {total_cycles}</div>",
-                            unsafe_allow_html=True
-                        )
-                    else:
-                        st.markdown(
-                            f"<div style='text-align: center; font-size: 3rem; "
-                            f"font-weight: 600; color: #1f77b4; margin-top: 3rem;'>"
-                            f"Cycle {cycle_num}</div>",
-                            unsafe_allow_html=True
-                        )
+                    render_cycle_info(cycle_num, total_cycles)
 
-                # Display loading message
-                message = loading_config.get("message", "Rinse your mouth while the robot prepares the next sample.")
-                size_map = {
-                    "normal": "1.5rem",
-                    "large": "2.5rem",
-                    "extra_large": "3.5rem"
-                }
-                font_size = size_map.get(loading_config.get("message_size", "large"), "2.5rem")
+                # Display loading message with unified styling
+                message = loading_config.get(
+                    "message", "Rinse your mouth while the robot prepares the next sample."
+                )
+                message_size = loading_config.get("message_size", "large")
+                render_loading_message(message, message_size)
 
-                st.markdown(
-                    f"<div style='text-align: center; font-size: {font_size}; "
-                    f"font-weight: 500; color: #333; margin: 2rem 0; line-height: 1.4;'>"
-                    f"{message}</div>",
-                    unsafe_allow_html=True
+                # Get estimated duration for progress display
+                estimated_duration = get_pump_operation_duration(
+                    st.session_state.session_id, cycle_num
                 )
 
-                # Execute pumps synchronously with spinner
-                from robotaste.core.pump_integration import execute_pumps_synchronously
+                # Initialize progress display (matches LOADING phase styling)
+                progress_containers = init_async_progress(
+                    estimated_duration=estimated_duration,
+                    show_progress=loading_config.get("show_progress", True),
+                )
 
-                with st.spinner("🤖 Robot is preparing your sample..."):
-                    result = execute_pumps_synchronously(
-                        session_id=st.session_state.session_id,
-                        cycle_number=cycle_num,
-                        streamlit_container=None,  # Disable UI logging
-                    )
+                # Execute pumps (synchronous - blocks until complete)
+                result = execute_pumps_synchronously(
+                    session_id=st.session_state.session_id,
+                    cycle_number=cycle_num,
+                    streamlit_container=None,  # Disable UI logging
+                )
+
+                # Show completion state
+                complete_async_progress(progress_containers)
+                time.sleep(1)  # Brief pause to show "✓ Ready"
 
                 # Check result
                 if result["success"]:
-                    # Show brief success message
-                    st.success(
-                        f"✅ Sample prepared successfully in {result['duration']:.1f}s"
-                    )
-                    time.sleep(1)  # Brief pause to show success
-
                     # Transition to next phase
                     transition_to_next_phase(
                         current_phase_str=current_phase_str,

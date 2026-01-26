@@ -2,9 +2,10 @@
 RoboTaste UI Helper Functions
 
 Utility functions for Streamlit UI operations.
+Provides reusable styling components for loading screens and cycle displays.
 
 Author: RoboTaste Team
-Version: 3.0 (Refactored Architecture)
+Version: 3.1 (Unified Loading Screen Styling)
 """
 
 import streamlit as st
@@ -91,10 +92,74 @@ def _render_progress_bar(container, duration_seconds: int) -> None:
     progress_bar.progress(1.0)
 
 
+def render_cycle_info(cycle_number: int, total_cycles: Optional[int] = None) -> None:
+    """
+    Render cycle information display with clean, scientific styling.
+    Matches the aesthetic of render_loading_screen.
+
+    Args:
+        cycle_number: Current cycle number (1-indexed)
+        total_cycles: Total number of cycles (optional)
+    """
+    if total_cycles:
+        st.markdown(
+            f"""
+            <div style='text-align: center; font-size: 3rem;
+            font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+            letter-spacing: 0.05em;'>
+            Cycle <span style='font-weight: 600;'>{cycle_number}</span> of {total_cycles}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f"""
+            <div style='text-align: center; font-size: 3rem;
+            font-weight: 300; color: #2C3E50; margin: 4rem 0 2rem 0;
+            letter-spacing: 0.05em;'>
+            Cycle <span style='font-weight: 600;'>{cycle_number}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+def render_loading_message(message: str, size: str = "large") -> None:
+    """
+    Render loading message with appropriate sizing.
+    Matches clean, scientific aesthetic of reference site.
+
+    Args:
+        message: Message text to display
+        size: Size setting ("normal", "large", "extra_large")
+    """
+    size_map = {
+        "normal": "1.5rem",
+        "large": "2rem",
+        "extra_large": "2.5rem"
+    }
+
+    font_size = size_map.get(size, "2rem")
+
+    st.markdown(
+        f"""
+        <div style='text-align: center; font-size: {font_size};
+        font-weight: 400; color: #34495E; margin: 3rem auto;
+        max-width: 700px; line-height: 1.8; padding: 2rem;
+        background: #F8F9FA; border-radius: 8px;
+        border-left: 4px solid #521924;'>
+        {message}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 def _render_loading_message(container, message: str, size: str) -> None:
     """
-    Helper to render loading message with appropriate sizing.
-    Matches clean, scientific aesthetic of reference site.
+    DEPRECATED: Use render_loading_message() instead.
+    Helper to render loading message with appropriate sizing in a container.
 
     Args:
         container: Streamlit container to render in
@@ -228,6 +293,130 @@ def render_loading_screen(
         else:
             # Just sleep without progress bar
             time.sleep(duration_seconds)
+
+
+def init_async_progress(
+    estimated_duration: Optional[float] = None,
+    show_progress: bool = True,
+) -> Dict[str, Any]:
+    """
+    Initialize non-blocking progress display for ROBOT_PREPARING phase.
+    
+    Returns container handles that can be updated during pump execution.
+    Uses same styling as render_loading_screen() for visual consistency.
+    
+    Args:
+        estimated_duration: Estimated time in seconds (None for indeterminate)
+        show_progress: Whether to show progress bar
+        
+    Returns:
+        Dict with:
+            - progress_container: st.empty() for progress bar
+            - time_container: st.empty() for time text
+            - estimated_duration: The estimated duration (or None)
+    """
+    result = {
+        "progress_container": None,
+        "time_container": None,
+        "estimated_duration": estimated_duration,
+    }
+    
+    if show_progress:
+        st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+        result["progress_container"] = st.empty()
+        result["time_container"] = st.empty()
+        
+        # Initial state
+        if estimated_duration:
+            result["progress_container"].progress(0.0)
+            remaining = int(estimated_duration)
+            result["time_container"].markdown(
+                f"""
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                ~{remaining} seconds remaining
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            # Indeterminate mode - show spinner-like message
+            result["progress_container"].progress(0.0)
+            result["time_container"].markdown(
+                """
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                Preparing sample...
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    
+    return result
+
+
+def update_async_progress(
+    containers: Dict[str, Any],
+    elapsed_seconds: float,
+) -> None:
+    """
+    Update progress display during pump execution.
+    
+    Args:
+        containers: Dict returned from init_async_progress()
+        elapsed_seconds: Time elapsed since pump started
+    """
+    if not containers.get("progress_container"):
+        return
+        
+    estimated = containers.get("estimated_duration")
+    progress_container = containers["progress_container"]
+    time_container = containers["time_container"]
+    
+    if estimated:
+        # Estimated mode - show countdown
+        progress = min(elapsed_seconds / estimated, 0.95)  # Cap at 95% until complete
+        remaining = max(0, int(estimated - elapsed_seconds))
+        
+        progress_container.progress(progress)
+        
+        if remaining > 0:
+            time_container.markdown(
+                f"""
+                <div style='text-align: center; font-size: 1.25rem;
+                color: #7F8C8D; margin-top: 1rem; font-weight: 300;'>
+                ~{remaining} seconds remaining
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        # Indeterminate mode - pulse between 0.3 and 0.7
+        import math
+        pulse = 0.3 + 0.4 * (0.5 + 0.5 * math.sin(elapsed_seconds * 2))
+        progress_container.progress(pulse)
+
+
+def complete_async_progress(containers: Dict[str, Any]) -> None:
+    """
+    Show completion state for progress display.
+    
+    Args:
+        containers: Dict returned from init_async_progress()
+    """
+    if not containers.get("progress_container"):
+        return
+        
+    containers["progress_container"].progress(1.0)
+    containers["time_container"].markdown(
+        """
+        <div style='text-align: center; font-size: 1.25rem;
+        color: #27AE60; margin-top: 1rem; font-weight: 400;'>
+        ✓ Ready
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 def get_concentration_display(x: float, y: float, method: str) -> Dict[str, Any]:
