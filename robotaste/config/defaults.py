@@ -13,6 +13,8 @@ Version: 3.0 (Refactored Architecture)
 from typing import Dict, List, Any, Optional
 import logging
 
+from robotaste.utils.safe_eval import safe_eval_expression
+
 logger = logging.getLogger(__name__)
 
 
@@ -504,8 +506,8 @@ def extract_target_variable(
         # Handle composite targets (weighted combinations)
         if target_variable == "composite":
             formula = target_config["formula"]
-            # Safely evaluate formula with response values
-            target_value = eval(formula, {"__builtins__": {}}, response)
+            # Safely evaluate formula with response values using safe_eval
+            target_value = safe_eval_expression(formula, response)
         else:
             # Simple single-variable target
             target_value = response.get(target_variable)

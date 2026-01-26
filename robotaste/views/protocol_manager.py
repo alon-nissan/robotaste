@@ -14,6 +14,8 @@ import uuid
 import json
 from datetime import datetime
 
+from robotaste.utils.html_sanitizer import sanitize_html
+
 # Backend and component imports
 from robotaste.data.protocol_repo import (
     list_protocols,
@@ -87,16 +89,20 @@ def protocol_selection_screen():
         st.session_state.selected_protocol_id = selected_id
 
         # Clean protocol card with key information
+        # Sanitize user-provided content to prevent XSS
+        protocol_name = sanitize_html(selected_protocol['name'])
+        protocol_desc = sanitize_html(selected_protocol.get('description', 'No description provided.'))
+        
         st.markdown(
             f"""
             <div style='background: #F8F9FA; padding: 1.5rem;
             border-radius: 8px; border-left: 4px solid #521924;
             margin: 1.5rem 0;'>
                 <h3 style='margin: 0 0 0.5rem 0; font-weight: 400;
-                color: #2C3E50;'>{selected_protocol['name']}</h3>
+                color: #2C3E50;'>{protocol_name}</h3>
                 <p style='margin: 0; color: #7F8C8D;
                 font-size: 0.95rem; line-height: 1.6;'>
-                {selected_protocol.get('description', 'No description provided.')}
+                {protocol_desc}
                 </p>
             </div>
             """,

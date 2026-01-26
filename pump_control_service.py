@@ -209,7 +209,15 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
     """
     operation_id = operation['id']
     recipe_json = operation['recipe_json']
-    recipe = json.loads(recipe_json)
+    
+    # Parse JSON with error handling to prevent service crashes
+    try:
+        recipe = json.loads(recipe_json)
+    except json.JSONDecodeError as e:
+        error_msg = f"Invalid recipe JSON for operation {operation_id}: {e}"
+        logger.error(error_msg)
+        mark_operation_failed(operation_id, db_path, error_msg)
+        raise ValueError(error_msg)
 
     logger.info(f"Starting operation {operation_id}: {recipe}")
 
@@ -298,8 +306,8 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
             for ingredient, pump, volume_ul in pump_info:
                 try:
                     pump.stop()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to stop pump for {ingredient} during cleanup: {e}")
             error_summary = "; ".join(errors)
             raise Exception(f"Failed to start pumps: {error_summary}")
 
@@ -376,8 +384,8 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                 # Stop pump for safety
                 try:
                     pump.stop()
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to stop pump for {ingredient} during error recovery: {e}")
 
     # Check if any errors occurred
     if errors:
