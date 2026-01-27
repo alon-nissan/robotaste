@@ -1690,3 +1690,72 @@ def cleanup_orphaned_sessions(max_age_minutes: int = 30) -> int:
     except Exception as e:
         logger.error(f"Failed to cleanup orphaned sessions: {e}")
         return 0
+
+
+def save_custom_phase_data(session_id: str, phase_id: str, data: Dict[str, Any]) -> bool:
+    """
+    Save custom phase data (survey responses, etc.) to database.
+    
+    Stores data in session's experiment_config under "custom_phase_data" key.
+    This allows custom phase responses to be associated with the session
+    without requiring schema changes.
+    
+    Args:
+        session_id: Session UUID
+        phase_id: Custom phase identifier
+        data: Phase data to save (will be JSON serialized)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get current experiment_config
+            cursor.execute(
+                "SELECT experiment_config FROM sessions WHERE session_id = ?",
+                (session_id,)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                logger.error(f"Session {session_id} not found")
+                return False
+            
+            # Parse existing config
+            config_json = row["experiment_config"]
+            config = json.loads(config_json) if config_json else {}
+            
+            # Add custom phase data
+            if "custom_phase_data" not in config:
+                config["custom_phase_data"] = {}
+            
+            config["custom_phase_data"][phase_id] = {
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Save back to database
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET experiment_config = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+                """,
+                (json.dumps(config), session_id)
+            )
+            
+            conn.commit()
+            
+            logger.info(
+                f"Session {session_id}: Saved custom phase data for {phase_id}"
+            )
+            return True
+    
+    except Exception as e:
+        logger.error(
+            f"Failed to save custom phase data for {session_id}/{phase_id}: {e}"
+        )
+        return False

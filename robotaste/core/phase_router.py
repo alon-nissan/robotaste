@@ -194,9 +194,8 @@ class PhaseRouter:
     
     def _render_custom_phase(self, phase_id: str, content: Dict[str, Any]) -> None:
         """Render a custom phase from protocol configuration."""
-        # TODO: Will be implemented in Task 3.1
-        st.info(f"Custom phase rendering coming soon: {phase_id}")
-        st.session_state.phase_complete = True
+        from robotaste.views.phases.custom.custom_phase import render_custom_phase
+        render_custom_phase(phase_id, content, self.session_id)
     
     def _handle_loop_entry(self, loop_phase_id: str) -> None:
         """

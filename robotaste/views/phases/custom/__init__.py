@@ -14,5 +14,6 @@ Author: AI Agent
 Date: 2026-01-27
 """
 
-# Custom phase renderer will be imported when created
-# from .custom_phase import render_custom_phase
+from .custom_phase import render_custom_phase
+
+__all__ = ['render_custom_phase']
