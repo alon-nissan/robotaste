@@ -196,6 +196,9 @@ class PhaseRouter:
         """Render a custom phase from protocol configuration."""
         from robotaste.views.phases.custom.custom_phase import render_custom_phase
         render_custom_phase(phase_id, content, self.session_id)
+        
+        # Add navigation controls
+        self._render_phase_navigation(phase_id)
     
     def _handle_loop_entry(self, loop_phase_id: str) -> None:
         """

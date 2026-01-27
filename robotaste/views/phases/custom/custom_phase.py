@@ -300,9 +300,9 @@ def render_survey_phase(phase_id: str, content: Dict[str, Any], session_id: str)
         if submitted:
             # Validate required fields
             all_valid = True
-            for question in questions:
+            for i, question in enumerate(questions):
                 if question.get("required", True):
-                    q_id = question.get("id", f"q{questions.index(question)}")
+                    q_id = question.get("id", f"q{i}")
                     response = responses.get(q_id)
                     
                     # Check if response is empty
@@ -354,9 +354,9 @@ def render_break_phase(phase_id: str, content: Dict[str, Any]) -> None:
     message = content.get("message", "Please take a short break.")
     duration_seconds = content.get("duration_seconds")
     
-    if not duration_seconds:
-        st.error("Break duration not specified")
-        logger.error(f"Break phase {phase_id} missing duration_seconds")
+    if not duration_seconds or duration_seconds <= 0:
+        st.error("Break duration must be greater than 0")
+        logger.error(f"Break phase {phase_id} has invalid duration: {duration_seconds}")
         return
     
     st.info(message)

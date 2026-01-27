@@ -56,7 +56,9 @@ class TestSaveCustomPhaseData:
     @pytest.fixture
     def temp_db(self):
         """Create a temporary database for testing."""
-        test_db = tempfile.mktemp(suffix='.db')
+        fd, test_db = tempfile.mkstemp(suffix='.db')
+        os.close(fd)  # Close file descriptor, we'll use the path
+        
         original_db = db_module.DB_PATH
         db_module.DB_PATH = test_db
         
