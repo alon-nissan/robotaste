@@ -5,8 +5,10 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 
 ## Quick Orientation
 - App entrypoint: `main_app.py` (Streamlit UI).
+- Experiment page: `pages/experiment.py` (dynamic phase rendering - NEW).
 - Pump daemon: `pump_control_service.py` (hardware-connected machine).
 - State machine: `robotaste/core/state_machine.py`.
+- Phase router: `robotaste/core/phase_router.py` (NEW - protocol-driven navigation).
 - DB: `robotaste.db` (SQLite); schema in `robotaste/data/schema.sql`.
 - Protocols: `robotaste/config/protocols.py` and `robotaste/config/protocol_schema.py`.
 
@@ -16,20 +18,22 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 | Task | Primary Files | Helper Files |
 |------|--------------|--------------|
 | Add protocol feature | `robotaste/config/protocols.py`, `robotaste/config/protocol_schema.py` | `robotaste/data/protocol_repo.py` |
-| Modify phase flow | `robotaste/core/state_machine.py`, `robotaste/core/phase_engine.py` | `robotaste/views/phase_utils.py` |
-| Change UI behavior | `robotaste/views/moderator.py` or `robotaste/views/subject.py` | `robotaste/components/`, `robotaste/views/moderator_views.py` |
+| Modify phase flow | `robotaste/core/phase_router.py`, `robotaste/core/phase_engine.py` | `robotaste/views/phases/builtin/*.py` |
+| Add new phase | `robotaste/views/phases/builtin/my_phase.py` (NEW) | `robotaste/core/phase_router.py` (register) |
+| Change UI behavior | `robotaste/views/moderator.py` or phase renderer files | `robotaste/components/`, `robotaste/views/moderator_views.py` |
 | Fix BO issues | `robotaste/core/bo_engine.py`, `robotaste/core/bo_integration.py` | `robotaste/core/bo_utils.py`, `robotaste/config/bo_config.py` |
 | Pump problems | `robotaste/hardware/pump_controller.py`, `robotaste/core/pump_manager.py` | `robotaste/core/pump_integration.py`, `robotaste/utils/pump_db.py` |
 | Database queries | `robotaste/data/database.py` (low-level SQL) | `robotaste/data/session_repo.py`, `robotaste/data/protocol_repo.py` |
-| Questionnaire changes | `robotaste/views/questionnaire.py`, `robotaste/config/questionnaire.py` | `robotaste/data/database.py` (save logic) |
+| Questionnaire changes | `robotaste/views/phases/builtin/questionnaire.py` (NEW) | `robotaste/data/database.py` (save logic) |
 
 ### By Component
-- **Entry points**: `main_app.py` (UI), `pump_control_service.py` (daemon)
+- **Entry points**: `main_app.py` (UI), `pages/experiment.py` (NEW - subject experiments), `pump_control_service.py` (daemon)
+- **Phase system**: `robotaste/core/phase_router.py` (NEW - routing), `robotaste/views/phases/` (NEW - renderers)
 - **State management**: `robotaste/core/state_machine.py` (validation), `robotaste/core/phase_engine.py` (sequencing)
 - **Data layer**: `robotaste/data/database.py` (low-level SQL), `robotaste/data/session_repo.py` (business logic)
 - **Hardware**: `robotaste/hardware/pump_controller.py` (serial), `robotaste/core/pump_manager.py` (caching)
 - **Trials**: `robotaste/core/trials.py` (BO suggestions, sample tracking)
-- **Views**: `robotaste/views/moderator.py` (moderator UI), `robotaste/views/subject.py` (subject UI)
+- **Views**: `robotaste/views/moderator.py` (moderator UI), `robotaste/views/subject.py` (DEPRECATED - use phases/)
 - **Components**: `robotaste/components/` (reusable UI widgets)
 
 ## Build / Run Commands
@@ -164,3 +168,138 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 ## If You Need More Context
 - Read `CLAUDE.md` for repo-specific constraints and instructions.
 - Search for similar implementations in `robotaste/core/` and `robotaste/views/`.
+
+## Multipage Architecture (NEW - Jan 2026)
+
+### Overview
+RoboTaste now uses a modular phase system where each experiment phase is a separate renderer function. This replaces the monolithic `subject.py` approach.
+
+### Phase Development
+
+To add a new builtin phase:
+
+1. **Create phase file**: `robotaste/views/phases/builtin/my_phase.py`
+
+```python
+import streamlit as st
+from typing import Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+
+def render_my_phase(session_id: str, protocol: Dict[str, Any]) -> None:
+    """
+    Render my custom phase.
+    
+    Args:
+        session_id: Session UUID
+        protocol: Full protocol dictionary
+    """
+    st.title("My Phase")
+    
+    # Get configuration from protocol
+    config = protocol.get("my_phase_config", {})
+    
+    # Render UI
+    st.write("Phase content here")
+    
+    # Handle completion
+    if st.button("Continue"):
+        # Save data if needed
+        # ...
+        
+        # Mark phase complete (REQUIRED)
+        st.session_state.phase_complete = True
+        logger.info(f"Session {session_id}: My phase completed")
+```
+
+2. **Register in PhaseRouter**: Update `robotaste/core/phase_router.py`
+
+```python
+def _register_builtin_phases(self) -> None:
+    from robotaste.views.phases.builtin.my_phase import render_my_phase
+    
+    self._builtin_renderers = {
+        # ... existing phases ...
+        "my_phase": render_my_phase,
+    }
+```
+
+3. **Update protocol**: Add phase to protocol's `phase_sequence`
+
+```json
+{
+  "phase_sequence": {
+    "phases": [
+      {"phase_id": "my_phase", "phase_type": "builtin"}
+    ]
+  }
+}
+```
+
+### Phase Renderer Rules
+
+✅ **DO:**
+- Use signature: `def render_phase(session_id: str, protocol: Dict[str, Any]) -> None`
+- Set `st.session_state.phase_complete = True` when phase is done
+- Extract configuration from `protocol` dict
+- Add logging for debugging
+- Handle errors gracefully
+
+❌ **DON'T:**
+- Call `st.rerun()` directly (PhaseRouter handles navigation)
+- Modify database phase directly (PhaseRouter does this)
+- Create global state (use st.session_state)
+- Hard-code values (use protocol configuration)
+
+### Custom Phases
+
+Custom phases are defined entirely in protocol JSON (no code changes needed):
+
+```json
+{
+  "phase_id": "welcome_video",
+  "phase_type": "custom",
+  "content": {
+    "type": "media",
+    "title": "Welcome",
+    "media_type": "video",
+    "media_url": "https://example.com/intro.mp4"
+  }
+}
+```
+
+Supported types: `text`, `media`, `survey`, `break`
+
+### Architecture Flow
+
+```
+User visits: /experiment?session=ABC&role=subject
+    ↓
+pages/experiment.py validates session
+    ↓
+PhaseRouter initializes with protocol
+    ↓
+PhaseRouter.render_phase(current_phase)
+    ↓
+Routes to appropriate renderer (builtin or custom)
+    ↓
+Renderer displays UI and sets phase_complete
+    ↓
+PhaseRouter navigation advances to next phase
+```
+
+### Key Files
+
+- `pages/experiment.py` - Entry point for experiments
+- `robotaste/core/phase_router.py` - Routing and navigation logic
+- `robotaste/views/phases/builtin/*.py` - Builtin phase renderers
+- `robotaste/views/phases/custom/custom_phase.py` - Custom phase rendering
+
+### Migration Notes
+
+- `robotaste/views/subject.py` is **DEPRECATED** - use phase renderers instead
+- Subjects are automatically redirected to `pages/experiment.py`
+- All existing protocols work without modification
+- See `docs/MULTIPAGE_MIGRATION.md` for full details
+

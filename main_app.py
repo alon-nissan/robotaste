@@ -261,7 +261,8 @@ def main():
         scroll_to_top_on_phase_change()
         
         if role == "subject":
-            subject_interface()
+            # NEW: Redirect subjects to the new dynamic experiment page
+            st.switch_page("pages/experiment.py")
         elif role == "moderator":
             moderator_interface()
 
