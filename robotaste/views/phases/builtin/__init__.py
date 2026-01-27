@@ -18,11 +18,16 @@ Author: AI Agent
 Date: 2026-01-27
 """
 
-# Renderers will be imported as they are created
-# from .consent import render_consent
+# Renderers imported as they are created
+from .consent import render_consent
 # from .selection import render_selection
 # from .questionnaire import render_questionnaire
 # from .loading import render_loading
 # from .robot_preparing import render_robot_preparing
 # from .registration import render_registration
 # from .completion import render_completion
+
+__all__ = [
+    'render_consent',
+    # Add more as they are created
+]

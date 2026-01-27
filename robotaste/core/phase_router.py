@@ -58,8 +58,12 @@ class PhaseRouter:
     
     def _register_builtin_phases(self) -> None:
         """Register all builtin phase renderer functions."""
-        # TODO: Import will be added as phase renderers are created in Task 2.x
-        pass
+        from robotaste.views.phases.builtin.consent import render_consent
+        
+        self._builtin_renderers = {
+            "consent": render_consent,
+            # More will be added in subsequent tasks
+        }
     
     def render_phase(self, phase_id: str) -> None:
         """
