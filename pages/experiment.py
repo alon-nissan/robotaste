@@ -22,8 +22,9 @@ Date: 2026-01-27
 import streamlit as st
 import logging
 import time
+import uuid
 from robotaste.core.phase_router import PhaseRouter
-from robotaste.data.database import get_session_protocol, get_session_phase, get_session_by_code
+from robotaste.data.database import get_session_protocol, get_session_phase, get_session_by_code, create_user
 from robotaste.data.session_repo import sync_session_state_to_streamlit
 
 logger = logging.getLogger(__name__)
@@ -89,12 +90,55 @@ def setup_session_state(session_id: str, role: str) -> None:
         session_id: Session UUID
         role: "moderator" or "subject"
     """
+    # For subjects, ensure participant UUID exists BEFORE sync
+    # This handles the case where participant was lost during st.switch_page()
+    if role == "subject":
+        _ensure_subject_participant(session_id)
+    
     # Sync from database
     sync_session_state_to_streamlit(session_id, role)
     
     # Ensure required keys exist
     if "phase_complete" not in st.session_state:
         st.session_state.phase_complete = False
+
+
+def _ensure_subject_participant(session_id: str) -> None:
+    """
+    Ensure subject has a participant UUID, generating one if needed.
+    
+    Deduplication logic (in order of precedence):
+    1. Database user_id - participant already registered, use it
+    2. Session state participant - already generated this browser session, keep it
+    3. Generate new UUID - first time accessing this session
+    
+    Args:
+        session_id: Session UUID
+    """
+    # Check if session state already has participant
+    current_participant = st.session_state.get("participant")
+    if current_participant:
+        logger.debug(f"Session {session_id}: Using existing participant {current_participant} from session state")
+        return
+    
+    # Check if database has user_id (participant already registered)
+    session_info = get_session_by_code(st.query_params.get("session", ""))
+    if session_info and session_info.get("user_id"):
+        db_user_id = session_info["user_id"]
+        st.session_state.participant = db_user_id
+        logger.info(f"Session {session_id}: Restored participant {db_user_id} from database")
+        return
+    
+    # Generate new participant UUID (first time accessing)
+    new_user_id = str(uuid.uuid4())
+    
+    # Create user record in database
+    if create_user(new_user_id):
+        st.session_state.participant = new_user_id
+        logger.info(f"Session {session_id}: Created new participant {new_user_id}")
+    else:
+        logger.error(f"Session {session_id}: Failed to create user record for {new_user_id}")
+        st.error("Failed to initialize participant. Please refresh the page.")
 
 
 def render_logo() -> None:
