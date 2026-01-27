@@ -413,6 +413,35 @@ def update_current_phase(session_id: str, phase: str) -> bool:
         return False
 
 
+def get_session_phase(session_id: str) -> Optional[str]:
+    """
+    Get current phase for a session.
+
+    Args:
+        session_id: Session UUID
+
+    Returns:
+        Current phase string or None if session not found
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT current_phase
+                FROM sessions
+                WHERE session_id = ?
+            """,
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            return row["current_phase"] if row else None
+
+    except Exception as e:
+        logger.error(f"Failed to get current phase: {e}")
+        return None
+
+
 def get_current_cycle(session_id: str) -> int:
     """
     Get current cycle number from experiment_config.
