@@ -96,7 +96,7 @@ def render_questionnaire(session_id: str, protocol: Dict[str, Any]) -> None:
             )
             st.warning("Please wait for sample to be prepared...")
             time.sleep(1)
-            st.rerun()
+            st.stop()  # Stop execution, will retry on next render
             return
         
         try:

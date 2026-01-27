@@ -67,7 +67,7 @@ def render_selection(session_id: str, protocol: Dict[str, Any]) -> None:
             "Session not fully configured. Waiting for moderator to start the trial..."
         )
         time.sleep(2)
-        st.rerun()
+        st.stop()  # Stop execution, will retry on next render
         return
     
     # Get experiment settings
