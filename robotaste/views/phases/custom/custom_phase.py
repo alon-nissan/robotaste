@@ -15,7 +15,6 @@ import streamlit as st
 import logging
 import time
 from typing import Dict, Any
-from datetime import datetime, timedelta
 from robotaste.data.database import save_custom_phase_data
 
 logger = logging.getLogger(__name__)
@@ -117,7 +116,6 @@ def render_text_phase(phase_id: str, content: Dict[str, Any]) -> None:
     st.markdown("---")
     if st.button("Continue", type="primary", use_container_width=True):
         st.session_state.phase_complete = True
-        st.rerun()
 
 
 def render_media_phase(phase_id: str, content: Dict[str, Any]) -> None:
@@ -168,7 +166,6 @@ def render_media_phase(phase_id: str, content: Dict[str, Any]) -> None:
     st.markdown("---")
     if st.button("Continue", type="primary", use_container_width=True):
         st.session_state.phase_complete = True
-        st.rerun()
 
 
 def render_survey_phase(phase_id: str, content: Dict[str, Any], session_id: str) -> None:
@@ -323,7 +320,6 @@ def render_survey_phase(phase_id: str, content: Dict[str, Any], session_id: str)
                         logger.info(
                             f"Session {session_id}: Survey {phase_id} responses saved"
                         )
-                        st.rerun()
                     else:
                         st.error("Failed to save responses. Please try again.")
                         logger.error(
@@ -342,7 +338,8 @@ def render_break_phase(phase_id: str, content: Dict[str, Any]) -> None:
     Render timed break phase with countdown.
     
     Displays message and progress bar that counts down.
-    Auto-completes when timer expires.
+    Auto-completes when timer expires. Uses blocking sleep approach
+    similar to loading screen (no st.rerun).
     
     Args:
         phase_id: Phase identifier
@@ -364,41 +361,29 @@ def render_break_phase(phase_id: str, content: Dict[str, Any]) -> None:
     
     st.info(message)
     
-    # Initialize timer start time
-    timer_key = f"break_timer_start_{phase_id}"
-    if timer_key not in st.session_state:
-        st.session_state[timer_key] = datetime.now()
-        logger.info(
-            f"Break phase {phase_id}: Timer started for {duration_seconds}s"
-        )
+    logger.info(
+        f"Break phase {phase_id}: Starting {duration_seconds}s countdown"
+    )
     
-    start_time = st.session_state[timer_key]
-    elapsed = (datetime.now() - start_time).total_seconds()
-    remaining = max(0, duration_seconds - elapsed)
+    # Create containers for dynamic updates
+    progress_container = st.empty()
+    time_container = st.empty()
     
-    # Display countdown
-    if remaining > 0:
-        st.write(f"⏱️ Time remaining: **{int(remaining)}** seconds")
+    # Countdown loop (blocking)
+    for i in range(duration_seconds + 1):
+        remaining = duration_seconds - i
+        progress = i / duration_seconds
         
-        # Progress bar (inverted - starts full, empties)
-        progress = remaining / duration_seconds
-        st.progress(progress)
+        # Update progress bar
+        progress_container.progress(progress)
         
-        # Auto-refresh every second
-        time.sleep(1)
-        st.rerun()
+        # Update time remaining
+        if remaining > 0:
+            time_container.write(f"⏱️ Time remaining: **{remaining}** seconds")
+            time.sleep(1)
+        else:
+            time_container.success("✅ Break complete!")
     
-    else:
-        # Timer complete
-        st.success("✅ Break complete!")
-        st.session_state.phase_complete = True
-        
-        # Clean up timer state
-        if timer_key in st.session_state:
-            del st.session_state[timer_key]
-        
-        logger.info(f"Break phase {phase_id}: Timer complete")
-        
-        # Add manual continue button for user to acknowledge
-        if st.button("Continue", type="primary", use_container_width=True):
-            st.rerun()
+    # Mark complete (PhaseRouter will handle navigation)
+    st.session_state.phase_complete = True
+    logger.info(f"Break phase {phase_id}: Timer complete")
