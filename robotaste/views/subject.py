@@ -1,3 +1,25 @@
+"""
+⚠️ DEPRECATED: Subject Interface - Being Phased Out
+
+Subject interface has been migrated to pages/experiment.py with
+modular phase renderers in robotaste/views/phases/.
+
+This file is kept for backward compatibility during migration period.
+Moderator redirects subjects to pages/experiment.py automatically.
+
+See docs/MULTIPAGE_MIGRATION.md for details.
+
+Migration Date: 2026-01-27
+---
+"""
+
+import warnings
+warnings.warn(
+    "robotaste.views.subject is deprecated. Subjects are now routed to pages/experiment.py",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 from robotaste.components.canvas import (
     CANVAS_SIZE,
     get_canvas_size,
