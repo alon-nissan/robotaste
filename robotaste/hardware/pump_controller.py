@@ -590,10 +590,12 @@ class NE4000Pump:
 
         # Check if command was rejected
         if response == "S?":
-            logger.error(
+            error_msg = (
                 f"[Pump {self.address}] ❌ DIAMETER COMMAND REJECTED (S?) - "
                 f"Value {diameter_mm:.3f} mm may be out of range or invalid"
             )
+            logger.error(error_msg)
+            raise PumpCommandError(error_msg)
 
         # VERIFY: Query diameter back
         actual_diameter = self.get_diameter()
@@ -641,10 +643,12 @@ class NE4000Pump:
 
         # Check if command was rejected
         if response == "S?":
-            logger.error(
+            error_msg = (
                 f"[Pump {self.address}] ❌ RATE COMMAND REJECTED (S?) - "
                 f"Value {rate_str} {final_unit} may be out of range for configured syringe diameter"
             )
+            logger.error(error_msg)
+            raise PumpCommandError(error_msg)
 
         # Store rate in µL/min for time calculations (use converted values)
         # Need to convert the ORIGINAL rate value based on FINAL unit
@@ -737,10 +741,12 @@ class NE4000Pump:
 
         # Check if command was rejected
         if response == "S?":
-            logger.error(
+            error_msg = (
                 f"[Pump {self.address}] ❌ VOLUME COMMAND REJECTED (S?) - "
                 f"Value {volume_str} mL may be out of range"
             )
+            logger.error(error_msg)
+            raise PumpCommandError(error_msg)
 
         # VERIFY: Query volume back
         actual_volume_ml = self.get_volume()
