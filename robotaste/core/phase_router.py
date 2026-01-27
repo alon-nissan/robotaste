@@ -59,10 +59,21 @@ class PhaseRouter:
     def _register_builtin_phases(self) -> None:
         """Register all builtin phase renderer functions."""
         from robotaste.views.phases.builtin.consent import render_consent
+        from robotaste.views.phases.builtin.loading import render_loading
+        from robotaste.views.phases.builtin.robot_preparing import render_robot_preparing
+        from robotaste.views.phases.builtin.completion import render_completion
+        from robotaste.views.phases.builtin.registration import render_registration
+        from robotaste.views.phases.builtin.questionnaire import render_questionnaire
+        from robotaste.views.phases.builtin.selection import render_selection
         
         self._builtin_renderers = {
             "consent": render_consent,
-            # More will be added in subsequent tasks
+            "loading": render_loading,
+            "robot_preparing": render_robot_preparing,
+            "completion": render_completion,
+            "registration": render_registration,
+            "questionnaire": render_questionnaire,
+            "selection": render_selection,
         }
     
     def render_phase(self, phase_id: str) -> None:
