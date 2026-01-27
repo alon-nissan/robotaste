@@ -36,7 +36,9 @@ def landing_page():
                 sync_session_state(session_id, "subject")
                 st.success(f"Joined session {session_code}")
                 time.sleep(1)
-                st.rerun()
+                # Redirect directly to experiment page with query params
+                st.query_params.update({"session": session_code, "role": "subject"})
+                st.switch_page("pages/experiment.py")
             else:
                 st.error(f"Invalid or expired session code: {session_code}")
                 st.query_params.clear()
@@ -127,12 +129,13 @@ def landing_page():
                         st.session_state.session_id = session_id
                         st.session_state.session_code = input_session_code
                         st.session_state.device_role = "subject"
-                        st.query_params.update(
-                            {"role": "subject", "session": input_session_code}
-                        )
                         st.success(f"Joined session {input_session_code}")
                         time.sleep(1)
-                        st.rerun()
+                        # Redirect directly to experiment page with query params
+                        st.query_params.update(
+                            {"session": input_session_code, "role": "subject"}
+                        )
+                        st.switch_page("pages/experiment.py")
                     else:
                         st.error("Invalid or expired session code")
                 else:

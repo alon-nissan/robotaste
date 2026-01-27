@@ -163,7 +163,8 @@ def generate_session_urls(
 
     return {
         "moderator": f"{base_url}/?role=moderator&session={session_code}",
-        "subject": f"{base_url}/?role=subject&session={session_code}",
+        # Point directly to experiment page to avoid query param loss during st.switch_page
+        "subject": f"{base_url}/experiment?session={session_code}&role=subject",
     }
 
 

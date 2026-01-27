@@ -249,6 +249,8 @@ def main():
             session_id = join_session(session_code)
             if session_id:
                 sync_session_state(session_id, "subject")
+                # Ensure query params are set before redirecting to experiment page
+                st.query_params.update({"session": session_code, "role": "subject"})
             else:
                 # Invalid session, clear URL params
                 st.query_params.clear()

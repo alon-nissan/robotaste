@@ -102,8 +102,10 @@ def get_subject_url(session_code: str) -> str:
         logger.warning(f"Failed to detect host URL: {e}")
         base_url = "http://localhost:8501"
 
-    logger.debug(f"Generated subject URL: {base_url}/?role=subject&session={session_code}")
-    return f"{base_url}/?role=subject&session={session_code}"
+    # Point directly to experiment page to avoid query param loss during st.switch_page
+    subject_url = f"{base_url}/experiment?session={session_code}&role=subject"
+    logger.debug(f"Generated subject URL: {subject_url}")
+    return subject_url
 
 
 def debug_headers() -> dict:
