@@ -769,11 +769,18 @@ def init_session_state():
 
 
 def subject_interface():
-    # Render logo at the top of the view
-    from main_app import render_logo
-    render_logo()
-    
     init_session_state()
+    
+    # Only show logo for subjects in WAITING, CONSENT, and COMPLETE phases
+    current_phase_str = st.session_state.get("phase", "")
+    logo_phases = {
+        ExperimentPhase.WAITING.value,
+        ExperimentPhase.CONSENT.value,
+        ExperimentPhase.COMPLETE.value,
+    }
+    if current_phase_str in logo_phases:
+        from main_app import render_logo
+        render_logo()
 
     # Get current phase
     current_phase_str = st.session_state.get("phase")

@@ -2591,7 +2591,8 @@ def moderator_interface():
     from main_app import render_logo
     render_logo()
     
-    st.markdown(STYLE, unsafe_allow_html=True)
+    # Note: STYLE is already applied globally in main_app.py via apply_styles()
+    
     if "phase" not in st.session_state:
         # Recover phase from database on reload
         session = get_session(st.session_state.session_id)
