@@ -72,13 +72,62 @@ Moderator (Streamlit)          Database (SQLite)           Subject (Streamlit)  
 ```
 
 ### State Machine & Phase Flow
-Experiment progression is governed by `robotaste/core/state_machine.py` (`ExperimentStateMachine`):
 
-**Standard Flow (Non-Pump):**
-WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → LOADING → QUESTIONNAIRE → (loop) → COMPLETE
+> **Updated January 2026:** RoboTaste now uses a modular **PhaseRouter** for protocol-driven navigation, replacing the legacy monolithic state machine. The state machine is still used for phase validation, but navigation is handled by `PhaseRouter`.
 
-**Pump-Enabled Flow:**
-WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → ROBOT_PREPARING → QUESTIONNAIRE → (loop) → COMPLETE
+Experiment progression is governed by:
+- **PhaseRouter** (`robotaste/core/phase_router.py`) - Routes to appropriate phase renderer
+- **PhaseEngine** (`robotaste/core/phase_engine.py`) - Determines next phase from protocol
+- **State Machine** (`robotaste/core/state_machine.py`) - Validates phase transitions
+
+**Default Flow (protocol-driven):**
+```
+consent → registration → [experiment_loop] → completion
+         ↓
+    (custom phases can be inserted anywhere)
+```
+
+**Experiment Loop (inside `experiment_loop` phase):**
+```
+selection → loading/robot_preparing → questionnaire → (repeat)
+```
+
+**With Custom Phases:**
+```
+consent → welcome_video → pre_survey → registration → [experiment_loop] → post_survey → completion
+```
+
+### Multipage Architecture (New January 2026)
+
+RoboTaste uses a modular phase system where each experiment phase is a separate renderer:
+
+**Entry Points:**
+- `main_app.py` - Moderator interface
+- `pages/experiment.py` - Subject experiment interface (NEW)
+
+**Phase Rendering Flow:**
+```
+Subject visits: /experiment?session=ABC&role=subject
+    ↓
+pages/experiment.py validates session
+    ↓
+PhaseRouter initializes with protocol
+    ↓
+PhaseRouter.render_phase(current_phase)
+    ↓
+Routes to appropriate renderer (builtin or custom)
+    ↓
+Renderer displays UI and sets phase_complete
+    ↓
+PhaseRouter navigation advances to next phase
+```
+
+**Phase Types:**
+- **builtin**: Standard phases (consent, registration, loading, selection, questionnaire, robot_preparing, completion)
+- **custom**: Protocol-defined phases (text, media, survey, break) - no code changes needed
+- **loop**: The experiment cycle meta-phase
+
+See [MULTIPAGE_MIGRATION.md](MULTIPAGE_MIGRATION.md) for full migration details.
 
 ### Hardware Pump Control
 - **Service:** `pump_control_service.py` monitors `pump_operations` table
@@ -124,11 +173,32 @@ WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → ROBOT_PREPARING → 
 robotaste/
 ├── components/     # Reusable Streamlit UI components
 ├── config/         # Protocol definitions, questionnaire configs, BO defaults
-├── core/           # Business logic: state machine, trials, BO, pump integration
+├── core/           # Business logic: state machine, phase router, trials, BO, pump integration
+│   ├── phase_router.py    # Protocol-driven phase navigation (NEW)
+│   ├── phase_engine.py    # Phase sequence logic
+│   ├── state_machine.py   # Phase transition validation
+│   └── ...
 ├── data/           # Database layer: schema.sql, database.py, repositories
 ├── hardware/       # NE-4000 pump controller, serial communication
 ├── utils/          # Logging, viewport detection, utilities
-└── views/          # Streamlit pages: landing, moderator, subject, questionnaire
+└── views/
+    ├── moderator.py       # Moderator interface
+    ├── subject.py         # DEPRECATED - use phases/ instead
+    ├── phases/            # Modular phase renderers (NEW)
+    │   ├── builtin/       # Standard experiment phases
+    │   │   ├── consent.py
+    │   │   ├── registration.py
+    │   │   ├── loading.py
+    │   │   ├── selection.py
+    │   │   ├── questionnaire.py
+    │   │   ├── robot_preparing.py
+    │   │   └── completion.py
+    │   └── custom/        # Protocol-defined phases
+    │       └── custom_phase.py
+    └── ...
+
+pages/              # Streamlit multipage entry points (NEW)
+└── experiment.py   # Subject experiment interface
 ```
 
 ## Database Tables
@@ -148,6 +218,10 @@ robotaste/
 | Devices out of sync | Polling not running | `robotaste/data/session_repo.py` (`sync_session_state_to_streamlit()`) |
 | Units wrong | µL/mL conversion missing | `robotaste/core/pump_integration.py` (`calculate_volumes()`) |
 | Phase validation error | Protocol phase_sequence invalid | `robotaste/config/protocol_schema.py`, `robotaste/core/phase_engine.py` |
+| Unknown phase error | phase_id not registered in PhaseRouter | `robotaste/core/phase_router.py` (`_register_builtin_phases()`) |
+| Custom phase not rendering | Missing or invalid content.type | `robotaste/views/phases/custom/custom_phase.py` |
+| Phase not advancing | phase_complete flag not set | Check phase renderer sets `st.session_state.phase_complete = True` |
+| Subject can't access experiment | URL or session mismatch | `pages/experiment.py` (validates session and role) |
 
 ## Multi-Device Session Flow
 1. **Moderator**: Creates session → `session_code` generated.
@@ -170,8 +244,21 @@ robotaste/
 2. Use `save_protocol()` in `robotaste/data/protocol_repo.py`
 
 ### Modifying Phase Flow
-1. **Standard flow**: Update `VALID_TRANSITIONS` in `state_machine.py`
-2. **Protocol flow**: Define custom `phase_sequence` in protocol JSON
+1. **Protocol flow** (recommended): Define custom `phase_sequence` in protocol JSON
+2. **State machine**: Update `VALID_TRANSITIONS` in `state_machine.py` (legacy)
+
+### Adding a New Builtin Phase
+1. Create phase file: `robotaste/views/phases/builtin/my_phase.py`
+2. Implement renderer function with signature: `def render_my_phase(session_id: str, protocol: Dict[str, Any]) -> None`
+3. Set `st.session_state.phase_complete = True` when phase is done
+4. Register in `PhaseRouter._register_builtin_phases()` in `robotaste/core/phase_router.py`
+5. Add to protocol's `phase_sequence`
+
+### Adding a Custom Phase (No Code Changes)
+1. Add phase definition to protocol JSON with `phase_type: "custom"`
+2. Define `content` object with `type` (text, media, survey, break)
+3. Include required fields for the content type
+4. See [protocol_schema.md](protocol_schema.md#custom-phase-content-types) for field reference
 
 ## Important Implementation Details
 

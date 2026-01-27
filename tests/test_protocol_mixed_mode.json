@@ -98,9 +98,42 @@
   "phase_sequence": {
     "phases": [
       {"phase_id": "waiting", "phase_type": "builtin", "required": true},
+      {
+        "phase_id": "welcome_intro",
+        "phase_type": "custom",
+        "content": {
+          "type": "text",
+          "title": "Welcome to the Mixed-Mode Study",
+          "text": "Thank you for participating in this taste preference study!\n\n**What to expect:**\n- First, you'll taste 2 calibration samples\n- Then, you'll explore the taste space on your own\n- Finally, our algorithm will help find your ideal taste\n\nThe entire session takes approximately 30 minutes."
+        }
+      },
       {"phase_id": "registration", "phase_type": "builtin", "required": false},
-      {"phase_id": "instructions", "phase_type": "builtin", "required": true},
-      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true}
+      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true},
+      {
+        "phase_id": "post_survey",
+        "phase_type": "custom",
+        "content": {
+          "type": "survey",
+          "title": "Post-Experiment Feedback",
+          "questions": [
+            {
+              "id": "overall_experience",
+              "type": "slider",
+              "label": "How would you rate your overall experience?",
+              "min": 0,
+              "max": 100,
+              "default": 50
+            },
+            {
+              "id": "found_preference",
+              "type": "radio",
+              "label": "Do you feel you found your ideal taste?",
+              "options": ["Yes, definitely", "Somewhat", "Not really", "No"]
+            }
+          ]
+        }
+      },
+      {"phase_id": "completion", "phase_type": "builtin", "required": true}
     ]
   },
   "stopping_criteria": {

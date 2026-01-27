@@ -282,6 +282,258 @@ settings. The per-pump `volume_unit` controls whether each pump uses `ML` or
 
 See `docs/pump_config.md` for the full field list and examples.
 
+---
+
+## Phase Sequence (Multipage Architecture)
+
+The `phase_sequence` section defines the order and configuration of experiment phases. This enables protocol-driven navigation through the new modular phase system.
+
+> **New in January 2026:** RoboTaste now uses a PhaseRouter for protocol-driven phase navigation, replacing the legacy state machine approach. See [MULTIPAGE_MIGRATION.md](MULTIPAGE_MIGRATION.md) for details.
+
+### Structure
+
+```json
+{
+  "phase_sequence": {
+    "phases": [
+      {"phase_id": "consent", "phase_type": "builtin", "required": true},
+      {"phase_id": "welcome_intro", "phase_type": "custom", "content": {...}},
+      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true}
+    ]
+  }
+}
+```
+
+### Phase Definition Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `phase_id` | string | ✓ | Unique identifier for the phase |
+| `phase_type` | string | ✓ | One of: `builtin`, `custom`, `loop` |
+| `required` | boolean | ✗ | If true, phase cannot be skipped (default: false) |
+| `duration_ms` | integer | ✗ | Auto-advance duration in milliseconds |
+| `auto_advance` | boolean | ✗ | If true, automatically advance after duration_ms |
+| `content` | object | conditional | Required for `custom` phases |
+| `loop_config` | object | ✗ | Configuration for `loop` phases |
+
+### Phase Types
+
+#### 1. **builtin** - Standard Experiment Phases
+
+Built-in phases are rendered by dedicated phase renderers in `robotaste/views/phases/builtin/`.
+
+**Available builtin phases:**
+
+| Phase ID | Description | Renderer File |
+|----------|-------------|---------------|
+| `consent` | Informed consent screen | `consent.py` |
+| `registration` | Subject demographics collection | `registration.py` |
+| `loading` | Rinse/wait screen between cycles | `loading.py` |
+| `selection` | Sample selection (grid or slider UI) | `selection.py` |
+| `questionnaire` | Rating questionnaire | `questionnaire.py` |
+| `robot_preparing` | Pump operation status display | `robot_preparing.py` |
+| `completion` | Thank you / experiment complete screen | `completion.py` |
+
+**Example:**
+```json
+{"phase_id": "consent", "phase_type": "builtin", "required": true}
+```
+
+#### 2. **custom** - Protocol-Defined Phases
+
+Custom phases are defined entirely in the protocol JSON. No code changes needed.
+
+**Supported custom phase types:**
+
+| Content Type | Description | Use Case |
+|--------------|-------------|----------|
+| `text` | Markdown text with optional image | Instructions, welcome messages |
+| `media` | Image or video display | Training videos, visual stimuli |
+| `survey` | Custom survey questions | Pre/post questionnaires |
+| `break` | Timed countdown timer | Rest periods, palate cleansing |
+
+See [Custom Phase Content Types](#custom-phase-content-types) below for detailed schemas.
+
+**Example:**
+```json
+{
+  "phase_id": "welcome_video",
+  "phase_type": "custom",
+  "content": {
+    "type": "media",
+    "title": "Welcome",
+    "media_type": "video",
+    "media_url": "https://example.com/intro.mp4"
+  }
+}
+```
+
+#### 3. **loop** - Experiment Cycle Loop
+
+The loop phase is a meta-phase that manages the experiment cycle (selection → loading/robot_preparing → questionnaire → repeat).
+
+**Example:**
+```json
+{"phase_id": "experiment_loop", "phase_type": "loop", "required": true}
+```
+
+---
+
+## Custom Phase Content Types
+
+### Text Phase
+
+Displays markdown text with optional image. Simple continue button to proceed.
+
+```json
+{
+  "phase_id": "instructions",
+  "phase_type": "custom",
+  "content": {
+    "type": "text",
+    "title": "Welcome to the Experiment",
+    "text": "In this study, you will taste **4 different samples** and rate each one.\n\nPlease follow these guidelines:\n- Rinse your mouth between samples\n- Take your time with each rating",
+    "image_url": "https://example.com/diagram.png",
+    "image_caption": "Experiment procedure overview"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | ✓ | Must be `"text"` |
+| `title` | string | ✗ | Header text (default: "Instructions") |
+| `text` | string | ✓ | Markdown-formatted content |
+| `image_url` | string | ✗ | URL of optional image |
+| `image_caption` | string | ✗ | Caption for image |
+
+### Media Phase
+
+Displays images or videos from URLs.
+
+```json
+{
+  "phase_id": "training_video",
+  "phase_type": "custom",
+  "content": {
+    "type": "media",
+    "title": "Training Video",
+    "media_type": "video",
+    "media_url": "https://example.com/training.mp4",
+    "caption": "Please watch this 2-minute introduction"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | ✓ | Must be `"media"` |
+| `title` | string | ✗ | Header text |
+| `media_type` | string | ✓ | `"image"` or `"video"` |
+| `media_url` | string | ✓ | URL of media file |
+| `caption` | string | ✗ | Caption below media |
+
+### Survey Phase
+
+Custom survey with multiple question types. Responses are saved to the database.
+
+```json
+{
+  "phase_id": "pre_survey",
+  "phase_type": "custom",
+  "content": {
+    "type": "survey",
+    "title": "Pre-Experiment Survey",
+    "questions": [
+      {
+        "id": "age",
+        "type": "text",
+        "label": "What is your age?",
+        "required": true
+      },
+      {
+        "id": "frequency",
+        "type": "radio",
+        "label": "How often do you consume sweetened beverages?",
+        "options": ["Daily", "Weekly", "Monthly", "Rarely", "Never"],
+        "required": true
+      },
+      {
+        "id": "allergies",
+        "type": "checkbox",
+        "label": "Do you have any of the following conditions?",
+        "options": ["Diabetes", "Food allergies", "Taste disorders", "None"]
+      },
+      {
+        "id": "expectations",
+        "type": "slider",
+        "label": "How much do you expect to enjoy this experiment?",
+        "min": 0,
+        "max": 100,
+        "default": 50
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | ✓ | Must be `"survey"` |
+| `title` | string | ✗ | Survey title |
+| `questions` | array | ✓ | Array of question objects |
+
+**Question Types:**
+
+| Type | Description | Additional Fields |
+|------|-------------|-------------------|
+| `text` | Short text input | - |
+| `textarea` | Multi-line text input | - |
+| `radio` | Single choice from options | `options`: array of strings |
+| `checkbox` | Multiple choice from options | `options`: array of strings |
+| `slider` | Numeric scale | `min`, `max`, `default` |
+
+**Question Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | ✓ | Unique identifier for the question |
+| `type` | string | ✓ | One of: text, textarea, radio, checkbox, slider |
+| `label` | string | ✓ | Question text |
+| `required` | boolean | ✗ | If true, must be answered (default: false) |
+| `options` | array | conditional | Required for radio/checkbox types |
+| `min` | number | conditional | Required for slider type |
+| `max` | number | conditional | Required for slider type |
+| `default` | number | ✗ | Default value for slider |
+
+### Break Phase
+
+Timed countdown for rest periods or palate cleansing.
+
+```json
+{
+  "phase_id": "rest_break",
+  "phase_type": "custom",
+  "content": {
+    "type": "break",
+    "title": "Rest Break",
+    "message": "Please rinse your mouth with water and relax.",
+    "duration": 30,
+    "show_countdown": true
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | ✓ | Must be `"break"` |
+| `title` | string | ✗ | Header text (default: "Break") |
+| `message` | string | ✗ | Instructions during break |
+| `duration` | integer | ✓ | Break duration in seconds |
+| `show_countdown` | boolean | ✗ | Display countdown timer (default: true) |
+
+---
+
 ## Stopping Criteria
 
 Defines when the experiment should end.
@@ -404,6 +656,47 @@ Uses all default values.
       "max_concentration": 50.0
     }
   ],
+
+  "phase_sequence": {
+    "phases": [
+      {"phase_id": "consent", "phase_type": "builtin", "required": true},
+      {
+        "phase_id": "welcome_intro",
+        "phase_type": "custom",
+        "content": {
+          "type": "text",
+          "title": "Welcome to the Taste Study",
+          "text": "Thank you for participating!\n\nIn this experiment, you will:\n- Taste **20 different samples**\n- Rate each sample on a 9-point scale\n- Help us understand taste preferences\n\nThe experiment takes approximately 30 minutes."
+        }
+      },
+      {"phase_id": "registration", "phase_type": "builtin", "required": false},
+      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true},
+      {
+        "phase_id": "post_survey",
+        "phase_type": "custom",
+        "content": {
+          "type": "survey",
+          "title": "Post-Experiment Survey",
+          "questions": [
+            {
+              "id": "overall_experience",
+              "type": "slider",
+              "label": "How would you rate your overall experience?",
+              "min": 0,
+              "max": 100,
+              "default": 50
+            },
+            {
+              "id": "comments",
+              "type": "textarea",
+              "label": "Any additional comments?"
+            }
+          ]
+        }
+      },
+      {"phase_id": "completion", "phase_type": "builtin", "required": true}
+    ]
+  },
 
   "sample_selection_schedule": [
     {
