@@ -38,6 +38,9 @@ class PhaseRouter:
         >>> router.render_phase("consent")  # Renders consent phase
     """
     
+    # Loop phases are implicit inside experiment_loop and not in phase_sequence
+    LOOP_PHASES = {"selection", "loading", "questionnaire", "robot_preparing"}
+    
     def __init__(self, protocol: Dict[str, Any], session_id: str, role: str):
         """
         Initialize router with protocol and session context.
@@ -76,6 +79,10 @@ class PhaseRouter:
             "selection": render_selection,
         }
     
+    def _is_loop_phase(self, phase_id: str) -> bool:
+        """Check if phase is an implicit loop phase (not in phase_sequence)."""
+        return phase_id in self.LOOP_PHASES
+    
     def render_phase(self, phase_id: str) -> None:
         """
         Main entry point: render the specified phase.
@@ -87,14 +94,19 @@ class PhaseRouter:
         if not self._validate_phase_access(phase_id):
             return  # _validate_phase_access handles error UI
         
-        # Step 2: Get phase definition
+        # Step 2: Handle loop phases specially (they're implicit, not in phase_sequence)
+        if self._is_loop_phase(phase_id):
+            self._render_loop_phase(phase_id)
+            return
+        
+        # Step 3: Get phase definition for non-loop phases
         phase_def = self._get_phase_definition(phase_id)
         
         if not phase_def:
             self._render_unknown_phase_error(phase_id)
             return
         
-        # Step 3: Route based on phase type
+        # Step 4: Route based on phase type
         if phase_def.phase_type == "builtin":
             self._render_builtin_phase(phase_id)
         
@@ -187,6 +199,32 @@ class PhaseRouter:
         
         # Call phase-specific renderer
         # Renderers are responsible for setting st.session_state.phase_complete
+        renderer(self.session_id, self.protocol)
+        
+        # Add navigation controls
+        self._render_phase_navigation(phase_id)
+    
+    def _render_loop_phase(self, phase_id: str) -> None:
+        """
+        Render a loop phase (selection, loading, questionnaire, robot_preparing).
+        
+        Loop phases are implicit inside experiment_loop and not explicitly
+        defined in the protocol's phase_sequence. They route directly to
+        builtin renderers.
+        """
+        renderer = self._builtin_renderers.get(phase_id)
+        
+        if not renderer:
+            st.error(f"No renderer found for loop phase: {phase_id}")
+            logger.error(
+                f"Missing renderer for loop phase '{phase_id}' "
+                f"in session {self.session_id}"
+            )
+            return
+        
+        logger.debug(f"Session {self.session_id}: Rendering loop phase '{phase_id}'")
+        
+        # Call phase-specific renderer
         renderer(self.session_id, self.protocol)
         
         # Add navigation controls
