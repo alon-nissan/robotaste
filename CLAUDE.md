@@ -62,7 +62,18 @@ Map common tasks to exact file paths (use these before exploring):
 - **Run Pump Service:** `python pump_control_service.py --db-path robotaste.db`
 - **Tests:**
   - All: `pytest`
+  - Single file: `pytest tests/test_protocol_integration.py`
+  - Single test: `pytest tests/test_protocol_integration.py::test_name`
+  - By keyword: `pytest -k "protocol"`
   - Hardware (Safety): `python robotaste/hardware/test_pump_movement.py`
+
+## 6.5. Lint / Format
+- No lint or formatter configured in-repo.
+- Do not add new tooling without explicit request.
+- Keep formatting consistent with surrounding code.
+
+## 6.6. Editor / Assistant Rules
+- No `.cursorrules`, `.cursor/rules/`, or `.github/copilot-instructions.md` files found.
 
 ## 7. Documentation
 For deep context on Session Flows, BO Algorithms, or Protocol JSON schemas, refer to `docs/PROJECT_CONTEXT.md` (if created) or the specific file headers.

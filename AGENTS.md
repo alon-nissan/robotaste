@@ -9,6 +9,7 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - State machine: `robotaste/core/state_machine.py`.
 - DB: `robotaste.db` (SQLite); schema in `robotaste/data/schema.sql`.
 - Protocols: `robotaste/config/protocols.py` and `robotaste/config/protocol_schema.py`.
+- Docs: `docs/PROJECT_CONTEXT.md`, `docs/protocol_schema.md`, `docs/protocol_user_guide.md`.
 
 ## Navigation Quick Reference
 
@@ -49,6 +50,9 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - No lint or formatter configured in-repo.
 - Do not add new tooling without explicit request.
 - Keep formatting consistent with surrounding code (see style notes below).
+
+## Editor / Assistant Rules
+- No `.cursorrules`, `.cursor/rules/`, or `.github/copilot-instructions.md` files found.
 
 ## Test Notes
 - Integration tests use temporary SQLite DBs.
@@ -122,11 +126,6 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - `robotaste/core/phase_engine.py` handles protocol-defined phases.
 - Tests live in `tests/` and should be small, isolated, and DB-clean.
 
-## Documentation References
-- `docs/PROJECT_CONTEXT.md` for architecture and flow details.
-- `docs/protocol_schema.md` for protocol JSON requirements.
-- `docs/protocol_user_guide.md` for protocol authoring.
-
 ## Common Patterns & Gotchas
 
 ### Database Access Pattern
@@ -163,4 +162,3 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 
 ## If You Need More Context
 - Read `CLAUDE.md` for repo-specific constraints and instructions.
-- Search for similar implementations in `robotaste/core/` and `robotaste/views/`.
