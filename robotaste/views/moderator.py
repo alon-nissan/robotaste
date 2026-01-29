@@ -56,6 +56,7 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime
+from typing import Dict, Any
 import logging
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -68,7 +69,7 @@ from robotaste.views.moderator_views import (
     render_overview_tab,
     render_predetermined_view,
     render_user_selection_view,
-    render_bo_view
+    render_bo_view,
 )
 
 logger = logging.getLogger(__name__)
@@ -1781,6 +1782,112 @@ def binary_bo():
         st.code(traceback.format_exc())
 
 
+def _calculate_remaining_cycles(
+    volume_status: Dict[str, Dict], current_cycle: int, protocol_max_cycles: int
+) -> Dict[str, Dict]:
+    """
+    Calculate remaining cycles estimation per ingredient.
+
+    Args:
+        volume_status: Volume status dict from get_volume_status()
+        current_cycle: Current cycle number
+        protocol_max_cycles: Max cycles from protocol stopping criteria
+
+    Returns:
+        {
+            "Sugar": {
+                "avg_consumption_ul": 145.5,
+                "cycles_until_empty": 298,
+                "estimated_remaining": 18,
+                "has_sufficient_data": True
+            }
+        }
+    """
+    results = {}
+
+    for ingredient, status in volume_status.items():
+        current_ul = status["current_ul"]
+        total_dispensed = status["total_dispensed_ul"]
+
+        # Calculate average consumption
+        if current_cycle > 0:
+            avg_consumption = total_dispensed / current_cycle
+        else:
+            avg_consumption = 0
+
+        # Calculate cycles until empty
+        if avg_consumption > 0:
+            cycles_until_empty = int(current_ul / avg_consumption)
+        else:
+            cycles_until_empty = None
+
+        # Calculate remaining cycles in protocol
+        cycles_left_in_protocol = protocol_max_cycles - current_cycle
+
+        # Determine realistic estimate
+        if cycles_until_empty is not None:
+            estimated_remaining = min(cycles_until_empty, cycles_left_in_protocol)
+        else:
+            estimated_remaining = None
+
+        results[ingredient] = {
+            "avg_consumption_ul": avg_consumption,
+            "cycles_until_empty": cycles_until_empty,
+            "estimated_remaining": estimated_remaining,
+            "has_sufficient_data": current_cycle >= 2,
+        }
+
+    return results
+
+
+def _get_pump_summary_metrics(
+    volume_status: Dict[str, Dict], remaining_cycles_data: Dict[str, Dict]
+) -> Dict[str, Any]:
+    """
+    Aggregate summary metrics across all ingredients.
+
+    Args:
+        volume_status: Volume status dict from get_volume_status()
+        remaining_cycles_data: Output from _calculate_remaining_cycles()
+
+    Returns:
+        {
+            "overall_status": "OK" | "Warning" | "Critical",
+            "total_dispensed_ul": 2450.0,
+            "min_estimated_remaining": 18,
+            "alert_count": 2,
+            "alert_ingredients": ["Sugar", "Salt"]
+        }
+    """
+    total_dispensed = sum(s["total_dispensed_ul"] for s in volume_status.values())
+    alert_ingredients = [ing for ing, s in volume_status.items() if s["alert_active"]]
+    alert_count = len(alert_ingredients)
+
+    # Calculate minimum estimated remaining cycles
+    estimates = [
+        data["estimated_remaining"]
+        for data in remaining_cycles_data.values()
+        if data["estimated_remaining"] is not None
+    ]
+    min_estimated_remaining = min(estimates) if estimates else None
+
+    # Determine overall status
+    if alert_count > 0:
+        overall_status = "Critical"
+    elif min_estimated_remaining is not None and min_estimated_remaining < 5:
+        overall_status = "Warning"
+    else:
+        overall_status = "OK"
+
+    return {
+        "overall_status": overall_status,
+        "total_dispensed_ul": total_dispensed,
+        "min_estimated_remaining": min_estimated_remaining,
+        "alert_count": alert_count,
+        "alert_ingredients": alert_ingredients,
+    }
+
+
 def show_moderator_monitoring():
     """Monitor active trial with dynamic mode-based layout."""
 
@@ -1836,7 +1943,7 @@ def show_moderator_monitoring():
     # ========== PUMP STATUS (if enabled) ==========
     from robotaste.data.protocol_repo import get_protocol_by_id
 
-    protocol_id = session.get("protocol_id")
+    protocol_id = session.get("experiment_config").get("protocol_id", None)
     protocol = get_protocol_by_id(protocol_id) if protocol_id else None
 
     if protocol:
@@ -1845,7 +1952,10 @@ def show_moderator_monitoring():
             st.markdown("### 🔬 Pump Status")
 
             # ===== VOLUME MONITORING =====
-            from robotaste.core.pump_volume_manager import get_volume_status, record_refill
+            from robotaste.core.pump_volume_manager import (
+                get_volume_status,
+                record_refill,
+            )
             from robotaste.data.database import DB_PATH
 
             volume_status = get_volume_status(DB_PATH, st.session_state.session_id)
@@ -1853,159 +1963,132 @@ def show_moderator_monitoring():
             if volume_status:
                 st.markdown("#### 💧 Volume Tracking")
 
-                for ingredient, status in volume_status.items():
-                    current = status["current_ul"]
-                    max_cap = status["max_capacity_ul"]
-                    percent = status["percent_remaining"]
-                    alert = status["alert_active"]
+                # Get current cycle and protocol max cycles
+                current_cycle = get_current_cycle(st.session_state.session_id)
+                protocol_max_cycles = protocol.get("stopping_criteria", {}).get(
+                    "max_cycles", 30
+                )
 
-                    # Header with alert badge
-                    if alert:
-                        st.warning(f"⚠️ **{ingredient}** - Low volume!")
-                    else:
-                        st.markdown(f"**{ingredient}**")
+                # Calculate remaining cycles per ingredient
+                remaining_cycles_data = _calculate_remaining_cycles(
+                    volume_status, current_cycle, protocol_max_cycles
+                )
 
-                    # Progress bar
-                    progress_color = "🔴" if percent < 10 else "🟡" if percent < 30 else "🟢"
-                    st.progress(percent / 100.0)
+                # Get summary metrics
+                summary = _get_pump_summary_metrics(
+                    volume_status, remaining_cycles_data
+                )
 
-                    # Volume info and refill button
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.caption(f"{current:,.0f} / {max_cap:,.0f} µL ({percent:.0f}%)")
-                        if status["last_dispensed_at"]:
-                            st.caption(f"Last dispensed: {status['last_dispensed_at']}")
-                    with col2:
-                        if st.button("Refill", key=f"refill_{ingredient}"):
+                # ===== CRITICAL ALERT BANNER =====
+                if summary["alert_count"] > 0:
+                    alert_names = ", ".join(summary["alert_ingredients"])
+                    st.error(
+                        f"🚨 **PUMP ALERT:** {summary['alert_count']} ingredient(s) below threshold: {alert_names}"
+                    )
+
+                # ===== PER-INGREDIENT STATUS (SIDE BY SIDE) =====
+                ingredient_list = list(volume_status.items())
+                num_ingredients = len(ingredient_list)
+
+                # Create columns for side-by-side display
+                ing_cols = st.columns(num_ingredients)
+
+                for idx, (ingredient, status) in enumerate(ingredient_list):
+                    with ing_cols[idx]:
+                        current = status["current_ul"]
+                        max_cap = status["max_capacity_ul"]
+                        percent = status["percent_remaining"]
+                        alert = status["alert_active"]
+
+                        # Header with alert badge
+                        if alert:
+                            st.markdown(f"⚠️ **{ingredient}**")
+                        else:
+                            st.markdown(f"**{ingredient}**")
+
+                        # Progress bar
+                        st.progress(percent / 100.0)
+
+                        # Volume info
+                        st.caption(
+                            f"{current:,.0f} / {max_cap:,.0f} µL ({percent:.0f}%)"
+                        )
+
+                        # Add consumption metrics
+                        cycle_data = remaining_cycles_data.get(ingredient, {})
+                        avg_consumption = cycle_data.get("avg_consumption_ul", 0)
+                        estimated_remaining = cycle_data.get("estimated_remaining")
+
+                        if current_cycle == 0:
+                            st.caption("No data yet")
+                        elif current_cycle == 1:
+                            st.caption(
+                                f"⚠️ Avg: {avg_consumption:.1f} µL/cycle (Preliminary)"
+                            )
+                            if estimated_remaining is not None:
+                                st.caption(f"Est. ~{estimated_remaining} cycles left")
+                        else:
+                            st.caption(f"Avg: {avg_consumption:.1f} µL/cycle")
+                            if estimated_remaining is not None:
+                                st.caption(f"Est. ~{estimated_remaining} cycles left")
+
+                        # Refill button
+                        if st.button(
+                            "Refill",
+                            key=f"refill_{ingredient}",
+                            use_container_width=True,
+                        ):
                             st.session_state[f"show_refill_{ingredient}"] = True
 
-                    # Refill form
-                    if st.session_state.get(f"show_refill_{ingredient}"):
-                        with st.form(key=f"refill_form_{ingredient}"):
-                            st.markdown(f"**Refill {ingredient}**")
-                            st.caption(f"Current: {current:,.0f} µL | Max: {max_cap:,.0f} µL")
+                        # Refill form
+                        if st.session_state.get(f"show_refill_{ingredient}"):
+                            with st.form(key=f"refill_form_{ingredient}"):
+                                st.markdown(f"**Refill {ingredient}**")
+                                st.caption(
+                                    f"Current: {current:,.0f} µL | Max: {max_cap:,.0f} µL"
+                                )
 
-                            new_total = st.number_input(
-                                "New Total Volume (µL)",
-                                min_value=0.0,
-                                max_value=float(max_cap),
-                                value=float(max_cap),
-                                step=1000.0
-                            )
+                                new_total = st.number_input(
+                                    "New Total Volume (µL)",
+                                    min_value=0.0,
+                                    max_value=float(max_cap),
+                                    value=float(max_cap),
+                                    step=1000.0,
+                                )
 
-                            notes = st.text_input("Notes (optional)")
+                                notes = st.text_input("Notes (optional)")
 
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.form_submit_button("Cancel"):
-                                    st.session_state[f"show_refill_{ingredient}"] = False
-                                    st.rerun()
-                            with col2:
-                                if st.form_submit_button("Confirm Refill"):
-                                    success = record_refill(
-                                        DB_PATH,
-                                        st.session_state.session_id,
-                                        ingredient,
-                                        new_total,
-                                        notes
-                                    )
-                                    if success:
-                                        st.session_state[f"show_refill_{ingredient}"] = False
-                                        st.success(f"✓ Refilled {ingredient}")
+                                btn_col1, btn_col2 = st.columns(2)
+                                with btn_col1:
+                                    if st.form_submit_button("Cancel"):
+                                        st.session_state[
+                                            f"show_refill_{ingredient}"
+                                        ] = False
                                         st.rerun()
-                                    else:
-                                        st.error("Failed to record refill")
+                                with btn_col2:
+                                    if st.form_submit_button("Confirm"):
+                                        success = record_refill(
+                                            DB_PATH,
+                                            st.session_state.session_id,
+                                            ingredient,
+                                            new_total,
+                                            notes,
+                                        )
+                                        if success:
+                                            st.session_state[
+                                                f"show_refill_{ingredient}"
+                                            ] = False
+                                            st.success(f"✓ Refilled {ingredient}")
+                                            st.rerun()
+                                        else:
+                                            st.error("Failed to record refill")
 
-                    st.markdown("---")
-
-                # Volume History Viewer
-                with st.expander("📜 Volume History"):
-                    from robotaste.core.pump_volume_manager import get_volume_history
-
-                    history = get_volume_history(DB_PATH, st.session_state.session_id, limit=20)
-
-                    if history:
-                        for event in history:
-                            icon = {"init": "🔧", "dispense": "💧", "refill": "💉"}.get(event["event_type"], "•")
-                            cycle_info = f" (Cycle {event['cycle_number']})" if event["cycle_number"] else ""
-                            st.text(
-                                f"{event['created_at']} | {icon} {event['event_type']} | "
-                                f"{event['ingredient_name']}: {event['volume_change_ul']:+.0f} µL "
-                                f"({event['volume_before_ul']:.0f} → {event['volume_after_ul']:.0f}){cycle_info}"
-                            )
-                    else:
-                        st.caption("No volume history")
-
-                st.markdown("---")
-
-            # ===== CURRENT OPERATION =====
-            from robotaste.utils.pump_db import (
-                get_current_operation_for_session,
-                get_recent_operations,
-                get_operation_logs
-            )
-
-            st.markdown("#### 🔄 Current Operation")
-            # Current operation
-            current_op = get_current_operation_for_session(st.session_state.session_id)
-
-            if current_op:
-                status_color = {
-                    "pending": "orange",
-                    "in_progress": "blue",
-                    "completed": "green",
-                    "failed": "red"
-                }.get(current_op["status"], "gray")
-
-                st.markdown(f"**Current Operation:** :{status_color}[{current_op['status'].upper()}]")
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Cycle", current_op["cycle_number"])
-                with col2:
-                    st.metric("Operation ID", current_op["id"])
-                with col3:
-                    if current_op["status"] == "in_progress":
-                        st.info("Dispensing...")
-                    elif current_op["status"] == "completed":
-                        st.success("✓ Complete")
-                    elif current_op["status"] == "failed":
-                        st.error("✗ Failed")
-                    else:
-                        st.warning("⋯ Pending")
-
-                # Show recipe
-                try:
-                    import json
-                    recipe = json.loads(current_op["recipe_json"])
-                    with st.expander("Recipe Details", expanded=True):
-                        for ingredient, volume_ul in recipe.items():
-                            st.write(f"• {ingredient}: **{volume_ul:.1f} µL**")
-                except:
-                    pass
-
-                # Show error if failed
-                if current_op["status"] == "failed" and current_op.get("error_message"):
-                    st.error(f"Error: {current_op['error_message']}")
-
-                # Show timing info
-                if current_op.get("started_at"):
-                    from datetime import datetime
-                    started = current_op["started_at"]
-                    st.caption(f"Started: {started}")
-
-                    if current_op.get("completed_at"):
-                        completed = current_op["completed_at"]
-                        st.caption(f"Completed: {completed}")
-
-            else:
-                st.info("No active pump operation")
+            from robotaste.utils.pump_db import get_recent_operations
 
             # Recent operations log
             with st.expander("Recent Operations", expanded=False):
                 recent_ops = get_recent_operations(
-                    session_id=st.session_state.session_id,
-                    limit=5
+                    session_id=st.session_state.session_id, limit=5
                 )
 
                 if recent_ops:
@@ -2014,7 +2097,7 @@ def show_moderator_monitoring():
                             "completed": "✓",
                             "failed": "✗",
                             "in_progress": "⋯",
-                            "pending": "⏳"
+                            "pending": "⏳",
                         }.get(op["status"], "?")
 
                         cycle_info = f"Cycle {op['cycle_number']}"
@@ -2038,7 +2121,14 @@ def show_moderator_monitoring():
         # Create tab list dynamically based on modes present
         tab_names = ["Overview"]
         # Check for any predetermined mode (legacy or new)
-        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        has_predetermined = any(
+            mode in mode_info["all_modes"]
+            for mode in [
+                "predetermined",
+                "predetermined_absolute",
+                "predetermined_randomized",
+            ]
+        )
         if has_predetermined:
             tab_names.append("Predetermined")
         if "user_selected" in mode_info["all_modes"]:
@@ -2055,7 +2145,14 @@ def show_moderator_monitoring():
         tab_idx += 1
 
         # Check for any predetermined mode (legacy or new)
-        has_predetermined = any(mode in mode_info["all_modes"] for mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"])
+        has_predetermined = any(
+            mode in mode_info["all_modes"]
+            for mode in [
+                "predetermined",
+                "predetermined_absolute",
+                "predetermined_randomized",
+            ]
+        )
         if has_predetermined:
             with tabs[tab_idx]:
                 render_predetermined_view(st.session_state.session_id)
@@ -2077,7 +2174,11 @@ def show_moderator_monitoring():
 
         current_mode = mode_info["current_mode"]
 
-        if current_mode in ["predetermined", "predetermined_absolute", "predetermined_randomized"]:
+        if current_mode in [
+            "predetermined",
+            "predetermined_absolute",
+            "predetermined_randomized",
+        ]:
             render_predetermined_view(st.session_state.session_id)
         elif current_mode == "user_selected":
             render_user_selection_view(st.session_state.session_id)
@@ -2480,7 +2581,7 @@ def render_protocol_selection():
             "Choose a protocol to run:",
             options=[p["protocol_id"] for p in protocols],
             format_func=lambda pid: f"{next((p['name'] for p in protocols if p['protocol_id'] == pid), 'Unknown')} (v{next((p['version'] for p in protocols if p['protocol_id'] == pid), '?')})",
-            key="protocol_selector"
+            key="protocol_selector",
         )
 
         # Show protocol summary
@@ -2502,9 +2603,7 @@ def render_protocol_selection():
     with col1:
         st.markdown("#### 📤 Upload Protocol")
         uploaded_file = st.file_uploader(
-            "Upload protocol JSON file",
-            type=["json"],
-            key="protocol_upload"
+            "Upload protocol JSON file", type=["json"], key="protocol_upload"
         )
 
         if uploaded_file is not None:
@@ -2523,7 +2622,7 @@ def render_protocol_selection():
                 data=user_guide_content,
                 file_name="protocol_user_guide.md",
                 mime="text/markdown",
-                help="Step-by-step guide for creating protocols"
+                help="Step-by-step guide for creating protocols",
             )
         except FileNotFoundError:
             st.error("User guide not found")
@@ -2538,7 +2637,7 @@ def render_protocol_selection():
                 data=schema_content,
                 file_name="protocol_schema.md",
                 mime="text/markdown",
-                help="Complete JSON schema documentation"
+                help="Complete JSON schema documentation",
             )
         except FileNotFoundError:
             st.error("Schema reference not found")
@@ -2557,7 +2656,9 @@ def render_protocol_selection():
             pump_config = protocol.get("pump_config", {})
             if pump_config.get("enabled", False):
                 st.markdown("### 💉 Pump Setup")
-                st.info("Enter the current volume in each syringe before starting the session (in mL).")
+                st.info(
+                    "Enter the current volume in each syringe before starting the session (in mL)."
+                )
 
                 pumps_list = pump_config.get("pumps", [])
                 ingredient_volumes = {}
@@ -2578,7 +2679,7 @@ def render_protocol_selection():
                             max_value=float(max_capacity_ml),
                             value=float(max_capacity_ml * 0.8),  # Default 80%
                             step=1.0,
-                            key=f"init_vol_{ingredient}"
+                            key=f"init_vol_{ingredient}",
                         )
                     with col2:
                         st.metric("Max Capacity", f"{max_capacity_ml:.1f} mL")
@@ -2587,7 +2688,7 @@ def render_protocol_selection():
                     ingredient_volumes[ingredient] = {
                         "max_capacity_ul": max_capacity_ul,
                         "initial_volume_ul": initial_vol_ml * 1000.0,
-                        "alert_threshold_ul": alert_threshold
+                        "alert_threshold_ul": alert_threshold,
                     }
 
                 # Store in session state for use when starting session
@@ -2597,7 +2698,11 @@ def render_protocol_selection():
 
     # === SECTION 4: Start Session ===
     if selected_protocol_id:
-        if st.button("▶ START SESSION WITH THIS PROTOCOL", type="primary", use_container_width=True):
+        if st.button(
+            "▶ START SESSION WITH THIS PROTOCOL",
+            type="primary",
+            use_container_width=True,
+        ):
             start_session_with_protocol(selected_protocol_id)
     else:
         st.info("Please select or upload a protocol to start a session.")
@@ -2614,7 +2719,10 @@ def handle_protocol_upload(uploaded_file):
         # Prevent duplicate uploads using session state
         file_id = f"{uploaded_file.name}_{uploaded_file.size}"
 
-        if "last_uploaded_file" in st.session_state and st.session_state.last_uploaded_file == file_id:
+        if (
+            "last_uploaded_file" in st.session_state
+            and st.session_state.last_uploaded_file == file_id
+        ):
             # File already processed, skip
             return
 
@@ -2648,7 +2756,9 @@ def handle_protocol_upload(uploaded_file):
         protocol_id = create_protocol_in_db(protocol_json)
 
         if protocol_id:
-            st.success(f"✅ Protocol '{protocol_json.get('name', 'Unnamed')}' imported successfully!")
+            st.success(
+                f"✅ Protocol '{protocol_json.get('name', 'Unnamed')}' imported successfully!"
+            )
             st.info(f"Protocol ID: {protocol_id}")
 
             # Mark this file as processed
@@ -2692,13 +2802,15 @@ def start_session_with_protocol(protocol_id: str):
                     SET protocol_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE session_id = ?
                     """,
-                    (protocol_id, existing_session_id)
+                    (protocol_id, existing_session_id),
                 )
                 conn.commit()
 
             session_id = existing_session_id
             session_code = existing_session_code
-            logger.info(f"Updated existing session {session_id} with protocol {protocol_id}")
+            logger.info(
+                f"Updated existing session {session_id} with protocol {protocol_id}"
+            )
         else:
             # No existing session, create new one
             session_id, session_code = create_session(
@@ -2717,11 +2829,13 @@ def start_session_with_protocol(protocol_id: str):
             success_vol = initialize_volume_tracking(
                 db_path=DB_PATH,
                 session_id=session_id,
-                ingredient_volumes=st.session_state.pump_initial_volumes
+                ingredient_volumes=st.session_state.pump_initial_volumes,
             )
 
             if not success_vol:
-                st.warning("Failed to initialize pump volume tracking. Continuing anyway.")
+                st.warning(
+                    "Failed to initialize pump volume tracking. Continuing anyway."
+                )
 
             # Clear from session state
             del st.session_state.pump_initial_volumes
@@ -2747,10 +2861,11 @@ def start_session_with_protocol(protocol_id: str):
 def moderator_interface():
     # Render logo at the top of the view
     from main_app import render_logo
+
     render_logo()
-    
+
     # Note: STYLE is already applied globally in main_app.py via apply_styles()
-    
+
     if "phase" not in st.session_state:
         # Recover phase from database on reload
         session = get_session(st.session_state.session_id)
