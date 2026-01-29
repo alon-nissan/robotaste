@@ -177,26 +177,30 @@ class RoboTasteLauncher:
         return None
         
     def print_access_info(self):
-        """Print access information."""
+        """Print access information with role-specific URLs."""
         print(f"{Colors.BOLD}{Colors.GREEN}{'='*70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.GREEN}RoboTaste is ready!{Colors.END}")
         print(f"{Colors.BOLD}{Colors.GREEN}{'='*70}{Colors.END}\n")
         
-        print(f"{Colors.BOLD}Access the application:{Colors.END}\n")
+        print(f"{Colors.BOLD}Access URLs:{Colors.END}\n")
         
-        print(f"  {Colors.CYAN}Local (this computer):{Colors.END}")
-        print(f"    http://localhost:8501\n")
+        # Local URLs
+        print(f"  {Colors.CYAN}Local Access (this computer):{Colors.END}")
+        print(f"    {Colors.BOLD}Moderator:{Colors.END} http://localhost:8501/?role=moderator")
+        print(f"    {Colors.BOLD}Subject:{Colors.END}    http://localhost:8501/?role=subject\n")
         
+        # Remote URLs (ngrok)
         if self.ngrok_url:
-            print(f"  {Colors.CYAN}Remote (tablet/other devices):{Colors.END}")
-            print(f"    {Colors.BOLD}{self.ngrok_url}{Colors.END}\n")
-            
+            print(f"  {Colors.CYAN}Remote Access (tablets/other devices):{Colors.END}")
+            print(f"    {Colors.BOLD}Moderator:{Colors.END} {self.ngrok_url}/?role=moderator")
+            print(f"    {Colors.BOLD}Subject:{Colors.END}    {self.ngrok_url}/?role=subject")
+            print(f"    {Colors.YELLOW}⚠ First visit: Click 'Visit Site' on ngrok warning page{Colors.END}\n")
+        
         print(f"{Colors.BOLD}Workflow:{Colors.END}")
-        print(f"  1. Open {Colors.CYAN}{self.ngrok_url or 'the URL above'}{Colors.END} on this computer")
-        print(f"     {Colors.YELLOW}⚠ First visit: Click 'Visit Site' on ngrok warning page{Colors.END}")
-        print(f"  2. Create a new session (moderator)")
-        print(f"  3. Share the QR code or session code with subjects")
-        print(f"  4. Subjects scan/enter code on their tablets\n")
+        print(f"  1. {Colors.CYAN}Moderator{Colors.END} opens moderator URL (on this computer or tablet)")
+        print(f"  2. Create a new session")
+        print(f"  3. {Colors.CYAN}Subject{Colors.END} opens subject URL (on their tablet)")
+        print(f"  4. Subject auto-joins or selects session from list\n")
         
         if self.with_pump:
             print(f"{Colors.YELLOW}⚠ Pump service is running - ensure pumps are connected{Colors.END}\n")

@@ -17,7 +17,7 @@ import qrcode
 import io
 import base64
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 
 # Import database layer
@@ -361,6 +361,33 @@ def sync_session_state_to_streamlit(session_id: str, role: str) -> bool:
     except Exception as e:
         logger.error(f"Error syncing session state: {e}")
         return False
+
+
+def get_joinable_sessions(filter_phase: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Get list of sessions that subjects can join.
+    
+    Business logic wrapper around database.get_available_sessions().
+    Optionally filters by phase (e.g., only show 'waiting' phase).
+    
+    Args:
+        filter_phase: Optional phase filter (e.g., 'waiting', 'registration')
+    
+    Returns:
+        List of joinable sessions with metadata
+    """
+    try:
+        sessions = db.get_available_sessions()
+        
+        if filter_phase:
+            sessions = [s for s in sessions if s.get("current_phase") == filter_phase]
+            logger.info(f"Filtered to {len(sessions)} sessions in phase '{filter_phase}'")
+        
+        return sessions
+        
+    except Exception as e:
+        logger.error(f"Error getting joinable sessions: {e}")
+        return []
 
 
 # ============================================================================
