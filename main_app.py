@@ -148,7 +148,7 @@ add_accessibility_features()
 def render_logo():
     """
     Render the Niv Lab logo in the top left corner with persistent positioning.
-    
+
     Must be called at the start of each view function to ensure it persists
     through Streamlit's rerun mechanism.
     """
@@ -187,27 +187,26 @@ from robotaste.views.subject import subject_interface
 def scroll_to_top_on_phase_change():
     """
     Scroll to top of page only when phase changes.
-    
+
     This prevents scroll jumping on every interaction (like checkbox clicks)
     while ensuring users see the top of the page after phase transitions.
     """
     current_phase = st.session_state.get("phase")
     last_phase = st.session_state.get("_last_phase_for_scroll")
-    
+
     if current_phase != last_phase:
+        from streamlit.components.v1 import html as st_html
+
         st.session_state._last_phase_for_scroll = current_phase
-        st.markdown(
-            """
-            <script>
-                window.scrollTo(0, 0);
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-                var main = document.querySelector('.main');
-                if (main) main.scrollTop = 0;
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
+        js = """
+        <script>
+            var body = window.parent.document.querySelector(".main");
+            if (body) {
+                body.scrollTop = 0;
+            }
+        </script>
+        """
+        st_html(js, height=0, width=0)  # Use height/width 0 to make it invisible
 
 
 # Main application router
@@ -254,12 +253,12 @@ def main():
                 st.query_params.clear()
                 role = ""
                 session_code = ""
-    
+
     # Route to appropriate interface - no placeholder to avoid blank screen issues
     if role and session_code:
         # Scroll to top only when phase changes (not on every rerun)
         scroll_to_top_on_phase_change()
-        
+
         if role == "subject":
             subject_interface()
         elif role == "moderator":
