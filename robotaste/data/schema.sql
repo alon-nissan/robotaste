@@ -166,7 +166,51 @@ CREATE TABLE IF NOT EXISTS pump_logs (
     FOREIGN KEY (operation_id) REFERENCES pump_operations(id)
 );
 
--- Table 9: Session Sample Bank State (Track randomized sample order per session)
+-- Table 9: Pump Volume State (Session-Specific Tracking)
+CREATE TABLE IF NOT EXISTS pump_volume_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    ingredient_name TEXT NOT NULL,
+
+    -- Volume tracking (all in µL)
+    max_capacity_ul REAL NOT NULL,
+    initial_volume_ul REAL NOT NULL,
+    current_volume_ul REAL NOT NULL,
+    total_dispensed_ul REAL DEFAULT 0,
+
+    -- Alert threshold (non-blocking warning)
+    alert_threshold_ul REAL DEFAULT 2000.0,
+
+    -- Timestamps
+    last_dispensed_at TIMESTAMP DEFAULT NULL,
+    last_refilled_at TIMESTAMP DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(session_id, ingredient_name),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pump_volume_session ON pump_volume_state(session_id);
+
+-- Table 10: Pump Volume History (Audit Trail)
+CREATE TABLE IF NOT EXISTS pump_volume_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    ingredient_name TEXT NOT NULL,
+    event_type TEXT NOT NULL,  -- "init", "dispense", "refill"
+    volume_change_ul REAL NOT NULL,
+    volume_before_ul REAL NOT NULL,
+    volume_after_ul REAL NOT NULL,
+    cycle_number INTEGER DEFAULT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pump_volume_history_session ON pump_volume_history(session_id);
+
+-- Table 11: Session Sample Bank State (Track randomized sample order per session)
 CREATE TABLE IF NOT EXISTS session_sample_bank_state (
     session_id TEXT NOT NULL,
     protocol_schedule_index INTEGER NOT NULL,

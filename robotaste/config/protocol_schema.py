@@ -412,6 +412,18 @@ PROTOCOL_JSON_SCHEMA = {
                                 "minimum": 0,
                                 "description": "Stock solution concentration in mM",
                             },
+                            "syringe_max_capacity_ul": {
+                                "type": "number",
+                                "minimum": 100,
+                                "description": "Maximum syringe capacity in microliters",
+                                "default": 60000,
+                            },
+                            "alert_threshold_ul": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Low volume alert threshold in microliters",
+                                "default": 2000,
+                            },
                         },
                     },
                 },

@@ -1844,12 +1844,108 @@ def show_moderator_monitoring():
         if pump_config.get("enabled", False):
             st.markdown("### 🔬 Pump Status")
 
+            # ===== VOLUME MONITORING =====
+            from robotaste.core.pump_volume_manager import get_volume_status, record_refill
+            from robotaste.data.database import DB_PATH
+
+            volume_status = get_volume_status(DB_PATH, st.session_state.session_id)
+
+            if volume_status:
+                st.markdown("#### 💧 Volume Tracking")
+
+                for ingredient, status in volume_status.items():
+                    current = status["current_ul"]
+                    max_cap = status["max_capacity_ul"]
+                    percent = status["percent_remaining"]
+                    alert = status["alert_active"]
+
+                    # Header with alert badge
+                    if alert:
+                        st.warning(f"⚠️ **{ingredient}** - Low volume!")
+                    else:
+                        st.markdown(f"**{ingredient}**")
+
+                    # Progress bar
+                    progress_color = "🔴" if percent < 10 else "🟡" if percent < 30 else "🟢"
+                    st.progress(percent / 100.0)
+
+                    # Volume info and refill button
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.caption(f"{current:,.0f} / {max_cap:,.0f} µL ({percent:.0f}%)")
+                        if status["last_dispensed_at"]:
+                            st.caption(f"Last dispensed: {status['last_dispensed_at']}")
+                    with col2:
+                        if st.button("Refill", key=f"refill_{ingredient}"):
+                            st.session_state[f"show_refill_{ingredient}"] = True
+
+                    # Refill form
+                    if st.session_state.get(f"show_refill_{ingredient}"):
+                        with st.form(key=f"refill_form_{ingredient}"):
+                            st.markdown(f"**Refill {ingredient}**")
+                            st.caption(f"Current: {current:,.0f} µL | Max: {max_cap:,.0f} µL")
+
+                            new_total = st.number_input(
+                                "New Total Volume (µL)",
+                                min_value=0.0,
+                                max_value=float(max_cap),
+                                value=float(max_cap),
+                                step=1000.0
+                            )
+
+                            notes = st.text_input("Notes (optional)")
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.form_submit_button("Cancel"):
+                                    st.session_state[f"show_refill_{ingredient}"] = False
+                                    st.rerun()
+                            with col2:
+                                if st.form_submit_button("Confirm Refill"):
+                                    success = record_refill(
+                                        DB_PATH,
+                                        st.session_state.session_id,
+                                        ingredient,
+                                        new_total,
+                                        notes
+                                    )
+                                    if success:
+                                        st.session_state[f"show_refill_{ingredient}"] = False
+                                        st.success(f"✓ Refilled {ingredient}")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to record refill")
+
+                    st.markdown("---")
+
+                # Volume History Viewer
+                with st.expander("📜 Volume History"):
+                    from robotaste.core.pump_volume_manager import get_volume_history
+
+                    history = get_volume_history(DB_PATH, st.session_state.session_id, limit=20)
+
+                    if history:
+                        for event in history:
+                            icon = {"init": "🔧", "dispense": "💧", "refill": "💉"}.get(event["event_type"], "•")
+                            cycle_info = f" (Cycle {event['cycle_number']})" if event["cycle_number"] else ""
+                            st.text(
+                                f"{event['created_at']} | {icon} {event['event_type']} | "
+                                f"{event['ingredient_name']}: {event['volume_change_ul']:+.0f} µL "
+                                f"({event['volume_before_ul']:.0f} → {event['volume_after_ul']:.0f}){cycle_info}"
+                            )
+                    else:
+                        st.caption("No volume history")
+
+                st.markdown("---")
+
+            # ===== CURRENT OPERATION =====
             from robotaste.utils.pump_db import (
                 get_current_operation_for_session,
                 get_recent_operations,
                 get_operation_logs
             )
 
+            st.markdown("#### 🔄 Current Operation")
             # Current operation
             current_op = get_current_operation_for_session(st.session_state.session_id)
 
@@ -2454,7 +2550,52 @@ def render_protocol_selection():
 
     st.markdown("---")
 
-    # === SECTION 3: Start Session ===
+    # === SECTION 3: Pump Setup (if protocol has pumps enabled) ===
+    if selected_protocol_id:
+        protocol = protocol_repo.get_protocol_by_id(selected_protocol_id)
+        if protocol:
+            pump_config = protocol.get("pump_config", {})
+            if pump_config.get("enabled", False):
+                st.markdown("### 💉 Pump Setup")
+                st.info("Enter the current volume in each syringe before starting the session (in mL).")
+
+                pumps_list = pump_config.get("pumps", [])
+                ingredient_volumes = {}
+
+                for pump in pumps_list:
+                    ingredient = pump["ingredient"]
+                    max_capacity_ul = pump.get("syringe_max_capacity_ul", 60000)
+                    alert_threshold = pump.get("alert_threshold_ul", 2000.0)
+
+                    # Convert to mL for user input
+                    max_capacity_ml = max_capacity_ul / 1000.0
+
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        initial_vol_ml = st.number_input(
+                            f"{ingredient} - Initial Volume (mL)",
+                            min_value=0.0,
+                            max_value=float(max_capacity_ml),
+                            value=float(max_capacity_ml * 0.8),  # Default 80%
+                            step=1.0,
+                            key=f"init_vol_{ingredient}"
+                        )
+                    with col2:
+                        st.metric("Max Capacity", f"{max_capacity_ml:.1f} mL")
+
+                    # Convert input back to µL for storage
+                    ingredient_volumes[ingredient] = {
+                        "max_capacity_ul": max_capacity_ul,
+                        "initial_volume_ul": initial_vol_ml * 1000.0,
+                        "alert_threshold_ul": alert_threshold
+                    }
+
+                # Store in session state for use when starting session
+                st.session_state.pump_initial_volumes = ingredient_volumes
+
+                st.markdown("---")
+
+    # === SECTION 4: Start Session ===
     if selected_protocol_id:
         if st.button("▶ START SESSION WITH THIS PROTOCOL", type="primary", use_container_width=True):
             start_session_with_protocol(selected_protocol_id)
@@ -2567,6 +2708,23 @@ def start_session_with_protocol(protocol_id: str):
             st.session_state.session_id = session_id
             st.session_state.session_code = session_code
             logger.info(f"Created new session {session_id} with protocol {protocol_id}")
+
+        # Initialize pump volume tracking if applicable
+        if st.session_state.get("pump_initial_volumes"):
+            from robotaste.core.pump_volume_manager import initialize_volume_tracking
+            from robotaste.data.database import DB_PATH
+
+            success_vol = initialize_volume_tracking(
+                db_path=DB_PATH,
+                session_id=session_id,
+                ingredient_volumes=st.session_state.pump_initial_volumes
+            )
+
+            if not success_vol:
+                st.warning("Failed to initialize pump volume tracking. Continuing anyway.")
+
+            # Clear from session state
+            del st.session_state.pump_initial_volumes
 
         # Start trial using the protocol
         success = start_trial(
