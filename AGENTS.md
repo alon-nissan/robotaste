@@ -6,6 +6,7 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 ## Quick Orientation
 - App entrypoint: `main_app.py` (Streamlit UI).
 - Pump daemon: `pump_control_service.py` (hardware-connected machine).
+- Belt daemon: `belt_control_service.py` (hardware-connected machine).
 - State machine: `robotaste/core/state_machine.py`.
 - DB: `robotaste.db` (SQLite); schema in `robotaste/data/schema.sql`.
 - Protocols: `robotaste/config/protocols.py` and `robotaste/config/protocol_schema.py`.
@@ -21,14 +22,18 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 | Change UI behavior | `robotaste/views/moderator.py` or `robotaste/views/subject.py` | `robotaste/components/`, `robotaste/views/moderator_views.py` |
 | Fix BO issues | `robotaste/core/bo_engine.py`, `robotaste/core/bo_integration.py` | `robotaste/core/bo_utils.py`, `robotaste/config/bo_config.py` |
 | Pump problems | `robotaste/hardware/pump_controller.py`, `robotaste/core/pump_manager.py` | `robotaste/core/pump_integration.py`, `robotaste/utils/pump_db.py` |
+| Belt problems | `robotaste/hardware/belt_controller.py`, `robotaste/core/belt_manager.py` | `robotaste/core/belt_integration.py`, `robotaste/utils/belt_db.py` |
+| Robot orchestration | `robotaste/core/robot_orchestrator.py` | `robotaste/core/pump_integration.py`, `robotaste/core/belt_integration.py` |
 | Database queries | `robotaste/data/database.py` (low-level SQL) | `robotaste/data/session_repo.py`, `robotaste/data/protocol_repo.py` |
 | Questionnaire changes | `robotaste/views/questionnaire.py`, `robotaste/config/questionnaire.py` | `robotaste/data/database.py` (save logic) |
 
 ### By Component
-- **Entry points**: `main_app.py` (UI), `pump_control_service.py` (daemon)
+- **Entry points**: `main_app.py` (UI), `pump_control_service.py` (pump daemon), `belt_control_service.py` (belt daemon)
 - **State management**: `robotaste/core/state_machine.py` (validation), `robotaste/core/phase_engine.py` (sequencing)
 - **Data layer**: `robotaste/data/database.py` (low-level SQL), `robotaste/data/session_repo.py` (business logic)
-- **Hardware**: `robotaste/hardware/pump_controller.py` (serial), `robotaste/core/pump_manager.py` (caching)
+- **Hardware**: `robotaste/hardware/pump_controller.py` (pumps), `robotaste/hardware/belt_controller.py` (belt)
+- **Hardware caching**: `robotaste/core/pump_manager.py`, `robotaste/core/belt_manager.py`
+- **Orchestration**: `robotaste/core/robot_orchestrator.py` (coordinates pump + belt)
 - **Trials**: `robotaste/core/trials.py` (BO suggestions, sample tracking)
 - **Views**: `robotaste/views/moderator.py` (moderator UI), `robotaste/views/subject.py` (subject UI)
 - **Components**: `robotaste/components/` (reusable UI widgets)
@@ -36,6 +41,7 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 ## Build / Run Commands
 - **App UI**: `streamlit run main_app.py`
 - **Pump service**: `python pump_control_service.py --db-path robotaste.db --poll-interval 0.5`
+- **Belt service**: `python belt_control_service.py --db-path robotaste.db --poll-interval 0.5`
 - **Tests (all)**: `pytest`
 - **Tests (single file)**: `pytest tests/test_protocol_integration.py`
 - **Tests (single test)**: `pytest tests/test_protocol_integration.py::test_name`
@@ -45,6 +51,8 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
   - `python robotaste/hardware/test_pump_movement.py`
   - `python robotaste/hardware/test_dual_pump.py`
   - `python robotaste/hardware/test_burst_commands.py`
+  - `python robotaste/hardware/test_belt.py` (requires belt hardware)
+  - `python robotaste/hardware/test_belt.py --mock` (mock mode, no hardware)
 
 ## Lint / Format
 - No lint or formatter configured in-repo.
@@ -56,12 +64,15 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 
 ## Test Notes
 - Integration tests use temporary SQLite DBs.
-- Hardware tests must only run with physical pump connection.
-- Avoid running pump tests in CI-like environments.
+- Hardware tests must only run with physical pump/belt connection.
+- Avoid running hardware tests in CI-like environments.
+- Belt tests can run in mock mode: `pytest tests/test_belt_integration.py`
 
 ## Required Project Rules (from CLAUDE.md)
 - Reuse pump connections via `robotaste/core/pump_manager.py` (init is slow).
+- Reuse belt connections via `robotaste/core/belt_manager.py` (Arduino reset on connect).
 - Pumps share one serial port; use `_serial_port_lock` to serialize init.
+- Belt uses separate serial port from pumps.
 - UI/DB units are microliters; pump hardware uses milliliters.
 - Convert volume: `volume_ml = volume_ul / 1000.0`.
 - BO training data column order must match `experiment_config.ingredients`.
@@ -70,6 +81,7 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 ## Workflow / State Machine
 - Standard flow: WAITING -> REGISTRATION -> INSTRUCTIONS -> SELECTION -> LOADING -> QUESTIONNAIRE -> loop -> COMPLETE.
 - Pump flow: WAITING -> REGISTRATION -> INSTRUCTIONS -> SELECTION -> ROBOT_PREPARING -> QUESTIONNAIRE -> loop -> COMPLETE.
+- Robot flow (pump + belt): Same as pump flow. Belt operations happen within ROBOT_PREPARING phase.
 - Protocols may override phase sequence; fall back to `VALID_TRANSITIONS`.
 
 ## Code Style Guidelines (Python)

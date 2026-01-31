@@ -20,6 +20,9 @@ streamlit run main_app.py
 
 # Pump control service (separate process, runs on hardware-connected machine)
 python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
+
+# Belt control service (separate process, runs on belt-connected machine)
+python belt_control_service.py --db-path robotaste.db --poll-interval 0.5
 ```
 
 ### Testing
@@ -80,12 +83,31 @@ WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → LOADING → QUESTION
 **Pump-Enabled Flow:**
 WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → ROBOT_PREPARING → QUESTIONNAIRE → (loop) → COMPLETE
 
+**Robot Flow (Pump + Belt):**
+Same as Pump flow. During ROBOT_PREPARING, the robot orchestrator coordinates:
+1. Belt positions cup at spout
+2. Pump dispenses sample
+3. Belt performs mixing oscillations
+4. Belt moves cup to display area
+
 ### Hardware Pump Control
 - **Service:** `pump_control_service.py` monitors `pump_operations` table
 - **Controller:** `robotaste/hardware/pump_controller.py` handles NE-4000 serial comms
 - **Manager:** `robotaste/core/pump_manager.py` handles connection caching
 
 **Burst Mode:** Enables simultaneous dispensing from multiple pumps using NE-4000 Network Command Burst protocol (addresses 0-9 only).
+
+### Hardware Conveyor Belt Control
+- **Service:** `belt_control_service.py` monitors `belt_operations` table
+- **Controller:** `robotaste/hardware/belt_controller.py` handles Arduino serial comms
+- **Manager:** `robotaste/core/belt_manager.py` handles connection caching
+- **Orchestrator:** `robotaste/core/robot_orchestrator.py` coordinates pump + belt
+
+**Belt Commands:**
+- `MOVE_TO_SPOUT` - Position next cup under dispensing spout
+- `MOVE_TO_DISPLAY` - Move current cup to subject pickup area
+- `MIX <count>` - Perform oscillation mixing movements
+- `STATUS` - Query current belt position
 
 ## Key Architectural Decisions
 
@@ -136,6 +158,8 @@ robotaste/
 - `samples`: One row per cycle (ingredient_concentration, questionnaire_answer)
 - `protocol_library`: Reusable protocol templates
 - `pump_operations`: Pending/in-progress/completed dispensing operations
+- `belt_operations`: Pending/in-progress/completed belt positioning/mixing operations
+- `belt_logs`: Belt operation debug logs
 - `bo_configuration`: BO hyperparameters per session
 
 ## Troubleshooting Index
@@ -143,11 +167,14 @@ robotaste/
 | Issue | Likely Cause | File to Check |
 |-------|-------------|---------------|
 | Pump not responding | Serial config, baud rate, port | `robotaste/hardware/pump_controller.py:150` |
+| Belt not responding | Serial config, Arduino port | `robotaste/hardware/belt_controller.py` |
 | Invalid phase transition | Missing entry in VALID_TRANSITIONS | `robotaste/core/state_machine.py:45` |
 | BO not suggesting | Column order mismatch, <3 samples | `robotaste/core/bo_integration.py:80`, check `samples` table |
 | Devices out of sync | Polling not running | `robotaste/data/session_repo.py` (`sync_session_state_to_streamlit()`) |
 | Units wrong | µL/mL conversion missing | `robotaste/core/pump_integration.py` (`calculate_volumes()`) |
 | Phase validation error | Protocol phase_sequence invalid | `robotaste/config/protocol_schema.py`, `robotaste/core/phase_engine.py` |
+| Belt mixing fails | Arduino timeout, mixing oscillations | `robotaste/core/belt_integration.py` |
+| Robot cycle fails | Pump or belt error | `robotaste/core/robot_orchestrator.py` |
 
 ## Multi-Device Session Flow
 1. **Moderator**: Creates session → `session_code` generated.
@@ -178,8 +205,11 @@ robotaste/
 ### Pump Connection Caching
 `pump_manager.py` maintains session-persistent pump connections. First cycle initialization takes ~21s; subsequent cycles are instant. **DO NOT** create new pump instances per cycle.
 
+### Belt Connection Caching
+`belt_manager.py` maintains session-persistent belt connections. Arduino may reset on serial connect (~2s). Use `belt_manager.get_or_create_belt()` to reuse connections.
+
 ### Serial Port Conflicts
-Daisy-chained pumps share a single serial port. Use `_serial_port_lock` in `pump_controller.py` to prevent conflicts.
+Daisy-chained pumps share a single serial port. Belt uses a separate dedicated serial port. Use `_serial_port_lock` in `pump_controller.py` and `_belt_serial_lock` in `belt_controller.py` to prevent conflicts.
 
 ### Volume Units
 - UI/Database: **microliters (µL)**

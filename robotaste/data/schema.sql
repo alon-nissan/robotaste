@@ -166,6 +166,42 @@ CREATE TABLE IF NOT EXISTS pump_logs (
     FOREIGN KEY (operation_id) REFERENCES pump_operations(id)
 );
 
+-- Table 8b: Belt Operations (Conveyor Belt Queue and Status)
+CREATE TABLE IF NOT EXISTS belt_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    cycle_number INTEGER NOT NULL,
+
+    -- Operation details
+    operation_type TEXT NOT NULL,  -- 'position_spout', 'position_display', 'mix'
+    target_position TEXT,          -- 'spout' or 'display' (for position operations)
+    mix_count INTEGER,             -- Number of oscillations (for mix operations)
+
+    -- Status tracking
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, in_progress, completed, failed, skipped
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP DEFAULT NULL,
+    completed_at TIMESTAMP DEFAULT NULL,
+
+    -- Results
+    error_message TEXT,
+
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+);
+
+-- Table 8c: Belt Operation Logs (Debugging and Audit Trail)
+CREATE TABLE IF NOT EXISTS belt_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id INTEGER NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    command TEXT NOT NULL,
+    response TEXT,
+    success INTEGER NOT NULL,  -- 0 or 1
+    error_message TEXT,
+
+    FOREIGN KEY (operation_id) REFERENCES belt_operations(id)
+);
+
 -- Table 9: Pump Volume State (Session-Specific Tracking)
 CREATE TABLE IF NOT EXISTS pump_volume_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,6 +288,15 @@ CREATE INDEX IF NOT EXISTS idx_pump_operations_cycle ON pump_operations(cycle_nu
 -- Pump logs indexes
 CREATE INDEX IF NOT EXISTS idx_pump_logs_operation_id ON pump_logs(operation_id);
 CREATE INDEX IF NOT EXISTS idx_pump_logs_timestamp ON pump_logs(timestamp);
+
+-- Belt operations indexes
+CREATE INDEX IF NOT EXISTS idx_belt_operations_status ON belt_operations(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_belt_operations_session_id ON belt_operations(session_id);
+CREATE INDEX IF NOT EXISTS idx_belt_operations_cycle ON belt_operations(cycle_number);
+
+-- Belt logs indexes
+CREATE INDEX IF NOT EXISTS idx_belt_logs_operation_id ON belt_logs(operation_id);
+CREATE INDEX IF NOT EXISTS idx_belt_logs_timestamp ON belt_logs(timestamp);
 
 -- Session sample bank state indexes
 CREATE INDEX IF NOT EXISTS idx_session_bank_state_session ON session_sample_bank_state(session_id);

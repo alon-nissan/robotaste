@@ -452,6 +452,66 @@ PROTOCOL_JSON_SCHEMA = {
                 },
             },
         },
+        # ===== Belt Configuration (Conveyor Belt Control) =====
+        "belt_config": {
+            "type": "object",
+            "description": "Configuration for conveyor belt control",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Enable conveyor belt control",
+                    "default": False,
+                },
+                "serial_port": {
+                    "type": "string",
+                    "description": "Serial port for belt Arduino (e.g., /dev/ttyUSB1, COM4)",
+                },
+                "baud_rate": {
+                    "type": "integer",
+                    "enum": [9600, 19200, 38400, 57600, 115200],
+                    "description": "Serial communication baud rate",
+                    "default": 9600,
+                },
+                "timeout_seconds": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "Timeout for belt operations in seconds",
+                    "default": 30,
+                },
+                "cup_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Number of cups loaded on the belt",
+                    "default": 10,
+                },
+                "mixing": {
+                    "type": "object",
+                    "description": "Mixing oscillation configuration",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "Enable mixing after dispensing",
+                            "default": True,
+                        },
+                        "oscillations": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 20,
+                            "description": "Number of back-and-forth oscillations",
+                            "default": 5,
+                        },
+                        "speed": {
+                            "type": "string",
+                            "enum": ["slow", "medium", "fast"],
+                            "description": "Mixing speed",
+                            "default": "medium",
+                        },
+                    },
+                },
+            },
+        },
     },
 }
 
