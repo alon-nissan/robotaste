@@ -13,8 +13,15 @@ def render_consent_screen():
     # Check if consent was submitted via query param
     query_params = st.query_params
     if query_params.get("consent_submitted") == "true":
-        # Clear the query param
+        # Preserve role and code, remove consent_submitted
+        role = query_params.get("role")
+        code = query_params.get("code")
         st.query_params.clear()
+        if role:
+            st.query_params["role"] = role
+        if code:
+            st.query_params["code"] = code
+        
         # Save consent response
         agreed = st.session_state.get("consent_agreed", False)
         if save_consent_response(st.session_state.session_id, agreed):
@@ -67,10 +74,15 @@ def render_consent_screen():
     st.session_state.consent_agreed = agreed
     
     if agreed:
-        # Use link button to navigate to top anchor with query param
+        # Build URL preserving existing query params (role, code)
+        params = st.query_params.to_dict()
+        params["consent_submitted"] = "true"
+        query_string = "&".join(f"{k}={v}" for k, v in params.items())
+        url = f"?{query_string}#top"
+        
         st.link_button(
             "Continue",
-            url="?consent_submitted=true#top",
+            url=url,
             type="primary"
         )
     else:
