@@ -107,44 +107,6 @@ def init_session_state():
 init_session_state()
 
 
-def add_accessibility_features():
-    """Add accessibility enhancements based on user preferences."""
-
-    # High contrast mode
-    if st.session_state.get("high_contrast", False):
-        st.markdown(
-            """
-        <style>
-            :root {
-                --primary-color: #521924 !important;
-                --success-color: #008000 !important;
-                --warning-color: #ff8800 !important;
-                --error-color: #cc0000 !important;
-                --text-primary: #000000 !important;
-                --bg-primary: #ffffff !important;
-                --border-color: #333333 !important;
-            }
-
-            .main-header, .card, [data-testid="metric-container"] {
-                border: 2px solid var(--text-primary) !important;
-            }
-
-            button, input, select {
-                border: 2px solid var(--text-primary) !important;
-                background: var(--bg-primary) !important;
-                color: var(--text-primary) !important;
-                font-size: 1.25rem !important;
-            }
-        </style>
-        """,
-            unsafe_allow_html=True,
-        )
-
-
-# Add accessibility features
-add_accessibility_features()
-
-
 def render_logo():
     """
     Render the Niv Lab logo in the top left corner with persistent positioning.
@@ -161,8 +123,8 @@ def render_logo():
         st.markdown(
             f"""
             <div style="position: fixed !important; 
-                        top: 10px !important; 
-                        left: 10px !important; 
+                        top: 2px !important; 
+                        left: 2px !important; 
                         z-index: 9999 !important;
                         pointer-events: none !important;">
                 <img src="data:image/png;base64,{logo_data}" 
@@ -182,31 +144,6 @@ def render_logo():
 from robotaste.views.landing import landing_page
 from robotaste.views.moderator import moderator_interface
 from robotaste.views.subject import subject_interface
-
-
-def scroll_to_top_on_phase_change():
-    """
-    Scroll to top of page only when phase changes.
-
-    This prevents scroll jumping on every interaction (like checkbox clicks)
-    while ensuring users see the top of the page after phase transitions.
-    """
-    current_phase = st.session_state.get("phase")
-    last_phase = st.session_state.get("_last_phase_for_scroll")
-
-    if current_phase != last_phase:
-        from streamlit.components.v1 import html as st_html
-
-        st.session_state._last_phase_for_scroll = current_phase
-        js = """
-        <script>
-            var body = window.parent.document.querySelector(".main");
-            if (body) {
-                body.scrollTop = 0;
-            }
-        </script>
-        """
-        st_html(js, height=0, width=0)  # Use height/width 0 to make it invisible
 
 
 # Main application router
@@ -256,9 +193,6 @@ def main():
 
     # Route to appropriate interface - no placeholder to avoid blank screen issues
     if role and session_code:
-        # Scroll to top only when phase changes (not on every rerun)
-        scroll_to_top_on_phase_change()
-
         if role == "subject":
             subject_interface()
         elif role == "moderator":
