@@ -10,7 +10,7 @@ Version: 3.0 (Refactored Architecture)
 import streamlit as st
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 from robotaste.config.questionnaire import get_questionnaire_config
 
@@ -19,30 +19,33 @@ logger = logging.getLogger(__name__)
 
 
 def render_questionnaire(
-    questionnaire_type: str, participant_id: str, show_final_response: bool = False
+    questionnaire: Union[str, Dict[str, Any]], participant_id: str, show_final_response: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Render a modular questionnaire component using the centralized questionnaire configuration.
 
     Args:
-        questionnaire_type: Type of questionnaire (e.g., 'hedonic', 'unified_feedback')
+        questionnaire: Either questionnaire config dict (preferred) or
+                      string type name (legacy)
         participant_id: Participant identifier
         show_final_response: Whether to show Final Response button instead of Continue
 
     Returns:
         dict: Questionnaire responses or None if not completed
     """
-    # Get questionnaire configuration from centralized system
-    config = get_questionnaire_config(questionnaire_type)
+    # Get questionnaire configuration - converts string to dict if needed
+    config = get_questionnaire_config(questionnaire)
 
     if config is None:
-        st.error(f"Unknown questionnaire type: {questionnaire_type}")
+        st.error(f"Invalid questionnaire configuration")
         return None
 
     # Create unique session state keys for this questionnaire instance
     # Include cycle number to ensure unique keys per cycle (prevents form overlap)
     cycle_num = st.session_state.get("current_cycle", 1)
-    instance_key = f"questionnaire_{questionnaire_type}_{participant_id}_{cycle_num}"
+    # Use questionnaire name for instance key
+    q_name = config.get("name", "questionnaire").replace(" ", "_").lower()
+    instance_key = f"questionnaire_{q_name}_{participant_id}_{cycle_num}"
 
     # Display questionnaire header
     st.markdown(f"### {config.get('name', 'Questionnaire')}")
@@ -309,7 +312,11 @@ def render_questionnaire(
 
         if submitted:
             # Add metadata
-            responses["questionnaire_type"] = questionnaire_type
+            # Store questionnaire type if string was passed (legacy), else store name
+            if isinstance(questionnaire, str):
+                responses["questionnaire_type"] = questionnaire
+            else:
+                responses["questionnaire_type"] = config.get("name", "custom")
             responses["participant_id"] = participant_id
             responses["timestamp"] = datetime.now().isoformat()
             responses["is_final"] = show_final_response

@@ -182,7 +182,6 @@ def _validate_schema(protocol: Dict[str, Any]) -> List[str]:
         "version",
         "ingredients",
         "sample_selection_schedule",
-        "questionnaire_type",
     ]
     for field in required_fields:
         if field not in protocol:
@@ -234,11 +233,9 @@ def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
     ingredient_errors = _validate_ingredients(protocol)
     errors.extend(ingredient_errors)
 
-    # Validate questionnaire type
-    if "questionnaire_type" in protocol:
-        q_type = protocol["questionnaire_type"]
-        if q_type not in VALIDATION_RULES["valid_questionnaire_types"]:
-            errors.append(f"Invalid questionnaire type: {q_type}")
+    # Validate questionnaire (inline or legacy)
+    questionnaire_errors = _validate_questionnaire_config(protocol)
+    errors.extend(questionnaire_errors)
 
     # Validate BO configuration
     bo_errors = _validate_bo_config(protocol)
@@ -432,6 +429,82 @@ def _validate_ingredients(protocol: Dict[str, Any]) -> List[str]:
             errors.append(
                 f"Ingredient {i+1}: max_concentration must be > min_concentration"
             )
+
+    return errors
+
+
+def _validate_questionnaire_config(protocol: Dict[str, Any]) -> List[str]:
+    """Validate questionnaire configuration structure."""
+    errors = []
+
+    # Check if either questionnaire or questionnaire_type is present
+    has_questionnaire = "questionnaire" in protocol
+    has_questionnaire_type = "questionnaire_type" in protocol
+
+    if not has_questionnaire and not has_questionnaire_type:
+        errors.append("Protocol must have either 'questionnaire' object or 'questionnaire_type' string")
+        return errors
+
+    # Validate inline questionnaire if present
+    if has_questionnaire:
+        questionnaire = protocol["questionnaire"]
+
+        if not isinstance(questionnaire, dict):
+            errors.append("Questionnaire must be an object")
+            return errors
+
+        # Validate questions array
+        if "questions" not in questionnaire or not questionnaire["questions"]:
+            errors.append("Questionnaire must have at least one question")
+            return errors
+
+        question_ids = set()
+        for idx, question in enumerate(questionnaire["questions"]):
+            q_id = question.get("id")
+            if not q_id:
+                errors.append(f"Question {idx} missing 'id' field")
+                continue
+
+            if q_id in question_ids:
+                errors.append(f"Duplicate question id: {q_id}")
+            question_ids.add(q_id)
+
+            # Type-specific validation
+            q_type = question.get("type")
+            if not q_type:
+                errors.append(f"Question '{q_id}' missing 'type' field")
+                continue
+
+            if q_type == "slider":
+                if "min" not in question or "max" not in question:
+                    errors.append(f"Slider question '{q_id}' missing min/max")
+                elif question["min"] >= question["max"]:
+                    errors.append(f"Slider question '{q_id}': min must be < max")
+
+            elif q_type == "dropdown":
+                if "options" not in question or not question["options"]:
+                    errors.append(f"Dropdown question '{q_id}' missing options")
+
+        # Validate bayesian_target
+        if "bayesian_target" not in questionnaire:
+            errors.append("Questionnaire missing 'bayesian_target' configuration")
+        else:
+            target = questionnaire["bayesian_target"]
+            target_var = target.get("variable")
+
+            if not target_var:
+                errors.append("bayesian_target missing 'variable' field")
+            elif target_var != "composite" and target_var not in question_ids:
+                errors.append(f"bayesian_target references unknown question: {target_var}")
+
+            if "higher_is_better" not in target:
+                errors.append("bayesian_target missing 'higher_is_better' field")
+
+    # Validate legacy questionnaire_type if present (and no inline questionnaire)
+    elif has_questionnaire_type:
+        q_type = protocol["questionnaire_type"]
+        if q_type not in VALIDATION_RULES["valid_questionnaire_types"]:
+            errors.append(f"Invalid questionnaire type: {q_type}")
 
     return errors
 

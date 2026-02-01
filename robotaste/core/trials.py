@@ -32,6 +32,10 @@ from robotaste.config.protocol_schema import (
     get_schedule_index_for_cycle,
     normalize_selection_mode,
 )
+from robotaste.config.questionnaire import (
+    get_default_questionnaire_type,
+    get_questionnaire_config,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -100,8 +104,15 @@ def start_trial(
             num_ingredients = len(ingredient_configs)
             selected_ingredients = [ing['name'] for ing in ingredient_configs]
             # Method is part of the UI config, might be in a sub-dict. Assume linear default.
-            method = protocol_config.get("method", "linear") 
-            questionnaire_type = protocol_config.get("questionnaire_type", get_default_questionnaire_type())
+            method = protocol_config.get("method", "linear")
+
+            # Extract questionnaire config (inline or legacy)
+            questionnaire = protocol_config.get("questionnaire")
+            if not questionnaire:
+                # Fallback for legacy protocols with questionnaire_type
+                questionnaire_type = protocol_config.get("questionnaire_type", get_default_questionnaire_type())
+                questionnaire = get_questionnaire_config(questionnaire_type)
+
             bo_config = protocol_config.get("bo_config", get_default_bo_config())
         
         # Otherwise, use manual parameters passed to the function.
@@ -113,13 +124,14 @@ def start_trial(
             
             # Get config from session state for manual mode
             questionnaire_type = st.session_state.get("selected_questionnaire_type", get_default_questionnaire_type())
+            questionnaire = get_questionnaire_config(questionnaire_type)
             bo_config = st.session_state.get("bo_config", get_default_bo_config())
             protocol_config = {
                 "num_ingredients": num_ingredients,
                 "interface_type": INTERFACE_2D_GRID if num_ingredients == 2 else INTERFACE_SINGLE_INGREDIENT,
                 "method": method,
                 "ingredients": ingredient_configs,
-                "questionnaire_type": questionnaire_type,
+                "questionnaire": questionnaire,
                 "bayesian_optimization": bo_config,
             }
 
@@ -136,18 +148,17 @@ def start_trial(
         # For now, initialize as empty.
         st.session_state.current_tasted_sample = {}
 
-        # Update database with the full config
-        question_type_id = sql.get_questionnaire_type_id(questionnaire_type)
-        if question_type_id is None:
-            st.error(f"Questionnaire type '{questionnaire_type}' not found in database.")
-            return False
-
         # The full config to be saved, whether from protocol or manual
+        # Ensure questionnaire object is saved in experiment_config
         experiment_config_to_save = {
             **protocol_config,
+            "questionnaire": questionnaire,  # Ensure questionnaire object is present
             "current_cycle": 1,  # Start at cycle 1 (1-indexed)
             "created_at": datetime.now().isoformat(),
         }
+
+        # No need for question_type_id lookup - questionnaire is embedded in experiment_config
+        question_type_id = None  # Set to NULL for new sessions
 
         # update_session_with_config handles both creation and update logic
         success_db = sql.update_session_with_config(

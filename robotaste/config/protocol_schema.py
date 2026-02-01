@@ -48,7 +48,6 @@ PROTOCOL_JSON_SCHEMA = {
         "version",
         "ingredients",
         "sample_selection_schedule",
-        "questionnaire_type",
     ],
     "properties": {
         # ===== Identity =====
@@ -203,7 +202,51 @@ PROTOCOL_JSON_SCHEMA = {
         # ===== Questionnaire =====
         "questionnaire_type": {
             "type": "string",
-            "description": "Questionnaire type ID from QUESTIONNAIRE_CONFIGS",
+            "description": "Legacy questionnaire type ID (deprecated - use questionnaire object instead)",
+        },
+        "questionnaire": {
+            "type": "object",
+            "description": "Inline questionnaire configuration",
+            "required": ["questions", "bayesian_target"],
+            "properties": {
+                "name": {"type": "string", "description": "Display name"},
+                "description": {"type": "string", "description": "Purpose description"},
+                "version": {"type": "string", "description": "Version number"},
+                "questions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "type", "label"],
+                        "properties": {
+                            "id": {"type": "string"},
+                            "type": {"enum": ["slider", "dropdown", "text_input", "text_area"]},
+                            "label": {"type": "string"},
+                            "required": {"type": "boolean"},
+                            "help_text": {"type": "string"},
+                            "min": {"type": "number"},
+                            "max": {"type": "number"},
+                            "step": {"type": "number"},
+                            "default": {"type": "number"},
+                            "display_type": {"type": "string"},
+                            "scale_labels": {"type": "object"},
+                            "options": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+                "bayesian_target": {
+                    "type": "object",
+                    "required": ["variable", "higher_is_better"],
+                    "properties": {
+                        "variable": {"type": "string"},
+                        "formula": {"type": "string"},
+                        "transform": {"enum": ["identity", "log", "normalize"]},
+                        "higher_is_better": {"type": "boolean"},
+                        "expected_range": {"type": "array", "items": {"type": "number"}},
+                        "optimal_threshold": {"type": "number"},
+                    },
+                },
+            },
         },
         # ===== Consent Form =====
         "consent_form": {
@@ -589,6 +632,8 @@ def get_empty_protocol_template() -> Dict[str, Any]:
     Returns:
         Dict with minimal protocol structure
     """
+    from robotaste.config.questionnaire import QUESTIONNAIRE_EXAMPLES
+
     return {
         "protocol_id": "",  # Will be generated
         "name": "",
@@ -600,7 +645,7 @@ def get_empty_protocol_template() -> Dict[str, Any]:
         "tags": [],
         "ingredients": [],
         "sample_selection_schedule": [],
-        "questionnaire_type": "hedonic_continuous",
+        "questionnaire": QUESTIONNAIRE_EXAMPLES["hedonic_continuous"],
         "consent_form": {
             "explanation": "You are invited to participate in a taste research study.",
             "contact_info": "For questions, please contact the research team.",

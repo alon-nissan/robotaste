@@ -210,7 +210,7 @@ class TestProtocolFullLifecycle:
 
         # Test cycle 1 (predetermined mode)
         cycle_1_data = prepare_cycle_sample(session_id, 1)
-        assert cycle_1_data['mode'] == 'predetermined'
+        assert cycle_1_data['mode'] == 'predetermined_absolute'
         assert cycle_1_data['concentrations'] == {"Sugar": 10.0, "Salt": 2.0}
         assert cycle_1_data['metadata']['is_predetermined'] is True
 
@@ -227,7 +227,7 @@ class TestProtocolFullLifecycle:
 
         # Test cycle 2 (predetermined mode)
         cycle_2_data = prepare_cycle_sample(session_id, 2)
-        assert cycle_2_data['mode'] == 'predetermined'
+        assert cycle_2_data['mode'] == 'predetermined_absolute'
         assert cycle_2_data['concentrations'] == {"Sugar": 20.0, "Salt": 4.0}
 
         # Test cycle 3 (user_selected mode)
@@ -389,7 +389,7 @@ class TestMixedModeTransitions:
 
         # Verify expected sequence
         expected = [
-            (1, 'predetermined'), (2, 'predetermined'),
+            (1, 'predetermined_absolute'), (2, 'predetermined_absolute'),
             (3, 'user_selected'), (4, 'user_selected'), (5, 'user_selected'),
             (6, 'bo_selected'), (7, 'bo_selected'), (8, 'bo_selected'),
             (9, 'bo_selected'), (10, 'bo_selected')

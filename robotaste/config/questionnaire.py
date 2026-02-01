@@ -11,7 +11,7 @@ Author: RoboTaste Team
 Version: 2.1 (Bayesian Optimization Support)
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import logging
 
 from robotaste.utils.safe_eval import safe_eval_expression
@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # QUESTIONNAIRE DEFINITIONS
 # ============================================================================
+# Example questionnaire templates. Use these as starting points for custom questionnaires
+# or reference them by name for legacy compatibility.
 
-QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
+QUESTIONNAIRE_EXAMPLES: Dict[str, Dict[str, Any]] = {
     # ========================================================================
     # DEFAULT: Continuous Hedonic Scale
     # Continuous 1-9 scale for fine-grained preference measurement
@@ -335,25 +337,34 @@ QUESTIONNAIRE_CONFIGS: Dict[str, Dict[str, Any]] = {
 # ============================================================================
 
 
-def get_questionnaire_config(questionnaire_type: str) -> Optional[Dict[str, Any]]:
+def get_questionnaire_config(questionnaire: Union[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
-    Retrieve questionnaire configuration by type.
+    Retrieve questionnaire configuration.
 
     Args:
-        questionnaire_type: Key from QUESTIONNAIRE_CONFIGS
+        questionnaire: Either a string (legacy questionnaire type name) or
+                      a questionnaire config dict (inline configuration)
 
     Returns:
-        Configuration dictionary or None if not found
+        Questionnaire config dictionary
     """
-    config = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+    # If already a dict, return it
+    if isinstance(questionnaire, dict):
+        return questionnaire
 
-    if config is None:
-        logger.warning(
-            f"Questionnaire type '{questionnaire_type}' not found. Using default."
-        )
-        return QUESTIONNAIRE_CONFIGS.get("hedonic_continuous")
+    # Legacy: string lookup in QUESTIONNAIRE_EXAMPLES
+    if isinstance(questionnaire, str):
+        config = QUESTIONNAIRE_EXAMPLES.get(questionnaire)
+        if config is None:
+            logger.warning(
+                f"Questionnaire type '{questionnaire}' not found. Using default."
+            )
+            return QUESTIONNAIRE_EXAMPLES.get("hedonic_continuous")
+        return config
 
-    return config
+    # Fallback
+    logger.warning("Invalid questionnaire parameter type. Using default.")
+    return QUESTIONNAIRE_EXAMPLES.get("hedonic_continuous")
 
 
 def get_default_questionnaire_type() -> str:
@@ -363,13 +374,13 @@ def get_default_questionnaire_type() -> str:
 
 def list_available_questionnaires() -> List[tuple]:
     """
-    List all available questionnaires with metadata.
+    List all available questionnaire examples with metadata.
 
     Returns:
         List of tuples: (type_key, name, description)
     """
     questionnaires = []
-    for key, config in QUESTIONNAIRE_CONFIGS.items():
+    for key, config in QUESTIONNAIRE_EXAMPLES.items():
         questionnaires.append(
             (
                 key,
@@ -381,21 +392,22 @@ def list_available_questionnaires() -> List[tuple]:
 
 
 def validate_questionnaire_response(
-    response: Dict[str, Any], questionnaire_type: str
+    response: Dict[str, Any], questionnaire: Union[str, Dict[str, Any]]
 ) -> tuple[bool, Optional[str]]:
     """
     Validate a questionnaire response against the configuration.
 
     Args:
         response: Dictionary of question_id -> answer
-        questionnaire_type: Type of questionnaire being validated
+        questionnaire: Either questionnaire config dict (preferred) or
+                      string type name (legacy)
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    config = get_questionnaire_config(questionnaire_type)
+    config = get_questionnaire_config(questionnaire)
     if config is None:
-        return False, f"Unknown questionnaire type: {questionnaire_type}"
+        return False, f"Invalid questionnaire configuration"
 
     # Check all required questions are answered
     for question in config["questions"]:
@@ -474,19 +486,19 @@ def extract_target_variable(
 
 
 def get_question_by_id(
-    questionnaire_type: str, question_id: str
+    questionnaire: Union[str, Dict[str, Any]], question_id: str
 ) -> Optional[Dict[str, Any]]:
     """
     Get a specific question configuration by ID.
 
     Args:
-        questionnaire_type: Type of questionnaire
+        questionnaire: Either questionnaire config dict or string type name
         question_id: ID of the question
 
     Returns:
         Question configuration dictionary or None
     """
-    config = get_questionnaire_config(questionnaire_type)
+    config = get_questionnaire_config(questionnaire)
     if config is None:
         return None
 
@@ -502,22 +514,25 @@ def get_question_by_id(
 # ============================================================================
 
 
-def get_questionnaire_metadata(questionnaire_type: str) -> Dict[str, Any]:
+def get_questionnaire_metadata(questionnaire: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Get metadata about a questionnaire (name, description, version, etc.).
 
     Args:
-        questionnaire_type: Type of questionnaire
+        questionnaire: Either questionnaire config dict or string type name
 
     Returns:
         Dictionary with metadata
     """
-    config = get_questionnaire_config(questionnaire_type)
+    config = get_questionnaire_config(questionnaire)
     if config is None:
         return {}
 
+    # Determine type key - use name if dict, or the string key if legacy
+    type_key = questionnaire if isinstance(questionnaire, str) else config.get("name", "custom")
+
     return {
-        "type": questionnaire_type,
+        "type": type_key,
         "name": config.get("name", "Unknown"),
         "description": config.get("description", ""),
         "version": config.get("version", "1.0"),
@@ -525,3 +540,16 @@ def get_questionnaire_metadata(questionnaire_type: str) -> Dict[str, Any]:
         "has_bayesian_target": "bayesian_target" in config,
         "target_variable": config.get("bayesian_target", {}).get("variable", None),
     }
+
+
+def get_questionnaire_example(name: str) -> Optional[Dict[str, Any]]:
+    """
+    Get an example questionnaire template by name.
+
+    Args:
+        name: Name of the example template
+
+    Returns:
+        Example questionnaire config dict or None if not found
+    """
+    return QUESTIONNAIRE_EXAMPLES.get(name)

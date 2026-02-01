@@ -32,7 +32,7 @@ from robotaste.data.database import (
 )
 from robotaste.core.state_machine import ExperimentPhase, ExperimentStateMachine
 from robotaste.core import state_helpers
-from robotaste.config.questionnaire import get_default_questionnaire_type
+from robotaste.config.questionnaire import get_default_questionnaire_type, get_questionnaire_config
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
 from robotaste.views.consent import render_consent_screen
@@ -46,6 +46,7 @@ import time
 import logging
 import json
 from datetime import datetime
+from typing import Dict, Any
 
 from robotaste.data.database import update_user_profile
 
@@ -146,29 +147,32 @@ def render_instructions_screen():
         st.rerun()
 
 
-def get_questionnaire_type_from_config() -> str:
+def get_questionnaire_from_config() -> Dict[str, Any]:
     """
-    Retrieve the questionnaire type from the current experiment configuration.
+    Get questionnaire config from experiment config (inline or legacy).
 
     Returns:
-        Questionnaire type string (defaults to 'hedonic' if not found)
+        Questionnaire config dictionary
     """
-    # Try to get from session state's experiment_config
-    if hasattr(st.session_state, "experiment_config") and isinstance(
-        st.session_state.experiment_config, dict
-    ):
-        questionnaire_type = st.session_state.experiment_config.get(
-            "questionnaire_type"
-        )
-        if questionnaire_type:
-            return questionnaire_type
+    experiment_config = st.session_state.get("experiment_config", {})
 
-    # Try to get from session state directly
+    # Try inline questionnaire first
+    questionnaire = experiment_config.get("questionnaire")
+    if questionnaire:
+        return questionnaire
+
+    # Fallback to legacy questionnaire_type lookup
+    questionnaire_type = experiment_config.get("questionnaire_type")
+    if questionnaire_type:
+        return get_questionnaire_config(questionnaire_type)
+
+    # Try session state directly (legacy)
     if hasattr(st.session_state, "selected_questionnaire_type"):
-        return st.session_state.selected_questionnaire_type
+        return get_questionnaire_config(st.session_state.selected_questionnaire_type)
 
-    # Fallback to default
-    return get_default_questionnaire_type()
+    # Last resort: default
+    default_type = get_default_questionnaire_type()
+    return get_questionnaire_config(default_type)
 
 
 def grid_interface(cycle_data: dict):
@@ -1140,9 +1144,9 @@ def subject_interface():
             f"Cycle {cycle_num}: Please answer the questionnaire about the sample you just tasted"
         )
 
-        questionnaire_type = get_questionnaire_type_from_config()
+        questionnaire_config = get_questionnaire_from_config()
         responses = render_questionnaire(
-            questionnaire_type, st.session_state.participant
+            questionnaire_config, st.session_state.participant
         )
 
         if responses:

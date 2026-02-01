@@ -22,6 +22,7 @@ Map common tasks to exact file paths (use these before exploring):
 - **Moderator UI** → `robotaste/views/moderator.py`
 - **Subject UI** → `robotaste/views/subject.py`
 - **Questionnaires** → `robotaste/views/questionnaire.py`, `robotaste/config/questionnaire.py`
+  - **Note:** Questionnaires now support inline configuration in protocols (preferred) or legacy library-based (deprecated)
 - **Trials management** → `robotaste/core/trials.py`
 - **Pump operations** → `robotaste/core/pump_integration.py`
 - **Session sync** → `robotaste/data/session_repo.py` (`sync_session_state_to_streamlit()`)

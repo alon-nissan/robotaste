@@ -307,6 +307,36 @@ def get_session_by_code(session_code: str) -> Optional[Dict]:
         return None
 
 
+def get_questionnaire_from_session(session_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract questionnaire config from session (dual-mode: inline or legacy).
+
+    Args:
+        session_info: Session dictionary from get_session() or get_session_by_code()
+
+    Returns:
+        Questionnaire config dict or None
+    """
+    from robotaste.config.questionnaire import get_default_questionnaire_type, get_questionnaire_config
+
+    # Try inline questionnaire first (new format)
+    experiment_config = session_info.get("experiment_config", {})
+    if isinstance(experiment_config, str):
+        experiment_config = json.loads(experiment_config)
+
+    questionnaire = experiment_config.get("questionnaire")
+    if questionnaire:
+        return questionnaire
+
+    # Fallback to legacy question_type_id lookup
+    if session_info.get("questionnaire_data"):
+        return session_info["questionnaire_data"]
+
+    # Last resort: use default
+    default_type = get_default_questionnaire_type()
+    return get_questionnaire_config(default_type)
+
+
 def get_available_sessions() -> List[Dict]:
     """
     Get all active sessions awaiting their first subject.
@@ -633,7 +663,7 @@ def update_session_with_config(
     interface_type: str,
     method: str,
     ingredients: List[Dict],
-    question_type_id: int,
+    question_type_id: Optional[int],
     bo_config: Dict,
     experiment_config: Dict,
 ) -> bool:
@@ -657,7 +687,7 @@ def update_session_with_config(
         interface_type: 'grid_2d' or 'slider_based'
         method: Mapping method ('linear', 'logarithmic', 'exponential')
         ingredients: List of ingredient configuration dicts
-        question_type_id: ID of questionnaire type
+        question_type_id: ID of questionnaire type (optional - None for inline questionnaires)
         bo_config: Bayesian optimization configuration dict
         experiment_config: Full experiment configuration dict
 
@@ -725,24 +755,43 @@ def update_session_with_config(
             )
 
             # Update session with full config
-            cursor.execute(
-                """
-                UPDATE sessions
-                SET user_id = ?,
-                    ingredients = ?,
-                    question_type_id = ?,
-                    experiment_config = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE session_id = ?
-            """,
-                (
-                    user_id,
-                    json.dumps(ingredients),
-                    question_type_id,
-                    json.dumps(full_config),
-                    session_id,
-                ),
-            )
+            # Handle question_type_id - can be None for inline questionnaires
+            if question_type_id is not None:
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET user_id = ?,
+                        ingredients = ?,
+                        question_type_id = ?,
+                        experiment_config = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = ?
+                """,
+                    (
+                        user_id,
+                        json.dumps(ingredients),
+                        question_type_id,
+                        json.dumps(full_config),
+                        session_id,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE sessions
+                    SET user_id = ?,
+                        ingredients = ?,
+                        experiment_config = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE session_id = ?
+                """,
+                    (
+                        user_id,
+                        json.dumps(ingredients),
+                        json.dumps(full_config),
+                        session_id,
+                    ),
+                )
 
             # Insert or replace BO configuration
             stopping_criteria = bo_config.get("stopping_criteria", {})
