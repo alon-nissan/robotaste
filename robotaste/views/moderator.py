@@ -25,7 +25,6 @@ from robotaste.data.database import (
     get_latest_sample_concentrations,
     get_database_connection,
     get_training_data,
-    get_questionnaire_type_id,
     update_session_with_config,
 )
 from robotaste.core.state_machine import (
@@ -36,9 +35,9 @@ from robotaste.core import state_helpers
 from robotaste.config.bo_config import get_default_bo_config, validate_bo_config
 from robotaste.config.questionnaire import (
     list_available_questionnaires,
-    get_default_questionnaire_type,
     get_questionnaire_config,
     extract_target_variable,
+    QUESTIONNAIRE_EXAMPLES,
 )
 from robotaste.data import protocol_repo
 from robotaste.data.protocol_repo import create_protocol_in_db
@@ -686,31 +685,29 @@ def show_single_ingredient_setup():
     # ===== QUESTIONNAIRE CONFIGURATION =====
     st.markdown("**Questionnaire**")
 
-    # Get available questionnaires
+    # Get available questionnaire templates
     available_questionnaires = list_available_questionnaires()
     questionnaire_options = {q[0]: f"{q[1]} - {q[2]}" for q in available_questionnaires}
 
-    # Initialize questionnaire type in session state
-    if "selected_questionnaire_type" not in st.session_state:
-        st.session_state.selected_questionnaire_type = get_default_questionnaire_type()
+    # Initialize questionnaire in session state
+    if "manual_questionnaire" not in st.session_state:
+        st.session_state.manual_questionnaire = QUESTIONNAIRE_EXAMPLES["hedonic_continuous"]
 
-    # Questionnaire selector
-    selected_questionnaire_type = st.selectbox(
-        "Type:",
+    # Questionnaire template selector
+    selected_template = st.selectbox(
+        "Template:",
         options=list(questionnaire_options.keys()),
         format_func=lambda x: questionnaire_options[x],
-        index=list(questionnaire_options.keys()).index(
-            st.session_state.selected_questionnaire_type
-        ),
-        help="Select the type of questionnaire participants will complete",
+        index=0,  # Default to first option
+        help="Select a questionnaire template (full configuration will be stored inline)",
         key="single_questionnaire_selector",
     )
 
-    # Update session state
-    st.session_state.selected_questionnaire_type = selected_questionnaire_type
+    # Update session state with full questionnaire object
+    st.session_state.manual_questionnaire = QUESTIONNAIRE_EXAMPLES[selected_template]
 
     # Show questionnaire preview
-    questionnaire_config = get_questionnaire_config(selected_questionnaire_type)  # type: ignore
+    questionnaire_config = st.session_state.manual_questionnaire
     if questionnaire_config:
         with st.expander("Preview Questionnaire Questions", expanded=False):
             st.markdown(f"**{questionnaire_config['name']}**")
@@ -785,12 +782,9 @@ def show_single_ingredient_setup():
 
                 # Create/update session in database
                 # Convert questionnaire type name to integer ID
-                questionnaire_name = st.session_state.get(
-                    "selected_questionnaire_type", "hedonic"
-                )
-                question_type_id = get_questionnaire_type_id(questionnaire_name)
-                if question_type_id is None:
-                    st.error(f"Invalid questionnaire type: {questionnaire_name}")
+                questionnaire = st.session_state.get("manual_questionnaire")
+                if not questionnaire:
+                    st.error("Please configure a questionnaire before starting the trial")
                     st.stop()
 
                 success_db = update_session_with_config(
@@ -802,7 +796,6 @@ def show_single_ingredient_setup():
                     interface_type="sliders",
                     method="linear",  # Sliders always use linear mapping
                     ingredients=ingredients_for_db,
-                    question_type_id=question_type_id,
                     bo_config=bo_config,
                     experiment_config=full_experiment_config,
                 )
@@ -1027,31 +1020,29 @@ def show_binary_mixture_setup():
     # ===== QUESTIONNAIRE CONFIGURATION =====
     st.markdown("**Questionnaire**")
 
-    # Get available questionnaires
+    # Get available questionnaire templates
     available_questionnaires = list_available_questionnaires()
     questionnaire_options = {q[0]: f"{q[1]} - {q[2]}" for q in available_questionnaires}
 
-    # Initialize questionnaire type in session state
-    if "selected_questionnaire_type" not in st.session_state:
-        st.session_state.selected_questionnaire_type = get_default_questionnaire_type()
+    # Initialize questionnaire in session state
+    if "manual_questionnaire" not in st.session_state:
+        st.session_state.manual_questionnaire = QUESTIONNAIRE_EXAMPLES["hedonic_continuous"]
 
-    # Questionnaire selector
-    selected_questionnaire_type = st.selectbox(
-        "Type:",
+    # Questionnaire template selector
+    selected_template = st.selectbox(
+        "Template:",
         options=list(questionnaire_options.keys()),
         format_func=lambda x: questionnaire_options[x],
-        index=list(questionnaire_options.keys()).index(
-            st.session_state.selected_questionnaire_type
-        ),
-        help="Select the type of questionnaire participants will complete",
+        index=0,  # Default to first option
+        help="Select a questionnaire template (full configuration will be stored inline)",
         key="binary_questionnaire_selector",
     )
 
-    # Update session state
-    st.session_state.selected_questionnaire_type = selected_questionnaire_type
+    # Update session state with full questionnaire object
+    st.session_state.manual_questionnaire = QUESTIONNAIRE_EXAMPLES[selected_template]
 
     # Show questionnaire preview
-    questionnaire_config = get_questionnaire_config(selected_questionnaire_type)  # type: ignore
+    questionnaire_config = st.session_state.manual_questionnaire
     if questionnaire_config:
         with st.expander("Preview Questionnaire Questions", expanded=False):
             st.markdown(f"**{questionnaire_config['name']}**")
@@ -1142,13 +1133,9 @@ def show_binary_mixture_setup():
                 }
 
                 # Create/update session in database
-                # Convert questionnaire type name to integer ID
-                questionnaire_name = st.session_state.get(
-                    "selected_questionnaire_type", "hedonic"
-                )
-                question_type_id = get_questionnaire_type_id(questionnaire_name)
-                if question_type_id is None:
-                    st.error(f"Invalid questionnaire type: {questionnaire_name}")
+                questionnaire = st.session_state.get("manual_questionnaire")
+                if not questionnaire:
+                    st.error("Please configure a questionnaire before starting the trial")
                     st.stop()
 
                 success_db = update_session_with_config(
@@ -1160,7 +1147,6 @@ def show_binary_mixture_setup():
                     interface_type="2d_grid",
                     method=method,
                     ingredients=ingredients_for_db,
-                    question_type_id=question_type_id,
                     bo_config=bo_config,
                     experiment_config=full_experiment_config,
                 )

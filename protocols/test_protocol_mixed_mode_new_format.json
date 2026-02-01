@@ -78,7 +78,46 @@
       }
     }
   ],
-  "questionnaire_type": "hedonic_continuous",
+  "questionnaire": {
+    "name": "Hedonic Test (Continuous)",
+    "description": "Continuous 9-point hedonic scale with 0.01 precision for detailed preference measurement",
+    "version": "2.0",
+    "citation": "Peryam & Pilgrim (1957) - Hedonic scale method of measuring food preferences",
+    "questions": [
+      {
+        "id": "overall_liking",
+        "type": "slider",
+        "label": "How much do you like this sample?",
+        "help_text": "Rate your overall liking from 1.00 (Dislike Extremely) to 9.00 (Like Extremely)",
+        "scale_labels": {
+          "1": "Dislike Extremely",
+          "2": "Dislike Very Much",
+          "3": "Dislike Moderately",
+          "4": "Dislike Slightly",
+          "5": "Neither Like nor Dislike",
+          "6": "Like Slightly",
+          "7": "Like Moderately",
+          "8": "Like Very Much",
+          "9": "Like Extremely"
+        },
+        "min": 1.0,
+        "max": 9.0,
+        "default": 5.0,
+        "step": 0.01,
+        "required": true,
+        "display_type": "slider_continuous",
+        "color_scale": "red_to_green"
+      }
+    ],
+    "bayesian_target": {
+      "variable": "overall_liking",
+      "transform": "identity",
+      "higher_is_better": true,
+      "description": "Maximize overall liking score (1.0-9.0 continuous scale)",
+      "expected_range": [1.0, 9.0],
+      "optimal_threshold": 7.0
+    }
+  },
   "bayesian_optimization": {
     "enabled": true,
     "min_samples_for_bo": 3,

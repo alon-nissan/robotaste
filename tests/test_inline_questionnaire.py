@@ -73,8 +73,8 @@ class TestInlineQuestionnaireValidation:
         assert is_valid, f"Should be valid, got errors: {errors}"
         assert len(errors) == 0
 
-    def test_legacy_questionnaire_type_still_works(self):
-        """Legacy questionnaire_type string should still validate."""
+    def test_legacy_questionnaire_type_rejected(self):
+        """Legacy questionnaire_type string should now be rejected."""
         protocol = {
             "protocol_id": "test-legacy-001",
             "name": "Test Legacy Questionnaire",
@@ -92,8 +92,8 @@ class TestInlineQuestionnaireValidation:
         }
 
         is_valid, errors = validate_protocol(protocol)
-        assert is_valid, f"Should be valid, got errors: {errors}"
-        assert len(errors) == 0
+        assert not is_valid, "Should fail without inline questionnaire"
+        assert any("questionnaire" in err.lower() for err in errors)
 
     def test_missing_both_questionnaire_formats(self):
         """Protocol without questionnaire or questionnaire_type should fail."""
@@ -220,19 +220,15 @@ class TestDualModeQuestionnaireLoading:
         assert result == questionnaire
         assert result["name"] == "Hedonic Test (Continuous)"
 
-    def test_get_questionnaire_config_with_string(self):
-        """get_questionnaire_config should accept string input (legacy)."""
-        result = get_questionnaire_config("hedonic_discrete")
+    def test_get_questionnaire_config_with_string_raises(self):
+        """get_questionnaire_config should reject string input."""
+        with pytest.raises(TypeError):
+            get_questionnaire_config("hedonic_discrete")
 
-        assert result is not None
-        assert result["name"] == "Hedonic Test (9-Point Discrete)"
-
-    def test_get_questionnaire_config_invalid_string_fallback(self):
-        """Invalid string should fall back to default."""
-        result = get_questionnaire_config("nonexistent_type")
-
-        assert result is not None
-        assert result["name"] == "Hedonic Test (Continuous)"  # Default
+    def test_get_questionnaire_config_invalid_input_raises(self):
+        """Invalid input should raise TypeError."""
+        with pytest.raises(TypeError):
+            get_questionnaire_config("nonexistent_type")
 
 
 class TestSessionWithInlineQuestionnaire:
@@ -284,7 +280,6 @@ class TestSessionWithInlineQuestionnaire:
             interface_type="sliders",
             method="linear",
             ingredients=[{"name": "Sugar", "min_concentration": 0, "max_concentration": 100}],
-            question_type_id=None,  # None for inline questionnaires
             bo_config={},
             experiment_config={
                 **loaded,
@@ -344,13 +339,13 @@ class TestQuestionnaireResponseValidation:
         assert is_valid
         assert error is None
 
-    def test_validate_response_with_string_questionnaire(self):
-        """Response validation should work with string questionnaire (legacy)."""
+    def test_validate_response_with_string_questionnaire_rejected(self):
+        """Response validation should reject string questionnaire."""
         response = {"overall_liking": 8}
 
-        is_valid, error = validate_questionnaire_response(response, "hedonic_discrete")
-        assert is_valid
-        assert error is None
+        # Should raise TypeError when passed string instead of dict
+        with pytest.raises(TypeError):
+            validate_questionnaire_response(response, "hedonic_discrete")
 
 
 if __name__ == "__main__":

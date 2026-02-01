@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Table 2: Questionnaire Types (Survey Definitions)
+-- DEPRECATED: Legacy questionnaire library table (preserved for historical data only)
+-- New protocols use inline questionnaire configuration in protocol_json
 CREATE TABLE IF NOT EXISTS questionnaire_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -46,7 +48,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_code TEXT UNIQUE NOT NULL,
     user_id TEXT,
     ingredients TEXT,
-    question_type_id INTEGER,
+    question_type_id INTEGER,  -- DEPRECATED: Legacy FK (no longer used, preserved for data integrity)
     protocol_id TEXT,  -- Link to protocol_library (optional)
     state TEXT NOT NULL DEFAULT 'active',
     current_phase TEXT DEFAULT 'waiting',
@@ -58,7 +60,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (question_type_id) REFERENCES questionnaire_types(id),
+    FOREIGN KEY (question_type_id) REFERENCES questionnaire_types(id),  -- DEPRECATED: Legacy FK preserved for historical data
     FOREIGN KEY (protocol_id) REFERENCES protocol_library(protocol_id)
 );
 

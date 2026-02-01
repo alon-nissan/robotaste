@@ -790,14 +790,6 @@ VALIDATION_RULES = {
     "min_cycles": 1,
     "max_cycles": 100,
     "valid_modes": ["user_selected", "bo_selected", "predetermined_absolute", "predetermined_randomized", "predetermined"],  # "predetermined" is legacy alias for "predetermined_absolute"
-    "valid_questionnaire_types": [
-        "hedonic_continuous",
-        "hedonic_discrete",
-        "unified_feedback",
-        "multi_attribute",
-        "composite_preference",
-        "intensity_continuous",
-    ],
     "valid_acquisition_functions": ["ei", "ucb"],
     "valid_kernel_nu": [0.5, 1.5, 2.5, float("inf")],
 }

@@ -198,12 +198,10 @@ def get_session(session_id: str) -> Optional[Dict]:
             cursor.execute(
                 """
                 SELECT
-                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.session_id, s.session_code, s.user_id, s.ingredients,
                     s.state, s.current_phase, s.current_cycle, s.experiment_config,
-                    s.created_at, s.updated_at,
-                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                    s.created_at, s.updated_at
                 FROM sessions s
-                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
                 WHERE s.session_id = ?
             """,
                 (session_id,),
@@ -220,13 +218,6 @@ def get_session(session_id: str) -> Optional[Dict]:
                 "user_id": row["user_id"],
                 "ingredients": (
                     json.loads(row["ingredients"]) if row["ingredients"] else []
-                ),
-                "question_type_id": row["question_type_id"],
-                "questionnaire_name": row["questionnaire_name"],
-                "questionnaire_data": (
-                    json.loads(row["questionnaire_data"])
-                    if row["questionnaire_data"]
-                    else None
                 ),
                 "state": row["state"],
                 "current_phase": row["current_phase"],
@@ -261,12 +252,10 @@ def get_session_by_code(session_code: str) -> Optional[Dict]:
             cursor.execute(
                 """
                 SELECT
-                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.session_id, s.session_code, s.user_id, s.ingredients,
                     s.state, s.current_phase, s.current_cycle, s.experiment_config,
-                    s.created_at, s.updated_at,
-                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                    s.created_at, s.updated_at
                 FROM sessions s
-                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
                 WHERE s.session_code = ?
             """,
                 (session_code,),
@@ -283,13 +272,6 @@ def get_session_by_code(session_code: str) -> Optional[Dict]:
                 "user_id": row["user_id"],
                 "ingredients": (
                     json.loads(row["ingredients"]) if row["ingredients"] else []
-                ),
-                "question_type_id": row["question_type_id"],
-                "questionnaire_name": row["questionnaire_name"],
-                "questionnaire_data": (
-                    json.loads(row["questionnaire_data"])
-                    if row["questionnaire_data"]
-                    else None
                 ),
                 "state": row["state"],
                 "current_phase": row["current_phase"],
@@ -309,32 +291,21 @@ def get_session_by_code(session_code: str) -> Optional[Dict]:
 
 def get_questionnaire_from_session(session_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Extract questionnaire config from session (dual-mode: inline or legacy).
+    Extract questionnaire config from session (inline only).
 
     Args:
         session_info: Session dictionary from get_session() or get_session_by_code()
 
     Returns:
-        Questionnaire config dict or None
+        Questionnaire config dict or None if not found
     """
-    from robotaste.config.questionnaire import get_default_questionnaire_type, get_questionnaire_config
-
-    # Try inline questionnaire first (new format)
+    # Extract inline questionnaire from experiment_config
     experiment_config = session_info.get("experiment_config", {})
     if isinstance(experiment_config, str):
         experiment_config = json.loads(experiment_config)
 
     questionnaire = experiment_config.get("questionnaire")
-    if questionnaire:
-        return questionnaire
-
-    # Fallback to legacy question_type_id lookup
-    if session_info.get("questionnaire_data"):
-        return session_info["questionnaire_data"]
-
-    # Last resort: use default
-    default_type = get_default_questionnaire_type()
-    return get_questionnaire_config(default_type)
+    return questionnaire  # Returns None if not found (expected for historical sessions)
 
 
 def get_available_sessions() -> List[Dict]:
@@ -607,12 +578,10 @@ def get_sessions_by_protocol(protocol_id: str) -> List[Dict]:
             cursor.execute(
                 """
                 SELECT
-                    s.session_id, s.session_code, s.user_id, s.ingredients, s.question_type_id,
+                    s.session_id, s.session_code, s.user_id, s.ingredients,
                     s.state, s.current_phase, s.current_cycle, s.experiment_config,
-                    s.created_at, s.updated_at,
-                    qt.name as questionnaire_name, qt.data as questionnaire_data
+                    s.created_at, s.updated_at
                 FROM sessions s
-                LEFT JOIN questionnaire_types qt ON s.question_type_id = qt.id
                 WHERE s.protocol_id = ?
                 ORDER BY s.created_at DESC
             """,
@@ -628,13 +597,6 @@ def get_sessions_by_protocol(protocol_id: str) -> List[Dict]:
                         "user_id": row["user_id"],
                         "ingredients": (
                             json.loads(row["ingredients"]) if row["ingredients"] else []
-                        ),
-                        "question_type_id": row["question_type_id"],
-                        "questionnaire_name": row["questionnaire_name"],
-                        "questionnaire_data": (
-                            json.loads(row["questionnaire_data"])
-                            if row["questionnaire_data"]
-                            else None
                         ),
                         "state": row["state"],
                         "current_phase": row["current_phase"],
@@ -663,7 +625,6 @@ def update_session_with_config(
     interface_type: str,
     method: str,
     ingredients: List[Dict],
-    question_type_id: Optional[int],
     bo_config: Dict,
     experiment_config: Dict,
 ) -> bool:
@@ -687,9 +648,8 @@ def update_session_with_config(
         interface_type: 'grid_2d' or 'slider_based'
         method: Mapping method ('linear', 'logarithmic', 'exponential')
         ingredients: List of ingredient configuration dicts
-        question_type_id: ID of questionnaire type (optional - None for inline questionnaires)
         bo_config: Bayesian optimization configuration dict
-        experiment_config: Full experiment configuration dict
+        experiment_config: Full experiment configuration dict (must include inline questionnaire)
 
     Returns:
         True if successful, False otherwise
@@ -706,9 +666,8 @@ def update_session_with_config(
         ...     interface_type="grid_2d",
         ...     method="linear",
         ...     ingredients=[...],
-        ...     question_type_id=1,
         ...     bo_config=get_default_bo_config(),
-        ...     experiment_config={...}
+        ...     experiment_config={...}  # Must include 'questionnaire' dict
         ... )
     """
     # Validate inputs
@@ -754,44 +713,23 @@ def update_session_with_config(
                 f"Updating session {session_id} (code: {row['session_code']}) with full configuration"
             )
 
-            # Update session with full config
-            # Handle question_type_id - can be None for inline questionnaires
-            if question_type_id is not None:
-                cursor.execute(
-                    """
-                    UPDATE sessions
-                    SET user_id = ?,
-                        ingredients = ?,
-                        question_type_id = ?,
-                        experiment_config = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE session_id = ?
-                """,
-                    (
-                        user_id,
-                        json.dumps(ingredients),
-                        question_type_id,
-                        json.dumps(full_config),
-                        session_id,
-                    ),
-                )
-            else:
-                cursor.execute(
-                    """
-                    UPDATE sessions
-                    SET user_id = ?,
-                        ingredients = ?,
-                        experiment_config = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE session_id = ?
-                """,
-                    (
-                        user_id,
-                        json.dumps(ingredients),
-                        json.dumps(full_config),
-                        session_id,
-                    ),
-                )
+            # Update session with full config (inline questionnaire only)
+            cursor.execute(
+                """
+                UPDATE sessions
+                SET user_id = ?,
+                    ingredients = ?,
+                    experiment_config = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ?
+            """,
+                (
+                    user_id,
+                    json.dumps(ingredients),
+                    json.dumps(full_config),
+                    session_id,
+                ),
+            )
 
             # Insert or replace BO configuration
             stopping_criteria = bo_config.get("stopping_criteria", {})
@@ -1223,40 +1161,6 @@ def get_latest_sample_concentrations(session_id: str) -> Optional[Dict[str, floa
 # ============================================================================
 # Section 5: Questionnaire Operations
 # ============================================================================
-
-
-def get_questionnaire_type_id(questionnaire_type_name: str) -> Optional[int]:
-    """
-    Get questionnaire_type_id from questionnaire_types table.
-
-    Args:
-        questionnaire_type_name: Name of questionnaire type (e.g., 'hedonic_continuous')
-
-    Returns:
-        Integer ID from questionnaire_types table, or None if not found
-    """
-    try:
-        with get_database_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id FROM questionnaire_types
-                WHERE name = ?
-            """,
-                (questionnaire_type_name,),
-            )
-            row = cursor.fetchone()
-            if row:
-                return row["id"]
-            else:
-                logger.warning(
-                    f"Questionnaire type '{questionnaire_type_name}' not found in database"
-                )
-                return None
-
-    except Exception as e:
-        logger.error(f"Failed to get questionnaire type ID: {e}")
-        return None
 
 
 # ============================================================================

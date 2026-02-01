@@ -434,77 +434,66 @@ def _validate_ingredients(protocol: Dict[str, Any]) -> List[str]:
 
 
 def _validate_questionnaire_config(protocol: Dict[str, Any]) -> List[str]:
-    """Validate questionnaire configuration structure."""
+    """Validate questionnaire configuration structure (inline only)."""
     errors = []
 
-    # Check if either questionnaire or questionnaire_type is present
-    has_questionnaire = "questionnaire" in protocol
-    has_questionnaire_type = "questionnaire_type" in protocol
-
-    if not has_questionnaire and not has_questionnaire_type:
-        errors.append("Protocol must have either 'questionnaire' object or 'questionnaire_type' string")
+    # Require inline questionnaire object
+    if "questionnaire" not in protocol:
+        errors.append("Protocol must have 'questionnaire' object")
         return errors
 
-    # Validate inline questionnaire if present
-    if has_questionnaire:
-        questionnaire = protocol["questionnaire"]
+    questionnaire = protocol["questionnaire"]
 
-        if not isinstance(questionnaire, dict):
-            errors.append("Questionnaire must be an object")
-            return errors
+    if not isinstance(questionnaire, dict):
+        errors.append("Questionnaire must be an object")
+        return errors
 
-        # Validate questions array
-        if "questions" not in questionnaire or not questionnaire["questions"]:
-            errors.append("Questionnaire must have at least one question")
-            return errors
+    # Validate questions array
+    if "questions" not in questionnaire or not questionnaire["questions"]:
+        errors.append("Questionnaire must have at least one question")
+        return errors
 
-        question_ids = set()
-        for idx, question in enumerate(questionnaire["questions"]):
-            q_id = question.get("id")
-            if not q_id:
-                errors.append(f"Question {idx} missing 'id' field")
-                continue
+    question_ids = set()
+    for idx, question in enumerate(questionnaire["questions"]):
+        q_id = question.get("id")
+        if not q_id:
+            errors.append(f"Question {idx} missing 'id' field")
+            continue
 
-            if q_id in question_ids:
-                errors.append(f"Duplicate question id: {q_id}")
-            question_ids.add(q_id)
+        if q_id in question_ids:
+            errors.append(f"Duplicate question id: {q_id}")
+        question_ids.add(q_id)
 
-            # Type-specific validation
-            q_type = question.get("type")
-            if not q_type:
-                errors.append(f"Question '{q_id}' missing 'type' field")
-                continue
+        # Type-specific validation
+        q_type = question.get("type")
+        if not q_type:
+            errors.append(f"Question '{q_id}' missing 'type' field")
+            continue
 
-            if q_type == "slider":
-                if "min" not in question or "max" not in question:
-                    errors.append(f"Slider question '{q_id}' missing min/max")
-                elif question["min"] >= question["max"]:
-                    errors.append(f"Slider question '{q_id}': min must be < max")
+        if q_type == "slider":
+            if "min" not in question or "max" not in question:
+                errors.append(f"Slider question '{q_id}' missing min/max")
+            elif question["min"] >= question["max"]:
+                errors.append(f"Slider question '{q_id}': min must be < max")
 
-            elif q_type == "dropdown":
-                if "options" not in question or not question["options"]:
-                    errors.append(f"Dropdown question '{q_id}' missing options")
+        elif q_type == "dropdown":
+            if "options" not in question or not question["options"]:
+                errors.append(f"Dropdown question '{q_id}' missing options")
 
-        # Validate bayesian_target
-        if "bayesian_target" not in questionnaire:
-            errors.append("Questionnaire missing 'bayesian_target' configuration")
-        else:
-            target = questionnaire["bayesian_target"]
-            target_var = target.get("variable")
+    # Validate bayesian_target
+    if "bayesian_target" not in questionnaire:
+        errors.append("Questionnaire missing 'bayesian_target' configuration")
+    else:
+        target = questionnaire["bayesian_target"]
+        target_var = target.get("variable")
 
-            if not target_var:
-                errors.append("bayesian_target missing 'variable' field")
-            elif target_var != "composite" and target_var not in question_ids:
-                errors.append(f"bayesian_target references unknown question: {target_var}")
+        if not target_var:
+            errors.append("bayesian_target missing 'variable' field")
+        elif target_var != "composite" and target_var not in question_ids:
+            errors.append(f"bayesian_target references unknown question: {target_var}")
 
-            if "higher_is_better" not in target:
-                errors.append("bayesian_target missing 'higher_is_better' field")
-
-    # Validate legacy questionnaire_type if present (and no inline questionnaire)
-    elif has_questionnaire_type:
-        q_type = protocol["questionnaire_type"]
-        if q_type not in VALIDATION_RULES["valid_questionnaire_types"]:
-            errors.append(f"Invalid questionnaire type: {q_type}")
+        if "higher_is_better" not in target:
+            errors.append("bayesian_target missing 'higher_is_better' field")
 
     return errors
 
@@ -1113,8 +1102,9 @@ def get_protocol_summary(protocol: Dict[str, Any]) -> str:
         lines.append(f"  - Cycles {start}-{end}: {mode}")
 
     # Questionnaire
-    q_type = protocol.get("questionnaire_type", "Unknown")
-    lines.append(f"\nQuestionnaire: {q_type}")
+    questionnaire = protocol.get("questionnaire", {})
+    q_name = questionnaire.get("name", "Unknown")
+    lines.append(f"\nQuestionnaire: {q_name}")
 
     # Stopping criteria
     criteria = protocol.get("stopping_criteria", {})
@@ -1230,10 +1220,10 @@ def compare_protocols(protocol_v1: Dict[str, Any], protocol_v2: Dict[str, Any]) 
     if schedule_changed:
         differences.append("Sample selection schedule modified")
 
-    # Compare questionnaire type
-    questionnaire_changed = protocol_v1.get('questionnaire_type') != protocol_v2.get('questionnaire_type')
+    # Compare questionnaire
+    questionnaire_changed = protocol_v1.get('questionnaire') != protocol_v2.get('questionnaire')
     if questionnaire_changed:
-        differences.append("Questionnaire type changed")
+        differences.append("Questionnaire configuration changed")
 
     # Compare BO configuration
     bo_config_changed = protocol_v1.get('bayesian_optimization') != protocol_v2.get('bayesian_optimization')

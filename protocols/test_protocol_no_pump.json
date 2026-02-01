@@ -1,0 +1,187 @@
+{
+    "protocol_id": "no_pump_protocol_001",
+    "name": "No Pump Protocol 4 Cycles",
+    "description": "4-cycle protocol with randomized Latin square design testing sugar concentrations at 0, 25, 50, and 75 mM without automated pump control in burst mode. Order counterbalanced across sessions.",
+    "version": "4.0",
+    "schema_version": "1.0",
+    "created_by": "Researcher",
+    "created_at": "2026-01-18T00:00:00Z",
+    "tags": [
+        "calibration",
+        "sugar",
+        "predetermined_randomized",
+        "latin_square",
+        "no_pumps"
+    ],
+    "ingredients": [
+        {
+            "name": "Sugar",
+            "min_concentration": 0.0,
+            "max_concentration": 100.0,
+            "unit": "mM",
+            "molecular_weight": 342.3,
+            "stock_concentration_mM": 200.0
+        },
+        {
+            "name": "Water",
+            "min_concentration": 0.0,
+            "max_concentration": 1.0,
+            "unit": "mM",
+            "molecular_weight": 18.015,
+            "stock_concentration_mM": 0.001,
+            "is_diluent": true
+        }
+    ],
+    "pump_config": {
+        "enabled": false,
+        "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+        "baud_rate": 19200,
+        "pumps": [
+            {
+                "address": 0,
+                "ingredient": "Sugar",
+                "syringe_diameter_mm": 29.0,
+                "max_rate_ul_min": 100000,
+                "stock_concentration_mM": 200.0,
+                "description": "BD 50mL syringe with sugar stock solution (200 mM)"
+            },
+            {
+                "address": 1,
+                "ingredient": "Water",
+                "syringe_diameter_mm": 29.0,
+                "max_rate_ul_min": 100000,
+                "stock_concentration_mM": 0.0,
+                "description": "BD 50mL syringe with plain water for dilution"
+            }
+        ],
+        "total_volume_ml": 10.0,
+        "dispensing_rate_ul_min": 80000,
+        "simultaneous_dispensing": true,
+        "use_burst_mode": true
+    },
+    "sample_selection_schedule": [
+        {
+            "cycle_range": {
+                "start": 1,
+                "end": 4
+            },
+            "mode": "predetermined_randomized",
+            "sample_bank": {
+                "samples": [
+                    {
+                        "id": "A",
+                        "concentrations": {
+                            "Sugar": 0.0
+                        },
+                        "label": "No Sugar"
+                    },
+                    {
+                        "id": "B",
+                        "concentrations": {
+                            "Sugar": 25.0
+                        },
+                        "label": "Low Sugar"
+                    },
+                    {
+                        "id": "C",
+                        "concentrations": {
+                            "Sugar": 50.0
+                        },
+                        "label": "Medium Sugar"
+                    },
+                    {
+                        "id": "D",
+                        "concentrations": {
+                            "Sugar": 75.0
+                        },
+                        "label": "High Sugar"
+                    }
+                ],
+                "design_type": "latin_square",
+                "constraints": {
+                    "prevent_consecutive_repeats": true,
+                    "ensure_all_used_before_repeat": true
+                }
+            }
+        }
+    ],
+    "questionnaire": {
+        "name": "Sweetness Intensity Scale",
+        "description": "Continuous 9-point intensity scale for measuring attribute strength.",
+        "version": "1.0",
+        "questions": [
+            {
+                "id": "sweetness_intensity",
+                "type": "slider",
+                "label": "How sweet is this sample?",
+                "help_text": "Rate the sweetness intensity from 1 (Not sweet at all) to 9 (Very Sweet).",
+                "scale_labels": {
+                    "1": "Not sweet at all",
+                    "3": "Light",
+                    "5": "Medium",
+                    "7": "Strong",
+                    "9": "Very Sweet"
+                },
+                "min": 1.0,
+                "max": 9.0,
+                "default": 5.0,
+                "step": 0.01,
+                "required": true,
+                "display_type": "slider_continuous"
+            }
+        ],
+        "bayesian_target": {
+            "variable": "sweetness_intensity",
+            "transform": "identity",
+            "higher_is_better": true,
+            "description": "Measure sweetness intensity.",
+            "expected_range": [1.0, 9.0],
+            "optimal_threshold": 5.0
+        }
+    },
+    "bayesian_optimization": {
+        "enabled": false
+    },
+    "phase_sequence": {
+        "phases": [
+            {
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "instructions",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "experiment_loop",
+                "phase_type": "loop",
+                "required": true
+            },
+            {
+                "phase_id": "completion",
+                "phase_type": "builtin",
+                "required": true
+            }
+        ]
+    },
+    "stopping_criteria": {
+        "max_cycles": 4,
+        "min_cycles": 4
+    },
+    "loading_screen": {
+        "message": "Please rinse your mouth with water while the robot prepares the next sugar sample. (Sample order randomized per session)",
+        "duration_seconds": 10,
+        "use_dynamic_duration": true,
+        "show_progress": true,
+        "show_cycle_info": true,
+        "message_size": "large"
+    },
+    "data_collection": {
+        "track_trajectory": true,
+        "track_interaction_times": true,
+        "collect_demographics": true,
+        "custom_metadata": {}
+    }
+}

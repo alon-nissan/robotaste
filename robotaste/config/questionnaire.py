@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# QUESTIONNAIRE DEFINITIONS
+# QUESTIONNAIRE TEMPLATES
 # ============================================================================
-# Example questionnaire templates. Use these as starting points for custom questionnaires
-# or reference them by name for legacy compatibility.
+# Reference templates for researchers building protocols.
+# Protocols MUST include inline questionnaire configuration - these templates
+# are for copying into protocol JSON, NOT for runtime lookup.
 
 QUESTIONNAIRE_EXAMPLES: Dict[str, Dict[str, Any]] = {
     # ========================================================================
@@ -337,47 +338,42 @@ QUESTIONNAIRE_EXAMPLES: Dict[str, Dict[str, Any]] = {
 # ============================================================================
 
 
-def get_questionnaire_config(questionnaire: Union[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def get_questionnaire_config(questionnaire: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Retrieve questionnaire configuration.
+    Validate and return questionnaire configuration (inline only).
 
     Args:
-        questionnaire: Either a string (legacy questionnaire type name) or
-                      a questionnaire config dict (inline configuration)
+        questionnaire: Questionnaire config dict (inline configuration)
 
     Returns:
         Questionnaire config dictionary
+
+    Raises:
+        TypeError: If questionnaire is not a dict
+        ValueError: If questionnaire structure is invalid
     """
-    # If already a dict, return it
-    if isinstance(questionnaire, dict):
-        return questionnaire
+    if not isinstance(questionnaire, dict):
+        raise TypeError(f"Questionnaire must be a dict, got {type(questionnaire).__name__}")
 
-    # Legacy: string lookup in QUESTIONNAIRE_EXAMPLES
-    if isinstance(questionnaire, str):
-        config = QUESTIONNAIRE_EXAMPLES.get(questionnaire)
-        if config is None:
-            logger.warning(
-                f"Questionnaire type '{questionnaire}' not found. Using default."
-            )
-            return QUESTIONNAIRE_EXAMPLES.get("hedonic_continuous")
-        return config
+    # Basic validation
+    if "questions" not in questionnaire or not questionnaire["questions"]:
+        raise ValueError("Questionnaire must have at least one question")
 
-    # Fallback
-    logger.warning("Invalid questionnaire parameter type. Using default.")
-    return QUESTIONNAIRE_EXAMPLES.get("hedonic_continuous")
+    if "bayesian_target" not in questionnaire:
+        raise ValueError("Questionnaire must have 'bayesian_target' configuration")
 
-
-def get_default_questionnaire_type() -> str:
-    """Return the default questionnaire type."""
-    return "hedonic_continuous"
+    return questionnaire
 
 
 def list_available_questionnaires() -> List[tuple]:
     """
-    List all available questionnaire examples with metadata.
+    List all available questionnaire templates (for reference only).
+
+    Note: These are templates for researchers to copy into protocols.
+    They are NOT runtime options - protocols must include inline questionnaire config.
 
     Returns:
-        List of tuples: (type_key, name, description)
+        List of tuples: (template_key, name, description)
     """
     questionnaires = []
     for key, config in QUESTIONNAIRE_EXAMPLES.items():

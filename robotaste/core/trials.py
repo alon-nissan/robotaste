@@ -32,10 +32,7 @@ from robotaste.config.protocol_schema import (
     get_schedule_index_for_cycle,
     normalize_selection_mode,
 )
-from robotaste.config.questionnaire import (
-    get_default_questionnaire_type,
-    get_questionnaire_config,
-)
+from robotaste.config.questionnaire import get_questionnaire_config
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -70,8 +67,6 @@ def start_trial(
         from robotaste.data import database as db
         from robotaste.core.state_machine import ExperimentPhase
         from robotaste.core import state_helpers
-        from robotaste.config.questionnaire import get_default_questionnaire_type
-
         session_id = st.session_state.get("session_id")
         if not session_id:
             st.error("No session ID found. Please create a session first.")
@@ -109,9 +104,9 @@ def start_trial(
             # Extract questionnaire config (inline or legacy)
             questionnaire = protocol_config.get("questionnaire")
             if not questionnaire:
-                # Fallback for legacy protocols with questionnaire_type
-                questionnaire_type = protocol_config.get("questionnaire_type", get_default_questionnaire_type())
-                questionnaire = get_questionnaire_config(questionnaire_type)
+                st.error("Protocol missing required 'questionnaire' configuration")
+                logger.error(f"Protocol {protocol_id} missing inline questionnaire")
+                return False
 
             bo_config = protocol_config.get("bo_config", get_default_bo_config())
         
@@ -123,8 +118,11 @@ def start_trial(
                 return False
             
             # Get config from session state for manual mode
-            questionnaire_type = st.session_state.get("selected_questionnaire_type", get_default_questionnaire_type())
-            questionnaire = get_questionnaire_config(questionnaire_type)
+            questionnaire = st.session_state.get("manual_questionnaire")
+            if not questionnaire:
+                st.error("Manual configuration requires questionnaire to be configured")
+                logger.error("Manual mode missing questionnaire configuration")
+                return False
             bo_config = st.session_state.get("bo_config", get_default_bo_config())
             protocol_config = {
                 "num_ingredients": num_ingredients,
@@ -157,10 +155,7 @@ def start_trial(
             "created_at": datetime.now().isoformat(),
         }
 
-        # No need for question_type_id lookup - questionnaire is embedded in experiment_config
-        question_type_id = None  # Set to NULL for new sessions
-
-        # update_session_with_config handles both creation and update logic
+        # update_session_with_config handles both creation and update logic (inline questionnaire only)
         success_db = sql.update_session_with_config(
             session_id=session_id,
             user_id=participant_id,
@@ -168,7 +163,6 @@ def start_trial(
             interface_type=st.session_state.interface_type,
             method=method,
             ingredients=ingredient_configs,
-            question_type_id=question_type_id,
             bo_config=bo_config,
             experiment_config=experiment_config_to_save
         )

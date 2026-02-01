@@ -119,7 +119,28 @@ def sample_protocol():
                 }
             }
         ],
-        "questionnaire_type": "hedonic_continuous",
+        "questionnaire": {
+            "name": "Hedonic Test (Continuous)",
+            "description": "Continuous 9-point hedonic scale",
+            "version": "2.0",
+            "questions": [
+                {
+                    "id": "overall_liking",
+                    "type": "slider",
+                    "label": "How much do you like this sample?",
+                    "min": 1.0,
+                    "max": 9.0,
+                    "default": 5.0,
+                    "step": 0.01,
+                    "required": True
+                }
+            ],
+            "bayesian_target": {
+                "variable": "overall_liking",
+                "transform": "identity",
+                "higher_is_better": True
+            }
+        },
         "bayesian_optimization": {
             "enabled": True,
             "acquisition_function": "ucb",
@@ -680,9 +701,14 @@ class TestCycleIndexingAndSessionManagement:
                     {"name": "Sugar", "min": 0, "max": 100},
                     {"name": "Salt", "min": 0, "max": 50}
                 ],
-                question_type_id=1,
                 bo_config=get_default_bo_config(),
-                experiment_config={}
+                experiment_config={
+                    "questionnaire": {
+                        "name": "Test",
+                        "questions": [{"id": "test", "type": "slider", "min": 1, "max": 9}],
+                        "bayesian_target": {"variable": "test", "higher_is_better": True}
+                    }
+                }
             )
 
     def test_cycle_initialization_is_one_based_protocol(self, test_db, sample_protocol):
@@ -720,9 +746,10 @@ class TestCycleIndexingAndSessionManagement:
 
         # Mock streamlit session_state
         with patch('streamlit.session_state', new_callable=MagicMock) as mock_st:
+            from robotaste.config.questionnaire import QUESTIONNAIRE_EXAMPLES
             mock_st.get.side_effect = lambda key, default=None: {
                 "session_id": session_id,
-                "selected_questionnaire_type": "hedonic_continuous",
+                "manual_questionnaire": QUESTIONNAIRE_EXAMPLES["hedonic_continuous"],
                 "bo_config": get_default_bo_config()
             }.get(key, default)
             mock_st.session_id = session_id
@@ -760,10 +787,13 @@ class TestCycleIndexingAndSessionManagement:
             interface_type="slider_based",
             method="linear",
             ingredients=[{"name": "Sugar", "min": 0, "max": 100}],
-            question_type_id=1,
             bo_config=get_default_bo_config(),
             experiment_config={
-                "questionnaire_type": "hedonic_continuous"
+                "questionnaire": {
+                    "name": "Test",
+                    "questions": [{"id": "test", "type": "slider", "min": 1, "max": 9}],
+                    "bayesian_target": {"variable": "test", "higher_is_better": True}
+                }
             }
         )
         assert success, "Configuration should succeed"
@@ -824,9 +854,14 @@ class TestCycleIndexingAndSessionManagement:
                 {"name": "Sugar", "min": 0, "max": 100},
                 {"name": "Salt", "min": 0, "max": 50}
             ],
-            question_type_id=1,
             bo_config=get_default_bo_config(),
-            experiment_config={}
+            experiment_config={
+                "questionnaire": {
+                    "name": "Test",
+                    "questions": [{"id": "test", "type": "slider", "min": 1, "max": 9}],
+                    "bayesian_target": {"variable": "test", "higher_is_better": True}
+                }
+            }
         )
         assert success
 

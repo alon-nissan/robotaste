@@ -32,7 +32,7 @@ from robotaste.data.database import (
 )
 from robotaste.core.state_machine import ExperimentPhase, ExperimentStateMachine
 from robotaste.core import state_helpers
-from robotaste.config.questionnaire import get_default_questionnaire_type, get_questionnaire_config
+from robotaste.config.questionnaire import get_questionnaire_config
 from robotaste.core.phase_engine import PhaseEngine
 from robotaste.views.custom_phases import render_custom_phase, enter_custom_phase
 from robotaste.views.consent import render_consent_screen
@@ -149,30 +149,24 @@ def render_instructions_screen():
 
 def get_questionnaire_from_config() -> Dict[str, Any]:
     """
-    Get questionnaire config from experiment config (inline or legacy).
+    Get questionnaire config from experiment config (inline only).
 
     Returns:
         Questionnaire config dictionary
+
+    Raises:
+        SystemExit: If questionnaire not found (calls st.stop())
     """
     experiment_config = st.session_state.get("experiment_config", {})
 
-    # Try inline questionnaire first
+    # Extract inline questionnaire
     questionnaire = experiment_config.get("questionnaire")
-    if questionnaire:
-        return questionnaire
+    if not questionnaire:
+        st.error("❌ Questionnaire configuration not found. Please contact the researcher.")
+        logger.error("Questionnaire missing from experiment_config")
+        st.stop()
 
-    # Fallback to legacy questionnaire_type lookup
-    questionnaire_type = experiment_config.get("questionnaire_type")
-    if questionnaire_type:
-        return get_questionnaire_config(questionnaire_type)
-
-    # Try session state directly (legacy)
-    if hasattr(st.session_state, "selected_questionnaire_type"):
-        return get_questionnaire_config(st.session_state.selected_questionnaire_type)
-
-    # Last resort: default
-    default_type = get_default_questionnaire_type()
-    return get_questionnaire_config(default_type)
+    return questionnaire
 
 
 def grid_interface(cycle_data: dict):

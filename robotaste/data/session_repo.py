@@ -318,9 +318,6 @@ def sync_session_state_to_streamlit(session_id: str, role: str) -> bool:
             st.session_state.method = experiment_config.get("method", "logarithmic")
             st.session_state.ingredients = experiment_config.get("ingredients", [])
             st.session_state.experiment_config = experiment_config
-            st.session_state.questionnaire_type = session_info.get(
-                "questionnaire_name", "hedonic"
-            )
             st.session_state.moderator_name = experiment_config.get(
                 "moderator_name", "Moderator"
             )
@@ -347,7 +344,6 @@ def sync_session_state_to_streamlit(session_id: str, role: str) -> bool:
             st.session_state.num_ingredients = 2
             st.session_state.method = "logarithmic"
             st.session_state.ingredients = []
-            st.session_state.questionnaire_type = "hedonic"
             st.session_state.moderator_name = st.session_state.get(
                 "moderator_name", "Moderator"
             )
