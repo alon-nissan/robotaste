@@ -109,35 +109,18 @@ init_session_state()
 
 def render_logo():
     """
-    Render the Niv Lab logo in the top left corner with persistent positioning.
+    Render the Niv Lab logo at the top of the page.
 
     Must be called at the start of each view function to ensure it persists
     through Streamlit's rerun mechanism.
     """
-    import base64
     from pathlib import Path
 
     logo_path = Path(__file__).parent / "docs" / "niv_lab_logo.png"
     if logo_path.exists():
-        logo_data = base64.b64encode(logo_path.read_bytes()).decode()
-        st.markdown(
-            f"""
-            <div style="position: fixed !important; 
-                        top: 2px !important; 
-                        left: 2px !important; 
-                        z-index: 9999 !important;
-                        pointer-events: none !important;">
-                <img src="data:image/png;base64,{logo_data}" 
-                     alt="Niv Taste Lab" 
-                     style="height: 50px !important; 
-                            width: auto !important;
-                            display: block !important;
-                            opacity: 1 !important;
-                            visibility: visible !important;">
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.image(str(logo_path), width=250)
 
 
 # Import interface modules after initialization to avoid circular imports

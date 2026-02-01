@@ -33,6 +33,11 @@ def get_style_css() -> str:
         --accent-light: #ffc04d;
     }
 
+    /* === LAYOUT (Reduce header blank space) === */
+    .main .block-container {
+        padding-top: 1rem !important;
+    }
+
     /* === BUTTONS (Burgundy branding) === */
     .stButton > button {
         background: var(--primary) !important;
