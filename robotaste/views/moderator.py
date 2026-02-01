@@ -1905,11 +1905,6 @@ def show_moderator_monitoring():
     experiment_config = session["experiment_config"]
     session_code = session_info.get("session_code", "unknown")
 
-    # ========== SUBJECT ACCESS AT TOP ==========
-    st.markdown("### 📱 Subject Access")
-    display_subject_access_section(session_code)
-    st.markdown("---")
-
     # ========== HEADER WITH END SESSION BUTTON ==========
     header_col1, header_col2 = st.columns([3, 1])
     with header_col1:
@@ -1925,20 +1920,15 @@ def show_moderator_monitoring():
     # ========== CURRENT CYCLE STATUS CARD ==========
     st.markdown("### Current Status")
 
-    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+    status_col1, status_col2, status_col4 = st.columns(3)
     with status_col1:
         st.metric("Cycle", mode_info["current_cycle"])
     with status_col2:
         mode_display = mode_info["current_mode"].replace("_", " ").title()
         st.metric("Mode", mode_display)
-    with status_col3:
-        participant = st.session_state.get("participant", "Unknown")
-        st.metric("Participant", participant)
     with status_col4:
         current_phase = session_info.get("current_phase", "unknown")
         st.metric("Phase", current_phase.replace("_", " ").title())
-
-    st.markdown("---")
 
     # ========== PUMP STATUS (if enabled) ==========
     from robotaste.data.protocol_repo import get_protocol_by_id
