@@ -153,7 +153,7 @@ def _render_bo_config(key_prefix: str):
                 options=list(kernel_options.keys()),
                 index=nu_index,
                 format_func=lambda x: kernel_options[x],
-                help="How smooth taste preferences are assumed to be. See docs/bayesian_optimization_kernel_guide.md",
+                help="How smooth taste preferences are assumed to be.",
                 key=f"{key_prefix}bo_kernel_nu",
             )
             st.session_state.bo_config["kernel_nu"] = kernel_nu
@@ -545,7 +545,7 @@ def _render_bo_config(key_prefix: str):
                 )
 
         st.caption(
-            "For detailed guidance on kernel selection and BO parameters, see `docs/bayesian_optimization_kernel_guide.md`"
+            "For detailed guidance on kernel selection and BO parameters, see the protocol documentation."
         )
 
 

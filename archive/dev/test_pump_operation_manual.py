@@ -21,7 +21,7 @@ def test_pump_integration():
 
     # Load protocol
     print("\n[1/5] Loading protocol...")
-    with open('tests/test_protocol_4cycles_with_pumps.json', 'r') as f:
+    with open('protocols/test_protocol_4cycles_with_pumps_new_format.json', 'r') as f:
         protocol = json.load(f)
 
     protocol_id = protocol['protocol_id']
@@ -89,7 +89,7 @@ def test_pump_integration():
             print(f"    - Operation {op['id']} for cycle {op['cycle_number']}")
         print("\n✅ Pump operation ready for service to pick up!")
         print("\nNext step: Start pump_control_service.py to execute the operation")
-        print("Run: python3 pump_control_service.py --protocol tests/test_protocol_4cycles_with_pumps.json")
+        print("Run: python3 pump_control_service.py --protocol protocols/test_protocol_4cycles_with_pumps_new_format.json")
     else:
         print("  ❌ No pending operations found")
         return False

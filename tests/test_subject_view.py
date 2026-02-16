@@ -27,7 +27,7 @@ def mock_st(monkeypatch):
     mock_streamlit = MagicMock()
     
     # Load the test protocol
-    with open("tests/test_protocol_mixed_mode.json", "r") as f:
+    with open("protocols/test_protocol_mixed_mode_new_format.json", "r") as f:
         protocol_config = json.load(f)
 
     # Initialize session state

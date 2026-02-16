@@ -62,7 +62,7 @@ def test_direct_pump_operation():
     print("\nNext steps:")
     print("1. Make sure pumps are connected to: /dev/cu.PL2303G-USBtoUART120")
     print("2. Start pump service:")
-    print("   python3 pump_control_service.py --protocol tests/test_protocol_4cycles_with_pumps.json")
+    print("   python3 pump_control_service.py --protocol protocols/test_protocol_4cycles_with_pumps_new_format.json")
     print("\n   The service will:")
     print("   - Connect to both pumps (addresses 0 and 1)")
     print("   - Pick up the pending operation")

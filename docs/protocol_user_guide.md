@@ -583,8 +583,8 @@ The protocol controls:
 ### Resources
 
 - **Protocol Schema Reference:** [protocol_schema.md](protocol_schema.md)
-- **API Documentation:** [week_3-4_api_reference.md](week_3-4_api_reference.md)
-- **Example Protocols:** `tests/test_protocol_mixed_mode.json`
+- **Project Context:** [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+- **Example Protocols:** `protocols/test_protocol_mixed_mode_new_format.json`
 
 ### Support
 

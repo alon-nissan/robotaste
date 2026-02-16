@@ -512,5 +512,5 @@ Use `increment_protocol_version()` to create new versions programmatically.
 ## See Also
 
 - [Protocol User Guide](protocol_user_guide.md) - Step-by-step usage instructions
-- [API Reference](week_3-4_api_reference.md) - Function documentation
-- Example protocols in `tests/test_protocol_mixed_mode.json`
+- [Project Context](PROJECT_CONTEXT.md) - Architecture overview
+- Example protocols in `protocols/test_protocol_mixed_mode_new_format.json`
