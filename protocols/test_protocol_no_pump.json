@@ -59,6 +59,12 @@
         "simultaneous_dispensing": true,
         "use_burst_mode": true
     },
+    "instructions_screen": {
+        "title": "Instructions",
+        "text": "**Welcome to the Taste Experiment!**\n\nYou will taste **4 samples** and rate their sweetness.\n\nFor each sample:\n1. Taste the prepared sample.\n2. Rate the sweetness intensity on the scale.\n3. Rinse your mouth with water before the next sample.\n\nThere are no right or wrong answers.",
+        "confirm_label": "I understand the instructions.",
+        "button_label": "Start Tasting"
+    },
     "sample_selection_schedule": [
         {
             "cycle_range": {

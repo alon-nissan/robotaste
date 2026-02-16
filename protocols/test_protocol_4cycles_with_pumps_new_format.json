@@ -59,6 +59,12 @@
         "simultaneous_dispensing": true,
         "use_burst_mode": true
     },
+    "instructions_screen": {
+        "title": "Instructions",
+        "text": "**Welcome to the Sugar Calibration Study!**\n\nYou will taste **4 sugar solutions** of varying sweetness.\n\nFor each sample:\n1. The robot will automatically prepare your sample.\n2. Take the cup and taste the solution.\n3. Rate the sweetness intensity on the scale.\n4. Rinse your mouth thoroughly with water.\n\nThe sample order is randomized for each session.",
+        "confirm_label": "I understand the instructions.",
+        "button_label": "Start Tasting"
+    },
     "sample_selection_schedule": [
         {
             "cycle_range": {

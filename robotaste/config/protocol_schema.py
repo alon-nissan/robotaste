@@ -345,6 +345,32 @@ PROTOCOL_JSON_SCHEMA = {
                 "display_bo_predictions": {"type": "boolean"},
             },
         },
+        # ===== Instructions Screen Configuration =====
+        "instructions_screen": {
+            "type": "object",
+            "description": "Configuration for the instructions screen shown before the experiment begins",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title displayed at the top of the instructions screen",
+                    "default": "Instructions",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Main instructions body (supports markdown)",
+                },
+                "confirm_label": {
+                    "type": "string",
+                    "description": "Label for the confirmation checkbox",
+                    "default": "I understand the instructions.",
+                },
+                "button_label": {
+                    "type": "string",
+                    "description": "Label for the proceed button",
+                    "default": "Start Tasting",
+                },
+            },
+        },
         # ===== Loading Screen Configuration =====
         "loading_screen": {
             "type": "object",

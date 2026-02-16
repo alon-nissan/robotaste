@@ -308,6 +308,40 @@ Defines when the experiment should end.
 
 ---
 
+## Instructions Screen Configuration
+
+Customizes the instructions screen shown to participants before the experiment begins.
+
+### Structure
+
+```json
+{
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Welcome!**\n\nHere's what to expect:\n1. Taste each sample.\n2. Rate it on the scale.\n3. Rinse your mouth between samples.",
+    "confirm_label": "I have read and understand the instructions.",
+    "button_label": "Begin Experiment"
+  }
+}
+```
+
+### Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `title` | string | "Instructions" | Title at the top of the screen |
+| `text` | string | *(generic welcome text)* | Main instructions body (supports markdown) |
+| `confirm_label` | string | "I understand the instructions." | Label for the confirmation checkbox |
+| `button_label` | string | "Start Tasting" | Label for the proceed button |
+
+### Notes
+
+- If `instructions_screen` is omitted entirely, a generic default is used
+- The `text` field supports full markdown (bold, lists, links, etc.)
+- `text` max length: 5000 characters; other string fields: 200 characters max
+
+---
+
 ## Loading Screen Configuration
 
 Customizes the loading/preparation screen displayed between experiment cycles.

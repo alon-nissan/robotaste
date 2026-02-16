@@ -114,30 +114,30 @@ def render_registration_screen():
 
 
 def render_instructions_screen():
-    """Renders the instructions screen."""
-    st.header("Instructions")
+    """Renders the instructions screen based on protocol configuration."""
+    protocol = get_session_protocol(st.session_state.session_id)
+    instructions_config = protocol.get("instructions_screen", {}) if protocol else {}
 
-    # Placeholder for instructions text
-    st.markdown(
-        """
-        **Welcome to the RoboTaste Experiment!**
-
-        Here's what to expect:
-        1.  The robot will prepare a liquid sample for you.
-        2.  You will be prompted to taste the sample.
-        3.  After tasting, you will answer a few questions about its taste.
-        4.  You will then use an interface to select your preference for the next sample.
-        5.  The process will repeat for several cycles.
-
-        Please rinse your mouth with water between samples.
-        """
+    default_text = (
+        "**Welcome to the RoboTaste Experiment!**\n\n"
+        "Here's what to expect:\n"
+        "1.  The robot will prepare a liquid sample for you.\n"
+        "2.  You will be prompted to taste the sample.\n"
+        "3.  After tasting, you will answer a few questions about its taste.\n"
+        "4.  You will then use an interface to select your preference for the next sample.\n"
+        "5.  The process will repeat for several cycles.\n\n"
+        "Please rinse your mouth with water between samples."
     )
 
-    st.info("Text (TBD)")
+    st.header(instructions_config.get("title", "Instructions"))
+    st.markdown(instructions_config.get("text", default_text))
 
-    understand_checkbox = st.checkbox("I understand the instructions.")
+    confirm_label = instructions_config.get("confirm_label", "I understand the instructions.")
+    button_label = instructions_config.get("button_label", "Start Tasting")
 
-    if st.button("Start Tasting", disabled=not understand_checkbox):
+    understand_checkbox = st.checkbox(confirm_label)
+
+    if st.button(button_label, disabled=not understand_checkbox):
         next_phase = get_next_phase_after_selection(st.session_state.session_id)
         transition_to_next_phase(
             current_phase_str=ExperimentPhase.INSTRUCTIONS.value,

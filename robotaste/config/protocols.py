@@ -253,6 +253,10 @@ def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
     pump_errors = _validate_pump_config(protocol)
     errors.extend(pump_errors)
 
+    # Validate instructions screen configuration
+    instructions_errors = _validate_instructions_screen(protocol)
+    errors.extend(instructions_errors)
+
     return errors
 
 
@@ -696,6 +700,42 @@ def _validate_phase_sequence(protocol: Dict[str, Any]) -> List[str]:
         errors.append(
             "Phase sequence must include a 'completion' or 'complete' phase"
         )
+
+    return errors
+
+
+def _validate_instructions_screen(protocol: Dict[str, Any]) -> List[str]:
+    """Validate instructions screen configuration."""
+    errors = []
+
+    instructions = protocol.get("instructions_screen")
+    if not instructions:
+        return []  # Optional field
+
+    if not isinstance(instructions, dict):
+        errors.append("instructions_screen must be an object")
+        return errors
+
+    # Validate text is non-empty if present
+    text = instructions.get("text")
+    if text is not None and (not isinstance(text, str) or len(text.strip()) == 0):
+        errors.append("instructions_screen.text must be a non-empty string")
+
+    # Validate string lengths
+    title = instructions.get("title")
+    if title is not None and len(str(title)) > 200:
+        errors.append("instructions_screen.title too long (max 200 chars)")
+
+    if text is not None and len(str(text)) > 5000:
+        errors.append("instructions_screen.text too long (max 5000 chars)")
+
+    confirm_label = instructions.get("confirm_label")
+    if confirm_label is not None and len(str(confirm_label)) > 200:
+        errors.append("instructions_screen.confirm_label too long (max 200 chars)")
+
+    button_label = instructions.get("button_label")
+    if button_label is not None and len(str(button_label)) > 200:
+        errors.append("instructions_screen.button_label too long (max 200 chars)")
 
     return errors
 

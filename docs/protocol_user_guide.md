@@ -111,7 +111,32 @@ Ingredient 1: Sugar (0 - 100 mM)
 Ingredient 2: Salt (0 - 50 mM)
 ```
 
-### Step 2.5: Configure Loading Screen (Optional)
+### Step 2.5: Configure Instructions Screen (Optional)
+
+The instructions screen is shown to participants before the experiment begins. You can customize the text, confirmation checkbox, and button label.
+
+**Configuration options:**
+
+1. **Title** - Heading displayed at the top (default: "Instructions")
+2. **Text** - Main body of instructions (supports markdown: bold, lists, etc.)
+3. **Confirm Label** - Checkbox text participants must agree to (default: "I understand the instructions.")
+4. **Button Label** - Text on the proceed button (default: "Start Tasting")
+
+**Example:**
+```json
+{
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Welcome!**\n\nYou will taste 6 samples and rate their sweetness.\n\n1. Taste the sample.\n2. Rate on the scale.\n3. Rinse your mouth with water.",
+    "confirm_label": "I have read and understand the instructions.",
+    "button_label": "Begin Experiment"
+  }
+}
+```
+
+**Note:** If you don't configure this section, a generic default instructions screen will be shown.
+
+### Step 2.6: Configure Loading Screen (Optional)
 
 The loading screen appears between experiment cycles while the robot prepares samples.
 
@@ -156,7 +181,7 @@ For participants who need more time:
 
 ---
 
-### Step 2.6: Configure Pumps (Optional)
+### Step 2.7: Configure Pumps (Optional)
 
 If your experiment uses automated pumps, add a `pump_config` block to the
 protocol JSON. Each pump entry can specify its own `volume_unit`.

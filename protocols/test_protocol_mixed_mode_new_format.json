@@ -51,6 +51,12 @@
     "dispensing_rate_ul_min": 60000,
     "simultaneous_dispensing": true
   },
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Welcome to the Sugar-Salt Optimization Experiment!**\n\nIn this experiment you will taste liquid samples containing different combinations of sugar and salt.\n\nThe experiment has three phases:\n1. **Calibration** (first 2 samples): Pre-determined samples to establish a baseline.\n2. **Exploration** (next 3 samples): You choose the concentrations using the grid interface.\n3. **Optimization** (remaining samples): The system will suggest samples based on your preferences.\n\nAfter each sample, rate how much you liked it on the scale provided.\nPlease rinse your mouth with water between samples.",
+    "confirm_label": "I understand the instructions.",
+    "button_label": "Start Experiment"
+  },
   "sample_selection_schedule": [
     {
       "cycle_range": {"start": 1, "end": 2},
