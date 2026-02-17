@@ -57,6 +57,7 @@ from robotaste.data.database import (
     get_available_sessions,  # Lists all active/available sessions
     get_training_data,       # Gets BO training data as DataFrame
     get_bo_config,           # Gets BO config for a session
+    get_session_by_code,     # Gets session by 6-char code
 )
 from robotaste.data.session_repo import get_session_info
 from robotaste.data.protocol_repo import get_protocol_by_id
@@ -161,6 +162,20 @@ def list_sessions():
     """
     sessions = get_available_sessions()
     return {"sessions": sessions or []}
+
+
+# ─── GET SESSION BY CODE ────────────────────────────────────────────────────
+@router.get("/code/{code}")
+def get_session_by_code_endpoint(code: str):
+    """
+    Look up a session by its 6-character human-readable code.
+
+    Used by the subject join flow (manual code entry on landing page).
+    """
+    session = get_session_by_code(code.upper())
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
 # ─── GET SESSION ────────────────────────────────────────────────────────────

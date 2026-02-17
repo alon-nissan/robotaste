@@ -76,7 +76,7 @@ export default function LandingPage() {
     setJoining(true);
     setError(null);
     try {
-      const res = await api.get(`/sessions/${code}`);
+      const res = await api.get(`/sessions/code/${code}`);
       const session: Session = res.data;
       navigate(`/subject/${session.session_id}/consent`);
     } catch (err: unknown) {

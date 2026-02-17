@@ -34,6 +34,7 @@ import RobotPreparingPage from './pages/RobotPreparingPage';
 import CompletionPage from './pages/CompletionPage';
 import CustomPhasePage from './pages/CustomPhasePage';
 import ProtocolManagerPage from './pages/ProtocolManagerPage';
+import SubjectAutoJoinPage from './pages/SubjectAutoJoinPage';
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
         <Route path="/protocols" element={<ProtocolManagerPage />} />
 
         {/* Subject routes */}
+        <Route path="/subject" element={<SubjectAutoJoinPage />} />
         <Route path="/subject/:sessionId/consent" element={<ConsentPage />} />
         <Route path="/subject/:sessionId/register" element={<RegistrationPage />} />
         <Route path="/subject/:sessionId/instructions" element={<InstructionsPage />} />
