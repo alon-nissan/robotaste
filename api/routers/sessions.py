@@ -2,14 +2,22 @@
 Session Endpoints — Create, read, and manage experiment sessions.
 
 === WHAT THIS FILE DOES ===
-Provides endpoints for the moderator to:
-1. Create a new session (POST /api/sessions)
-2. Get session info (GET /api/sessions/{id})
-3. Start a trial with a protocol (POST /api/sessions/{id}/start)
-4. Get monitoring status (GET /api/sessions/{id}/status)
-5. Get sample data (GET /api/sessions/{id}/samples)
-6. Get mode info (GET /api/sessions/{id}/mode-info)
-7. End a session (POST /api/sessions/{id}/end)
+Provides endpoints for the moderator and subject to:
+1.  Create a new session (POST /api/sessions)
+2.  List available sessions (GET /api/sessions)
+3.  Get session info (GET /api/sessions/{id})
+4.  Start a trial with a protocol (POST /api/sessions/{id}/start)
+5.  Get monitoring status (GET /api/sessions/{id}/status)
+6.  Get sample data (GET /api/sessions/{id}/samples)
+7.  Get mode info (GET /api/sessions/{id}/mode-info)
+8.  End a session (POST /api/sessions/{id}/end)
+9.  Record consent (POST /api/sessions/{id}/consent)
+10. Register participant (POST /api/sessions/{id}/register)
+11. Advance phase (POST /api/sessions/{id}/phase)
+12. Submit selection (POST /api/sessions/{id}/selection)
+13. Get BO suggestion (GET /api/sessions/{id}/bo-suggestion)
+14. Submit response (POST /api/sessions/{id}/response)
+15. Get BO model (GET /api/sessions/{id}/bo-model)
 
 === KEY CONCEPTS ===
 - Pydantic BaseModel: A way to define the expected shape of request data.
@@ -19,13 +27,15 @@ Provides endpoints for the moderator to:
   Means the field can be a string or None/missing.
 """
 
+import uuid
+
 from fastapi import APIRouter, HTTPException
 
 # Pydantic is FastAPI's data validation library.
 # BaseModel: Define a class that describes what JSON data looks like.
 # Optional: A field that can be None (not required).
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Import EXISTING database and session functions from your codebase.
 # These are the exact same functions Streamlit uses.
@@ -38,11 +48,22 @@ from robotaste.data.database import (
     update_session_with_config,  # Saves experiment config to session
     update_current_phase,    # Updates the current phase
     update_session_state,    # Updates session state (active/completed)
+    save_consent_response,   # Records participant consent
+    create_user,             # Creates a new user row
+    update_user_profile,     # Saves user demographics
+    update_session_user_id,  # Links user to session
+    save_sample_cycle,       # Saves a sample (concentrations + responses)
+    increment_cycle,         # Advances the cycle counter
+    get_available_sessions,  # Lists all active/available sessions
+    get_training_data,       # Gets BO training data as DataFrame
+    get_bo_config,           # Gets BO config for a session
 )
 from robotaste.data.session_repo import get_session_info
 from robotaste.data.protocol_repo import get_protocol_by_id
 from robotaste.core.moderator_metrics import get_current_mode_info
 from robotaste.config.bo_config import get_default_bo_config
+from robotaste.core.bo_integration import get_bo_suggestion_for_session
+from robotaste.core.bo_engine import train_bo_model
 
 
 # ─── REQUEST MODELS ─────────────────────────────────────────────────────────
@@ -77,6 +98,36 @@ class StartSessionRequest(BaseModel):
     pump_volumes: Optional[Dict[str, float]] = None
 
 
+class ConsentRequest(BaseModel):
+    """Expected JSON body for recording participant consent."""
+    consent_given: bool = True
+
+
+class RegisterRequest(BaseModel):
+    """Expected JSON body for saving participant demographics."""
+    name: str
+    age: int
+    gender: str
+
+
+class PhaseRequest(BaseModel):
+    """Expected JSON body for advancing to a specific phase."""
+    phase: str
+
+
+class SelectionRequest(BaseModel):
+    """Expected JSON body for submitting a sample selection."""
+    concentrations: Dict[str, float]
+    selection_mode: str = "user_selected"
+    selection_data: Optional[Dict[str, Any]] = None
+
+
+class ResponseRequest(BaseModel):
+    """Expected JSON body for submitting questionnaire responses."""
+    answers: Dict[str, Any]
+    is_final: bool = True
+
+
 # ─── CREATE ROUTER ──────────────────────────────────────────────────────────
 router = APIRouter()
 
@@ -98,6 +149,18 @@ def create_new_session(request: CreateSessionRequest):
         "session_code": session_code,
         "moderator_name": request.moderator_name,
     }
+
+
+# ─── LIST SESSIONS ──────────────────────────────────────────────────────────
+@router.get("")
+def list_sessions():
+    """
+    List all available sessions.
+
+    Returns active and recent sessions for the dashboard.
+    """
+    sessions = get_available_sessions()
+    return {"sessions": sessions or []}
 
 
 # ─── GET SESSION ────────────────────────────────────────────────────────────
@@ -281,6 +344,195 @@ def end_session(session_id: str):
         )
 
     return {"message": "Session ended", "session_id": session_id}
+
+
+# ─── RECORD CONSENT ────────────────────────────────────────────────────────
+@router.post("/{session_id}/consent")
+def record_consent(session_id: str, request: ConsentRequest):
+    """
+    Record that participant gave consent.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    save_consent_response(session_id, request.consent_given)
+    return {"message": "Consent recorded", "session_id": session_id}
+
+
+# ─── REGISTER PARTICIPANT ──────────────────────────────────────────────────
+@router.post("/{session_id}/register")
+def register_participant(session_id: str, request: RegisterRequest):
+    """
+    Save participant demographics and link to session.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user_id = str(uuid.uuid4())
+    create_user(user_id)
+    update_user_profile(user_id, request.name, request.gender, request.age)
+    update_session_user_id(session_id, user_id)
+
+    return {"message": "Registration complete", "user_id": user_id}
+
+
+# ─── ADVANCE PHASE ─────────────────────────────────────────────────────────
+@router.post("/{session_id}/phase")
+def advance_phase(session_id: str, request: PhaseRequest):
+    """
+    Advance to a specified phase.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    update_current_phase(session_id, request.phase)
+    return {"message": "Phase updated", "current_phase": request.phase}
+
+
+# ─── SUBMIT SELECTION ──────────────────────────────────────────────────────
+@router.post("/{session_id}/selection")
+def submit_selection(session_id: str, request: SelectionRequest):
+    """
+    Submit a sample selection with concentrations for the current cycle.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    cycle_number = get_current_cycle(session_id)
+    save_sample_cycle(
+        session_id,
+        cycle_number,
+        request.concentrations,
+        request.selection_data or {},
+        {},
+        False,
+        request.selection_mode,
+    )
+
+    return {"message": "Selection saved", "cycle": cycle_number}
+
+
+# ─── GET BO SUGGESTION ─────────────────────────────────────────────────────
+@router.get("/{session_id}/bo-suggestion")
+def get_bo_suggestion(session_id: str):
+    """
+    Get Bayesian Optimization suggestion for the current cycle.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user_id = session.get("user_id", "")
+    suggestion = get_bo_suggestion_for_session(session_id, user_id or "")
+    return suggestion or {}
+
+
+# ─── SUBMIT RESPONSE ───────────────────────────────────────────────────────
+@router.post("/{session_id}/response")
+def submit_response(session_id: str, request: ResponseRequest):
+    """
+    Submit questionnaire response for the current cycle.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    cycle_number = get_current_cycle(session_id)
+
+    # Get latest sample for this cycle to preserve concentrations
+    samples = get_session_samples(session_id)
+    latest_concentrations: Dict[str, float] = {}
+    if samples:
+        for sample in reversed(samples):
+            if sample.get("cycle_number") == cycle_number:
+                latest_concentrations = sample.get("ingredient_concentration", {})
+                break
+
+    save_sample_cycle(
+        session_id,
+        cycle_number,
+        latest_concentrations,
+        {},
+        request.answers,
+        request.is_final,
+    )
+    increment_cycle(session_id)
+
+    return {"message": "Response saved", "cycle": cycle_number}
+
+
+# ─── GET BO MODEL ──────────────────────────────────────────────────────────
+@router.get("/{session_id}/bo-model")
+def get_bo_model(session_id: str):
+    """
+    Get GP model predictions for BO visualization.
+
+    Returns trained model predictions, observations, and current suggestion.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        experiment_config = session.get("experiment_config", {})
+        training_data = get_training_data(session_id)
+
+        if training_data is None or len(training_data) < 3:
+            return {
+                "status": "insufficient_data",
+                "observations": [],
+                "predictions": [],
+                "message": "Need at least 3 samples for BO model",
+            }
+
+        ingredients = experiment_config.get("ingredients", [])
+        ingredient_names = [ing.get("name", "") for ing in ingredients]
+        bo_config = get_bo_config(session_id)
+        target_column = bo_config.get("target_column", "overall_liking")
+
+        model = train_bo_model(
+            training_data, ingredient_names, target_column, bo_config=bo_config
+        )
+        if model is None:
+            return {
+                "status": "training_failed",
+                "observations": [],
+                "predictions": [],
+            }
+
+        # Extract observations from training data
+        observations = []
+        for _, row in training_data.iterrows():
+            obs = {
+                "concentrations": {
+                    name: float(row.get(name, 0)) for name in ingredient_names
+                },
+                "target": float(row.get(target_column, 0)),
+            }
+            observations.append(obs)
+
+        # Get current suggestion
+        user_id = session.get("user_id", "")
+        suggestion = get_bo_suggestion_for_session(session_id, user_id or "")
+
+        return {
+            "status": "ready",
+            "observations": observations,
+            "suggestion": suggestion,
+            "ingredient_names": ingredient_names,
+            "target_column": target_column,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "observations": [],
+            "predictions": [],
+            "error": str(e),
+        }
 
 
 # ─── HELPER FUNCTIONS ──────────────────────────────────────────────────────

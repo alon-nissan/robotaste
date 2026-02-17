@@ -24,21 +24,41 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ModeratorSetupPage from './pages/ModeratorSetupPage';
 import ModeratorMonitoringPage from './pages/ModeratorMonitoringPage';
+import LandingPage from './pages/LandingPage';
+import ConsentPage from './pages/ConsentPage';
+import RegistrationPage from './pages/RegistrationPage';
+import InstructionsPage from './pages/InstructionsPage';
+import SelectionPage from './pages/SelectionPage';
+import QuestionnairePage from './pages/QuestionnairePage';
+import RobotPreparingPage from './pages/RobotPreparingPage';
+import CompletionPage from './pages/CompletionPage';
+import CustomPhasePage from './pages/CustomPhasePage';
+import ProtocolManagerPage from './pages/ProtocolManagerPage';
 
 function App() {
   return (
-    // BrowserRouter wraps the entire app to enable URL routing
     <BrowserRouter>
       <Routes>
-        {/* Route: When URL matches path, render the element */}
+        {/* Landing */}
+        <Route path="/" element={<LandingPage />} />
+
+        {/* Moderator routes */}
         <Route path="/moderator/setup" element={<ModeratorSetupPage />} />
         <Route path="/moderator/monitoring" element={<ModeratorMonitoringPage />} />
+        <Route path="/protocols" element={<ProtocolManagerPage />} />
 
-        {/* Default: redirect root URL to moderator setup */}
-        <Route path="/" element={<Navigate to="/moderator/setup" replace />} />
+        {/* Subject routes */}
+        <Route path="/subject/:sessionId/consent" element={<ConsentPage />} />
+        <Route path="/subject/:sessionId/register" element={<RegistrationPage />} />
+        <Route path="/subject/:sessionId/instructions" element={<InstructionsPage />} />
+        <Route path="/subject/:sessionId/select" element={<SelectionPage />} />
+        <Route path="/subject/:sessionId/questionnaire" element={<QuestionnairePage />} />
+        <Route path="/subject/:sessionId/preparing" element={<RobotPreparingPage />} />
+        <Route path="/subject/:sessionId/complete" element={<CompletionPage />} />
+        <Route path="/subject/:sessionId/phase/:phaseId" element={<CustomPhasePage />} />
 
-        {/* Catch-all: any unknown URL redirects to setup */}
-        <Route path="*" element={<Navigate to="/moderator/setup" replace />} />
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

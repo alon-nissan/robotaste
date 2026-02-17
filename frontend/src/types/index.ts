@@ -157,3 +157,119 @@ export interface ModeInfo {
   all_modes: string[];
   schedule?: ScheduleBlock[];
 }
+
+
+// ─── PARTICIPANT ───────────────────────────────────────────────────────────
+// Participant registration data
+
+export interface Participant {
+  user_id: string;
+  name: string;
+  age: number;
+  gender: string;
+}
+
+
+// ─── CONSENT CONFIG ────────────────────────────────────────────────────────
+// Protocol-driven consent form configuration
+
+export interface ConsentConfig {
+  explanation?: string;
+  medical_disclaimers?: string[];
+  contact_info?: string;
+  consent_label?: string;
+}
+
+
+// ─── QUESTIONNAIRE CONFIG ──────────────────────────────────────────────────
+// Dynamic questionnaire form configuration
+
+export interface QuestionConfig {
+  id: string;
+  label: string;
+  type: 'slider' | 'dropdown' | 'text_input' | 'text_area' | 'pillbox';
+  required?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: number | string;
+  options?: string[];
+  scale_labels?: Record<string, string>;
+}
+
+export interface QuestionnaireConfig {
+  name: string;
+  title?: string;
+  questions: QuestionConfig[];
+}
+
+
+// ─── BO MODEL ──────────────────────────────────────────────────────────────
+// Bayesian Optimization model data for visualization
+
+export interface BOPrediction {
+  x: number[];
+  mean: number[];
+  std: number[];
+  acquisition: number[];
+}
+
+export interface BOModel {
+  predictions: BOPrediction;
+  observations: { x: number[]; y: number[] };
+  suggestion?: { x: number; predicted_value: number; uncertainty: number };
+  ingredient_name: string;
+}
+
+export interface BOModel2D {
+  predictions: {
+    x: number[];
+    y: number[];
+    mean: number[][];
+    std: number[][];
+    acquisition: number[][];
+  };
+  observations: { x: number[]; y: number[]; z: number[] };
+  suggestion?: { x: number; y: number; predicted_value: number };
+  ingredient_names: [string, string];
+}
+
+
+// ─── BO SUGGESTION ─────────────────────────────────────────────────────────
+// BO suggestion for subject selection
+
+export interface BOSuggestion {
+  concentrations: Record<string, number>;
+  predicted_value?: number;
+  uncertainty?: number;
+  grid_coordinates?: { x: number; y: number };
+  slider_values?: Record<string, number>;
+}
+
+
+// ─── CUSTOM PHASE ──────────────────────────────────────────────────────────
+// Protocol-defined custom phase configuration
+
+export interface CustomPhaseConfig {
+  type: 'text' | 'media' | 'break' | 'survey';
+  title?: string;
+  body?: string;
+  image_url?: string;
+  media_type?: 'image' | 'video';
+  media_url?: string;
+  caption?: string;
+  duration_seconds?: number;
+  message?: string;
+  questions?: QuestionConfig[];
+}
+
+
+// ─── SESSION SUMMARY ───────────────────────────────────────────────────────
+// Summary statistics for completion screen
+
+export interface SessionSummary {
+  total_cycles: number;
+  duration_seconds?: number;
+  protocol_name?: string;
+  samples_count?: number;
+}

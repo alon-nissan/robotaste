@@ -30,15 +30,16 @@ import Logo from './Logo';
 // Define the props (parameters) this component accepts
 interface Props {
   children: React.ReactNode;  // The page content to render inside the layout
+  showLogo?: boolean;         // Whether to render the logo (default: true)
 }
 
-export default function PageLayout({ children }: Props) {
+export default function PageLayout({ children, showLogo = true }: Props) {
   return (
     // min-h-screen: minimum height = full viewport height
     // bg-white: white background
     <div className="min-h-screen bg-white">
       {/* Logo at the top of every page */}
-      <Logo />
+      {showLogo && <Logo />}
 
       {/* Main content area */}
       {/* max-w-7xl: maximum width ~1280px (prevents content from stretching on ultra-wide screens) */}
