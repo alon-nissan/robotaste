@@ -5,7 +5,7 @@
 - **Diffs Only:** Show ONLY changed blocks with 2-3 lines context. Never reprint unchanged functions.
 - **General Logic, Not Code:** Explain approach in bullet points, not line-by-line code walkthrough.
 - **Concise Questions:** Ask 1-2 focused questions maximum per turn.
-- **Imports:** Do not hallucinate dependencies. Use existing `pyserial`, `streamlit`, `pandas`.
+- **Imports:** Do not hallucinate dependencies. Python: `pyserial`, `streamlit`, `pandas`, `fastapi`, `uvicorn`, `pydantic`. Frontend: `react`, `react-router-dom`, `axios`, `tailwindcss`.
 
 ## 2. Project Type
 Multi-device taste experiment platform. Moderator + subjects sync via database polling. Optional NE-4000 pump hardware.
@@ -28,6 +28,17 @@ Map common tasks to exact file paths (use these before exploring):
 - **Session sync** → `robotaste/data/session_repo.py` (`sync_session_state_to_streamlit()`)
 - **Protocol schema** → `robotaste/config/protocol_schema.py`
 - **Sample storage** → `robotaste/utils/pump_db.py`
+- **React app router** → `frontend/src/App.tsx`
+- **React page layout** → `frontend/src/components/PageLayout.tsx`
+- **React pages** → `frontend/src/pages/*.tsx`
+- **TypeScript types** → `frontend/src/types/index.ts`
+- **API client (frontend)** → `frontend/src/api/client.ts`
+- **FastAPI app** → `api/main.py`
+- **Session API endpoints** → `api/routers/sessions.py`
+- **Protocol API endpoints** → `api/routers/protocols.py`
+- **Pump API endpoints** → `api/routers/pump.py`
+- **Design guidelines** → `frontend/DESIGN_GUIDELINES.md`
+- **Workflow guide** → `docs/WORKFLOW_GUIDE.md`
 
 ## 3. Key Architecture & Entry Points
 - **App:** `main_app.py` (Streamlit UI)
@@ -36,6 +47,9 @@ Map common tasks to exact file paths (use these before exploring):
 - **DB:** `robotaste.db` (SQLite) | Schema: `robotaste/data/schema.sql`
 - **Protocol:** `robotaste/config/protocols.py`
 - **Sync Pattern:** All devices poll `sessions` table for `current_phase` changes
+- **React Frontend:** `frontend/src/App.tsx` (Vite + React 19 + TypeScript + Tailwind 4.1)
+- **FastAPI Backend:** `api/main.py` (port 8000)
+- **Sync Pattern (React):** Subject pages poll API endpoints; moderator monitoring polls `/sessions/{id}/status`
 
 ## 4. CRITICAL Technical Constraints (Strict Adherence)
 - **Pump Caching:** Re-use connections via `pump_manager.py`. Initialization takes ~21s; DO NOT create new pump instances per cycle.
@@ -53,6 +67,10 @@ Map common tasks to exact file paths (use these before exploring):
 - ❌ Running hardware tests without pumps → ✓ Only run `test_pump_*.py` with physical connection
 - ❌ Writing raw SQL in views → ✓ Use `session_repo.py` or `protocol_repo.py` for business logic
 - ❌ Updating only `st.session_state` → ✓ Update database first, then sync to Streamlit state
+- ❌ Using raw hex colors in React → ✓ Use Tailwind design tokens from DESIGN_GUIDELINES.md
+- ❌ Defining types in page files → ✓ Add to `frontend/src/types/index.ts`
+- ❌ Direct `fetch()` calls → ✓ Use `api` from `frontend/src/api/client.ts`
+- ❌ Forgetting `showLogo={false}` on subject experiment pages → ✓ Only consent/registration/instructions show logo
 
 ## 5. Phase Flows (Quick Reference)
 - **Standard:** WAITING → REGISTRATION → INSTRUCTIONS → SELECTION → LOADING → QUESTIONNAIRE → (loop) → COMPLETE
@@ -67,6 +85,10 @@ Map common tasks to exact file paths (use these before exploring):
   - Single test: `pytest tests/test_protocol_integration.py::test_name`
   - By keyword: `pytest -k "protocol"`
   - Hardware (Safety): `python robotaste/hardware/test_pump_movement.py`
+- **React dev**: `cd frontend && npm run dev` (port 5173)
+- **React build**: `cd frontend && npm run build`
+- **React type-check**: `cd frontend && npx tsc --noEmit`
+- **FastAPI**: `uvicorn api.main:app --reload --port 8000`
 
 ## 6.5. Lint / Format
 - No lint or formatter configured in-repo.
