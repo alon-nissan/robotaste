@@ -82,8 +82,15 @@ export default function ProtocolSelector({ onSelect }: Props) {
 
 
   // ─── HANDLE SELECTION CHANGE ───────────────────────────────────────────
-  // Called when the user picks a different option in the dropdown
-  function handleChange(event: React.ChangeEvent<HTMLSelectElement>) {
+  // Called when the user picks a different option in the dropdown.
+  //
+  // WHY TWO API CALLS?
+  // The list endpoint (GET /api/protocols) only returns metadata (name, id,
+  // version, tags) — it does NOT include the full protocol fields like
+  // 'ingredients', 'pump_config', 'stopping_criteria', etc.
+  // When the user selects a protocol, we fetch the full protocol from
+  // GET /api/protocols/{id} to get all fields.
+  async function handleChange(event: React.ChangeEvent<HTMLSelectElement>) {
     // event.target.value is the value of the selected <option>
     const protocolId = event.target.value;
 
@@ -93,10 +100,19 @@ export default function ProtocolSelector({ onSelect }: Props) {
       return;
     }
 
-    // Find the full protocol object from our list
-    const protocol = protocols.find(p => p.protocol_id === protocolId) || null;
-    setSelected(protocol);
-    onSelect(protocol);  // Notify parent component
+    // Fetch the FULL protocol (includes ingredients, pump_config, etc.)
+    try {
+      const response = await api.get(`/protocols/${protocolId}`);
+      const fullProtocol: Protocol = response.data;
+      setSelected(fullProtocol);
+      onSelect(fullProtocol);  // Notify parent component with full data
+    } catch (err) {
+      console.error('Error fetching full protocol:', err);
+      // Fall back to metadata-only version from the list
+      const protocol = protocols.find(p => p.protocol_id === protocolId) || null;
+      setSelected(protocol);
+      onSelect(protocol);
+    }
   }
 
 
