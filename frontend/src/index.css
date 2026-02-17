@@ -1,0 +1,37 @@
+/*
+ * Global CSS Entry Point
+ *
+ * === WHAT IS THIS? ===
+ * This file is the root stylesheet loaded by the entire app.
+ * The @import "tailwindcss" line activates Tailwind CSS — it generates
+ * all the utility classes (like bg-red-500, text-white, p-4) that we
+ * use in our React components.
+ *
+ * === CUSTOM THEME ===
+ * The @theme section defines our brand colors as CSS variables.
+ * These come from the existing Streamlit styles.py file.
+ * After this, we can use them in Tailwind like: bg-primary, text-accent, etc.
+ */
+
+@import "tailwindcss";
+
+/* Define custom brand colors for Tailwind to use */
+@theme {
+  --color-primary: #521924;
+  --color-primary-light: #7a2e3d;
+  --color-primary-dark: #3a1119;
+  --color-accent: #fda50f;
+  --color-accent-light: #ffc04d;
+  --color-surface: #F8F9FA;
+  --color-text-primary: #2C3E50;
+  --color-text-secondary: #7F8C8D;
+  --color-border: #E5E7EB;
+}
+
+/* Base body styles */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: #ffffff;
+  color: var(--color-text-primary);
+}
