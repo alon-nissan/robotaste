@@ -101,6 +101,34 @@ def setup_logging(
             logger = logging.getLogger(logger_name)
             logger.setLevel(logging.DEBUG)
 
+    # API component: add a dedicated pump operations log file for easy debugging
+    if component == "api":
+        pump_log_file = log_dir / f"api_pump_operations_{datetime.now().strftime('%d%m%y')}.log"
+        pump_file_handler = TimedRotatingFileHandler(
+            filename=pump_log_file,
+            when='midnight',
+            interval=1,
+            backupCount=7,
+            encoding='utf-8'
+        )
+        pump_file_handler.setLevel(logging.DEBUG)
+        pump_file_handler.setFormatter(detailed_formatter)
+
+        # Attach to pump-related loggers so their output goes to both the
+        # main api log AND the dedicated pump log
+        pump_log_names = [
+            "robotaste.hardware.pump_controller",
+            "robotaste.core.pump_integration",
+            "robotaste.core.pump_manager",
+            "robotaste.core.pump_volume_manager",
+            "robotaste.api.sessions",
+            "api.routers.pump",
+        ]
+        for name in pump_log_names:
+            logging.getLogger(name).addHandler(pump_file_handler)
+
+        logging.info(f"Pump operations log: {pump_log_file}")
+
     logging.info(f"Logging configured for {component}: {log_file}")
     logging.info(f"Console level: {log_level}, File level: DEBUG, Rotation: daily (7-day retention)")
 

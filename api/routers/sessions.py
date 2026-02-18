@@ -252,6 +252,16 @@ def start_session(session_id: str, request: StartSessionRequest):
             bo_config=bo_config,
             experiment_config=experiment_config,
         )
+
+        # Set protocol_id column directly (update_session_with_config doesn't do this,
+        # but pump_integration.create_pump_operation_for_cycle queries it)
+        from robotaste.data.database import get_database_connection
+        with get_database_connection() as conn:
+            conn.execute(
+                "UPDATE sessions SET protocol_id = ? WHERE session_id = ?",
+                (request.protocol_id, session_id),
+            )
+            conn.commit()
     except Exception as e:
         logger.error(f"Failed to save config for session {session_id}: {e}")
         raise HTTPException(
