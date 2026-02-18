@@ -4,7 +4,6 @@ import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
 
 const POLL_INTERVAL_MS = 2000;
-const FALLBACK_TIMEOUT_MS = 30000;
 
 export default function RobotPreparingPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -12,8 +11,8 @@ export default function RobotPreparingPage() {
 
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Preparing your sample...');
+  const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigatedRef = useRef(false);
 
   function advance() {
@@ -28,43 +27,51 @@ export default function RobotPreparingPage() {
   useEffect(() => {
     if (!sessionId) return;
 
-    // Poll pump status
+    // Poll pump operation status
     intervalRef.current = setInterval(async () => {
       try {
-        const res = await api.get(`/pump/status/${sessionId}`);
+        const res = await api.get(`/pump/operation/${sessionId}`);
         const data = res.data;
 
-        if (data.progress !== undefined) setProgress(data.progress);
-        if (data.status_message) setStatus(data.status_message);
+        setProgress(data.progress ?? 0);
 
-        if (
-          data.status === 'completed' ||
-          data.progress >= 100
-        ) {
+        if (data.status === 'completed') {
+          setStatus('Sample ready!');
+          setProgress(100);
           advance();
+        } else if (data.status === 'failed') {
+          setStatus('Pump error');
+          setError(data.error || 'Pump operation failed');
+        } else if (data.status === 'in_progress') {
+          setStatus('Dispensing...');
+        } else if (data.status === 'pending') {
+          setStatus('Waiting for pump service...');
+        } else {
+          // status === 'none' — no operation found, check session phase as fallback
+          try {
+            const sessionRes = await api.get(`/sessions/${sessionId}/status`);
+            if (sessionRes.data.current_phase === 'questionnaire') {
+              advance();
+            }
+          } catch {
+            // ignore
+          }
         }
       } catch {
-        // Also check session phase as fallback
+        // Network error — check session phase as fallback
         try {
           const sessionRes = await api.get(`/sessions/${sessionId}/status`);
-          const phase = sessionRes.data.current_phase;
-          if (phase === 'questionnaire') {
+          if (sessionRes.data.current_phase === 'questionnaire') {
             advance();
           }
         } catch {
-          // Ignore polling errors
+          // ignore
         }
       }
     }, POLL_INTERVAL_MS);
 
-    // Fallback: auto-advance after 30 seconds
-    fallbackRef.current = setTimeout(() => {
-      advance();
-    }, FALLBACK_TIMEOUT_MS);
-
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (fallbackRef.current) clearTimeout(fallbackRef.current);
     };
   }, [sessionId]);
 
@@ -87,6 +94,13 @@ export default function RobotPreparingPage() {
             {Math.round(progress)}%
           </p>
         </div>
+
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm max-w-md">
+            <p className="font-medium">⚠️ {error}</p>
+            <p className="mt-1 text-xs">Please notify the moderator.</p>
+          </div>
+        )}
 
         <p className="text-sm text-text-secondary mt-4">
           Please wait, do not touch the cups
