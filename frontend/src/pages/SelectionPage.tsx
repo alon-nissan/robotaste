@@ -339,14 +339,14 @@ export default function SelectionPage() {
               previousSamples={samples}
             />
           ) : (
-            <p className="text-text-secondary text-center py-8">
+            <p className="text-base text-text-secondary text-center py-8">
               No ingredients configured for this experiment.
             </p>
           )}
 
           {/* Error message */}
           {error && (
-            <div className="mt-4 p-3 bg-red-50 rounded-lg text-red-700 text-sm">
+            <div className="mt-4 p-3 bg-red-50 rounded-lg text-red-700 text-base">
               {error}
             </div>
           )}
@@ -370,7 +370,7 @@ export default function SelectionPage() {
 
         {/* ═══ HISTORY ═══ */}
         {samples.length > 0 && (
-          <div className="text-xs text-text-secondary space-y-0.5">
+          <div className="text-sm text-text-secondary space-y-0.5">
             <p className="font-medium mb-1">Previous selections:</p>
             {samples.map((s) => {
               const concs = Object.entries(s.ingredient_concentration || {})
@@ -410,7 +410,7 @@ function SingleSlider({ ingredient, value, onChange }: SingleSliderProps) {
 
   return (
     <div className="space-y-6">
-      <p className="text-text-secondary text-sm">
+      <p className="text-base text-text-secondary">
         Select <span className="font-medium text-text-primary">{name}</span> concentration:
       </p>
 
@@ -426,7 +426,7 @@ function SingleSlider({ ingredient, value, onChange }: SingleSliderProps) {
           className="w-full h-2 rounded-full appearance-none cursor-pointer
                      bg-gray-200 accent-primary"
         />
-        <div className="flex justify-between text-xs text-text-secondary mt-1">
+        <div className="flex justify-between text-sm text-text-secondary mt-1">
           <span>{min} mM</span>
           <span>{max} mM</span>
         </div>
@@ -518,7 +518,7 @@ function Grid2D({
 
   return (
     <div className="space-y-4">
-      <p className="text-text-secondary text-sm">
+      <p className="text-base text-text-secondary">
         Select your preferred concentration:
       </p>
 
@@ -630,7 +630,7 @@ function Grid2D({
       </div>
 
       {/* Selected concentrations text */}
-      <p className="text-center text-sm text-text-primary">
+      <p className="text-center text-base text-text-primary">
         Selected:{' '}
         <span className="font-semibold">{ingredientX.name}</span>{' '}
         {selectedX.toFixed(1)} mM,{' '}

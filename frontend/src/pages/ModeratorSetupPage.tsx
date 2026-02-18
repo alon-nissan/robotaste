@@ -189,7 +189,7 @@ export default function ModeratorSetupPage() {
               onVolumesChange={setPumpVolumes}
             />
           ) : (
-            <div className="text-sm text-text-secondary">
+            <div className="text-base text-text-secondary">
               {selectedProtocol
                 ? '🔧 Pumps not enabled in this protocol'
                 : 'Select a protocol to see pump configuration'}
@@ -201,7 +201,7 @@ export default function ModeratorSetupPage() {
         <div className="p-6 flex flex-col justify-center items-center">
           {/* Error message */}
           {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm w-full">
+            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-base w-full">
               {error}
             </div>
           )}
@@ -225,7 +225,7 @@ export default function ModeratorSetupPage() {
           {/* Session info (shown after session is created) */}
           {sessionId && (
             <div className="mt-4 p-4 bg-surface rounded-xl border border-border text-center w-full max-w-xs">
-              <p className="text-xs text-text-secondary mb-1">Session Code (share with participants)</p>
+              <p className="text-sm text-text-secondary mb-1">Session Code (share with participants)</p>
               <p className="text-3xl font-bold tracking-widest text-primary">{sessionCode}</p>
             </div>
           )}

@@ -42,10 +42,10 @@ export default function PageLayout({ children, showLogo = true }: Props) {
       {showLogo && <Logo />}
 
       {/* Main content area */}
-      {/* max-w-7xl: maximum width ~1280px (prevents content from stretching on ultra-wide screens) */}
+      {/* max-w-[1440px]: maximum width 1440px (optimized for modern displays) */}
       {/* mx-auto: center horizontally */}
-      {/* px-6: horizontal padding, pb-8: bottom padding */}
-      <main className="max-w-7xl mx-auto px-6 pb-8">
+      {/* px-6 lg:px-8: horizontal padding (24px mobile, 32px desktop), pb-8: bottom padding */}
+      <main className="max-w-[1440px] mx-auto px-6 lg:px-8 pb-8">
         {children}
       </main>
     </div>

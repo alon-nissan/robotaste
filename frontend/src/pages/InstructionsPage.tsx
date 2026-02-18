@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
+import { MarkdownText } from '../components/MarkdownText';
 
 interface InstructionContent {
   title: string;
@@ -121,7 +122,7 @@ export default function InstructionsPage() {
   if (loading) {
     return (
       <PageLayout>
-        <div className="max-w-2xl mx-auto text-center py-12 text-text-secondary">
+        <div className="max-w-3xl mx-auto text-center py-12 text-base text-text-secondary">
           Loading instructions...
         </div>
       </PageLayout>
@@ -130,7 +131,7 @@ export default function InstructionsPage() {
 
   return (
     <PageLayout>
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         <div className="p-6 bg-surface rounded-xl border border-border">
           {/* Title */}
           <h1 className="text-2xl font-light text-text-primary tracking-wide mb-4">
@@ -138,19 +139,19 @@ export default function InstructionsPage() {
           </h1>
           <hr className="border-border mb-6" />
 
-          {/* Instruction text — render paragraphs split by newlines */}
-          <div className="space-y-4 text-text-primary leading-relaxed mb-6">
-            {instructions.text.split('\n\n').map((paragraph, i) => (
-              <p key={i}>{paragraph}</p>
-            ))}
-          </div>
+          {/* Instruction text */}
+          <MarkdownText
+            content={instructions.text}
+            className="text-base text-text-primary mb-6"
+          />
 
           {/* Callout */}
           {instructions.callout && (
             <div className="p-4 bg-surface rounded-lg border-l-4 border-primary mb-6">
-              <p className="text-text-primary text-sm">
-                {instructions.callout}
-              </p>
+              <MarkdownText
+                content={instructions.callout}
+                className="text-base text-text-primary"
+              />
             </div>
           )}
 

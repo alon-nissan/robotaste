@@ -11,6 +11,7 @@ import { api } from '../api/client';
 import type { ConsentConfig } from '../types';
 
 import PageLayout from '../components/PageLayout';
+import { MarkdownText } from '../components/MarkdownText';
 
 const DEFAULT_EXPLANATION =
   'This experiment investigates taste perception. You will be asked to taste ' +
@@ -90,7 +91,7 @@ export default function ConsentPage() {
     return (
       <PageLayout>
         <div className="flex items-center justify-center py-20">
-          <p className="text-text-secondary">Loading consent information...</p>
+          <p className="text-base text-text-secondary">Loading consent information...</p>
         </div>
       </PageLayout>
     );
@@ -98,7 +99,7 @@ export default function ConsentPage() {
 
   return (
     <PageLayout>
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         <div className="p-6 bg-surface rounded-xl border border-border">
           <h1 className="text-2xl font-light text-text-primary tracking-wide mb-8">
             Informed Consent
@@ -114,13 +115,13 @@ export default function ConsentPage() {
           {/* Study Purpose */}
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-2">Study Purpose</h2>
-            <p className="text-text-secondary leading-relaxed">{explanation}</p>
+            <MarkdownText content={explanation} className="text-base text-text-secondary" />
           </section>
 
           {/* What to Expect */}
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-2">What to Expect</h2>
-            <ul className="list-disc list-inside space-y-1 text-text-secondary">
+            <ul className="list-disc list-inside space-y-1 text-base text-text-secondary">
               {DEFAULT_BULLETS.map((bullet, i) => (
                 <li key={i}>{bullet}</li>
               ))}
@@ -142,7 +143,7 @@ export default function ConsentPage() {
           {/* Contact */}
           <section className="mb-8">
             <h2 className="text-lg font-semibold mb-1">Contact</h2>
-            <p className="text-text-secondary text-sm">{contact}</p>
+            <p className="text-base text-text-secondary">{contact}</p>
           </section>
 
           {/* Consent Checkbox */}

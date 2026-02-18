@@ -55,7 +55,7 @@ export default function RegistrationPage() {
   // ─── RENDER ─────────────────────────────────────────────────────────────
   return (
     <PageLayout>
-      <div className="max-w-lg mx-auto">
+      <div className="max-w-xl mx-auto">
         <div className="p-6 bg-surface rounded-xl border border-border">
           <h1 className="text-2xl font-light text-text-primary tracking-wide mb-8">
             Participant Registration
@@ -130,7 +130,7 @@ export default function RegistrationPage() {
 
             {/* Error */}
             {error && (
-              <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+              <div className="p-3 bg-red-50 text-red-700 rounded-lg text-base">
                 {error}
               </div>
             )}

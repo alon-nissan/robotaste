@@ -52,7 +52,7 @@ export default function CompletionPage() {
     return (
       <PageLayout showLogo={false}>
         <div className="flex items-center justify-center py-20">
-          <p className="text-text-secondary">Loading summary...</p>
+          <p className="text-base text-text-secondary">Loading summary...</p>
         </div>
       </PageLayout>
     );
@@ -71,7 +71,7 @@ export default function CompletionPage() {
 
           {/* Error */}
           {error && (
-            <div className="mb-6 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+            <div className="mb-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
               {error}
             </div>
           )}
@@ -103,7 +103,7 @@ export default function CompletionPage() {
             </div>
           )}
 
-          <p className="text-text-secondary text-sm mb-8">
+          <p className="text-base text-text-secondary mb-8">
             Your responses have been recorded.
           </p>
 

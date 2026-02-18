@@ -68,7 +68,7 @@ export default function SubjectAutoJoinPage() {
           <h1 className="text-2xl font-light text-text-primary mb-4">
             Waiting for Session
           </h1>
-          <p className="text-text-secondary mb-6">
+          <p className="text-base text-text-secondary mb-6">
             Waiting for moderator to create a session...
           </p>
           <div className="inline-block w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />

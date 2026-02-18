@@ -48,7 +48,7 @@ function SliderQuestion({
     <div>
       {/* Scale labels evenly spaced above the slider */}
       {labelKeys.length > 0 && (
-        <div className="flex justify-between text-xs text-text-secondary mb-1">
+        <div className="flex justify-between text-sm text-text-secondary mb-1">
           {labelKeys.map((key) => (
             <span key={key} className="text-center flex-1">
               {labels[String(key)]}
@@ -341,7 +341,7 @@ export default function QuestionnairePage() {
 
   return (
     <PageLayout showLogo={false}>
-      <div className="max-w-xl mx-auto mt-8">
+      <div className="max-w-2xl mx-auto mt-8">
         <div className="p-6 bg-surface rounded-xl border border-border">
           <h2 className="text-xl font-semibold text-text-primary mb-6">
             {title}
@@ -362,7 +362,7 @@ export default function QuestionnairePage() {
           </div>
 
           {error && (
-            <div className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+            <div className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
               {error}
             </div>
           )}

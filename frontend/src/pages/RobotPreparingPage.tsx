@@ -110,9 +110,9 @@ export default function RobotPreparingPage() {
         </div>
 
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm max-w-md">
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-base max-w-md">
             <p className="font-medium">⚠️ {error}</p>
-            <p className="mt-1 text-xs">Please notify the moderator.</p>
+            <p className="mt-1 text-sm">Please notify the moderator.</p>
           </div>
         )}
 
@@ -122,7 +122,7 @@ export default function RobotPreparingPage() {
             {loadingMessage}
           </p>
         ) : (
-          <p className="text-sm text-text-secondary mt-4">
+          <p className="text-base text-text-secondary mt-4">
             Please wait, do not touch the cups
           </p>
         )}

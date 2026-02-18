@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CustomPhaseConfig, QuestionConfig } from '../types';
 import PageLayout from '../components/PageLayout';
+import { MarkdownText } from '../components/MarkdownText';
 
 // ─── PHASE TYPE RENDERERS ──────────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ function TextPhase({
   onContinue: () => void;
 }) {
   return (
-    <div className="max-w-xl mx-auto mt-8">
+    <div className="max-w-2xl mx-auto mt-8">
       <div className="p-6 bg-surface rounded-xl border border-border">
         {config.title && (
           <h2 className="text-xl font-semibold text-text-primary mb-4">
@@ -23,9 +24,10 @@ function TextPhase({
         )}
 
         {config.body && (
-          <div className="text-text-primary mb-4 whitespace-pre-line">
-            {config.body}
-          </div>
+          <MarkdownText
+            content={config.body}
+            className="text-base text-text-primary mb-4"
+          />
         )}
 
         {config.image_url && (
@@ -93,7 +95,7 @@ function BreakPhase({
         Take a Break
       </h2>
 
-      <p className="text-text-secondary mb-6">{message}</p>
+      <p className="text-base text-text-secondary mb-6">{message}</p>
 
       <div className="text-3xl font-mono text-text-primary mb-6">
         {timeStr} remaining
@@ -122,7 +124,7 @@ function MediaPhase({
   onContinue: () => void;
 }) {
   return (
-    <div className="max-w-xl mx-auto mt-8">
+    <div className="max-w-2xl mx-auto mt-8">
       <div className="p-6 bg-surface rounded-xl border border-border">
         {config.title && (
           <h2 className="text-xl font-semibold text-text-primary mb-4">
@@ -147,7 +149,10 @@ function MediaPhase({
         )}
 
         {config.caption && (
-          <p className="text-sm text-text-secondary mb-4">{config.caption}</p>
+          <MarkdownText
+            content={config.caption}
+            className="text-base text-text-secondary mb-4"
+          />
         )}
 
         <div className="flex justify-center mt-6">
@@ -184,7 +189,7 @@ function SurveyPhase({
   }
 
   return (
-    <div className="max-w-xl mx-auto mt-8">
+    <div className="max-w-2xl mx-auto mt-8">
       <div className="p-6 bg-surface rounded-xl border border-border">
         {config.title && (
           <h2 className="text-xl font-semibold text-text-primary mb-6">
@@ -426,7 +431,7 @@ export default function CustomPhasePage() {
     return (
       <PageLayout showLogo={false}>
         <div className="flex items-center justify-center min-h-[60vh]">
-          <p className="text-text-secondary">Loading...</p>
+          <p className="text-base text-text-secondary">Loading...</p>
         </div>
       </PageLayout>
     );
@@ -435,8 +440,8 @@ export default function CustomPhasePage() {
   if (error) {
     return (
       <PageLayout showLogo={false}>
-        <div className="max-w-xl mx-auto mt-8">
-          <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+        <div className="max-w-2xl mx-auto mt-8">
+          <div className="p-3 bg-red-50 text-red-700 rounded-lg text-base">
             {error}
           </div>
         </div>

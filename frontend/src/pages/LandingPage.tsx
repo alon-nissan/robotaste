@@ -97,7 +97,7 @@ export default function LandingPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="mb-6 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+        <div className="mb-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
           {error}
         </div>
       )}
