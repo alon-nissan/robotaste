@@ -9,7 +9,6 @@ interface BOVisualization2DProps {
 const PRIMARY = '#521924';
 const ACCENT = '#fda50f';
 
-const GRID_SIZE = 20;
 const PANEL_SIZE = 200;
 const PAD = { top: 30, right: 10, bottom: 40, left: 40 };
 const PLOT_W = PANEL_SIZE - PAD.left - PAD.right;

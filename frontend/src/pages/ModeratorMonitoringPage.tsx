@@ -211,6 +211,14 @@ export default function ModeratorMonitoringPage() {
   // ─── RENDER ────────────────────────────────────────────────────────────
   return (
     <PageLayout>
+      {/* ═══ SESSION CODE BANNER ═══ */}
+      {status?.session_code && (
+        <div className="flex items-center gap-3 mb-6 p-3 bg-surface rounded-xl border border-border">
+          <span className="text-sm text-text-secondary">Session Code:</span>
+          <span className="text-xl font-bold tracking-widest text-primary">{status.session_code}</span>
+        </div>
+      )}
+
       {/* ═══ MONITORING CHART (large area) ═══ */}
       <div className="bg-surface rounded-xl border border-border p-6 mb-6 min-h-[300px]">
         <h2 className="text-lg font-semibold text-text-primary mb-4">

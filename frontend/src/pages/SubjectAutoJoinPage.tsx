@@ -27,7 +27,8 @@ export default function SubjectAutoJoinPage() {
       try {
         const res = await api.get('/sessions');
         const allSessions: Session[] = res.data.sessions || res.data || [];
-        const active = allSessions.filter(s => s.state === 'active');
+        // API already returns only active sessions (filtered server-side)
+        const active = allSessions;
 
         if (cancelled) return;
 

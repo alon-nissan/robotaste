@@ -65,6 +65,9 @@ export default function ModeratorSetupPage() {
   // Session ID (set after creating a session)
   const [sessionId, setSessionId] = useState<string | null>(null);
 
+  // Session code (6-char code for subjects to join)
+  const [sessionCode, setSessionCode] = useState<string | null>(null);
+
   // UI state
   const [starting, setStarting] = useState(false);         // Is the start button loading?
   const [error, setError] = useState<string | null>(null);  // Error message
@@ -118,7 +121,9 @@ export default function ModeratorSetupPage() {
         moderator_name: 'Research Team',  // Could add an input for this later
       });
       const newSessionId = sessionRes.data.session_id;
+      const newSessionCode = sessionRes.data.session_code;
       setSessionId(newSessionId);
+      setSessionCode(newSessionCode);
 
       // Step 2: Start the session with the selected protocol
       const pumpVols = selectedProtocol.pump_config?.enabled ? pumpVolumes : undefined;
@@ -219,9 +224,10 @@ export default function ModeratorSetupPage() {
 
           {/* Session info (shown after session is created) */}
           {sessionId && (
-            <p className="mt-3 text-sm text-text-secondary">
-              Session: {sessionId.slice(0, 8)}...
-            </p>
+            <div className="mt-4 p-4 bg-surface rounded-xl border border-border text-center w-full max-w-xs">
+              <p className="text-xs text-text-secondary mb-1">Session Code (share with participants)</p>
+              <p className="text-3xl font-bold tracking-widest text-primary">{sessionCode}</p>
+            </div>
           )}
         </div>
       </div>

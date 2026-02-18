@@ -66,7 +66,7 @@ export default function ConsentPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.post(`/sessions/${sessionId}/consent`);
+      await api.post(`/sessions/${sessionId}/consent`, { consent_given: true });
       navigate(`/subject/${sessionId}/register`);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
