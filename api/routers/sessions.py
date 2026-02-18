@@ -490,6 +490,9 @@ def submit_selection(session_id: str, request: SelectionRequest):
     """
     Submit a sample selection with concentrations for the current cycle.
     Also advances the phase to loading/robot_preparing based on pump config.
+
+    NOTE: Does NOT save to samples table — that happens once at response time
+    (matching the Streamlit flow which calls save_sample_cycle only once per cycle).
     """
     session = get_session(session_id)
     if not session:
@@ -500,15 +503,6 @@ def submit_selection(session_id: str, request: SelectionRequest):
         f"🧪 Selection submitted for session {session_id}: cycle={cycle_number}, "
         f"mode={request.selection_mode}, concentrations={request.concentrations}"
     )
-    save_sample_cycle(
-        session_id,
-        cycle_number,
-        request.concentrations,
-        request.selection_data or {},
-        {},
-        False,
-        request.selection_mode,
-    )
 
     # Advance phase: selection → robot_preparing (pump) or loading (no pump)
     config = session.get("experiment_config", {})
@@ -516,8 +510,18 @@ def submit_selection(session_id: str, request: SelectionRequest):
     pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
     next_phase = "robot_preparing" if pump_enabled else "loading"
     update_current_phase(session_id, next_phase)
+
     if pump_enabled:
-        logger.info(f"🔧 Pump enabled for session {session_id} → phase=robot_preparing, cycle={cycle_number}")
+        # Create a pump operation so the pump_control_service can pick it up
+        try:
+            from robotaste.core.pump_integration import create_pump_operation_for_cycle
+            op_id = create_pump_operation_for_cycle(session_id, cycle_number)
+            if op_id:
+                logger.info(f"🔧 Pump operation created: op_id={op_id}, session={session_id}, cycle={cycle_number}")
+            else:
+                logger.warning(f"🔧 Pump operation creation returned None for session {session_id}, cycle {cycle_number}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create pump operation for session {session_id}, cycle {cycle_number}: {e}")
     else:
         logger.info(f"Selection saved for session {session_id} → phase=loading, cycle={cycle_number}")
 
@@ -549,6 +553,8 @@ def get_bo_suggestion(session_id: str):
 def submit_response(session_id: str, request: ResponseRequest):
     """
     Submit questionnaire response for the current cycle.
+    Saves the complete cycle data (concentrations + answers) in one row,
+    matching the Streamlit flow which calls save_sample_cycle once per cycle.
     """
     session = get_session(session_id)
     if not session:
@@ -557,22 +563,24 @@ def submit_response(session_id: str, request: ResponseRequest):
     cycle_number = get_current_cycle(session_id)
     logger.info(f"📝 Response submitted for session {session_id}: cycle={cycle_number}")
 
-    # Get latest sample for this cycle to preserve concentrations
-    samples = get_session_samples(session_id)
-    latest_concentrations: Dict[str, float] = {}
-    if samples:
-        for sample in reversed(samples):
-            if sample.get("cycle_number") == cycle_number:
-                latest_concentrations = sample.get("ingredient_concentration", {})
-                break
+    # Get concentrations for this cycle from prepare_cycle_sample (deterministic)
+    try:
+        cycle_info = prepare_cycle_sample(session_id, cycle_number)
+        concentrations = cycle_info.get("concentrations", {})
+        selection_mode = cycle_info.get("mode", "user_selected")
+    except Exception as e:
+        logger.warning(f"Could not get cycle info for concentrations: {e}")
+        concentrations = {}
+        selection_mode = "user_selected"
 
     save_sample_cycle(
         session_id,
         cycle_number,
-        latest_concentrations,
+        concentrations,
         {},
         request.answers,
         request.is_final,
+        selection_mode,
     )
     increment_cycle(session_id)
 
