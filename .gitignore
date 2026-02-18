@@ -55,6 +55,10 @@ logs/*
 # AI assistance tools
 .claude/
 
+# Node.js / Frontend
+node_modules/
+frontend/dist/
+
 # Photos
 visual_references/
 # Archived code (tracked for reference, not active development)

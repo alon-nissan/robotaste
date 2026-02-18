@@ -35,3 +35,40 @@ body {
   background-color: #ffffff;
   color: var(--color-text-primary);
 }
+
+/* Custom slider styles matching design reference */
+.slider-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary-dark);
+  border: 2px solid var(--color-primary-dark);
+  cursor: pointer;
+}
+
+.slider-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary-dark);
+  border: 2px solid var(--color-primary-dark);
+  cursor: pointer;
+}
+
+.slider-range::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-primary);
+}

@@ -11,6 +11,7 @@ export default function RobotPreparingPage() {
 
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Preparing your sample...');
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const navigatedRef = useRef(false);
@@ -23,6 +24,19 @@ export default function RobotPreparingPage() {
       .catch(() => {/* best-effort */})
       .finally(() => navigate(`/subject/${sessionId}/questionnaire`));
   }
+
+  // Fetch loading screen message from protocol config
+  useEffect(() => {
+    if (!sessionId) return;
+    api.get(`/sessions/${sessionId}`)
+      .then((res) => {
+        const loadingScreen = res.data?.experiment_config?.loading_screen;
+        if (loadingScreen?.message) {
+          setLoadingMessage(loadingScreen.message);
+        }
+      })
+      .catch(() => {/* use default */});
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -102,9 +116,16 @@ export default function RobotPreparingPage() {
           </div>
         )}
 
-        <p className="text-sm text-text-secondary mt-4">
-          Please wait, do not touch the cups
-        </p>
+        {/* Protocol loading message */}
+        {loadingMessage ? (
+          <p className="text-base text-text-primary mt-6 max-w-md text-center leading-relaxed">
+            {loadingMessage}
+          </p>
+        ) : (
+          <p className="text-sm text-text-secondary mt-4">
+            Please wait, do not touch the cups
+          </p>
+        )}
       </div>
     </PageLayout>
   );
