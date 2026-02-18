@@ -41,6 +41,7 @@ export default function RegistrationPage() {
         age: typeof age === 'number' ? age : parseInt(String(age), 10),
         gender,
       });
+      await api.post(`/sessions/${sessionId}/phase`, { phase: 'instructions' });
       navigate(`/subject/${sessionId}/instructions`);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })

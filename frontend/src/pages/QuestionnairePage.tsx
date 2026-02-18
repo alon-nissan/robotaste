@@ -229,8 +229,6 @@ export default function QuestionnairePage() {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentCycle, setCurrentCycle] = useState(0);
-  const [totalCycles, setTotalCycles] = useState(0);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -239,13 +237,6 @@ export default function QuestionnairePage() {
       .get(`/sessions/${sessionId}`)
       .then((res) => {
         const config = res.data.experiment_config;
-        setCurrentCycle(res.data.current_cycle ?? 0);
-
-        const maxCycles =
-          config?.stopping_criteria?.max_cycles ??
-          config?.max_cycles ??
-          0;
-        setTotalCycles(maxCycles);
 
         const qConfig: QuestionnaireConfig | undefined = config?.questionnaire;
         if (qConfig?.questions?.length) {
@@ -276,19 +267,38 @@ export default function QuestionnairePage() {
     setError(null);
 
     try {
-      await api.post(`/sessions/${sessionId}/response`, {
+      const res = await api.post(`/sessions/${sessionId}/response`, {
         answers,
         is_final: true,
       });
 
-      // Check if experiment is complete
-      if (totalCycles > 0 && currentCycle >= totalCycles) {
+      const nextPhase: string = res.data.next_phase;
+
+      if (nextPhase === 'complete') {
         navigate(`/subject/${sessionId}/complete`);
         return;
       }
 
-      await api.post(`/sessions/${sessionId}/phase`, { phase: 'selection' });
-      navigate(`/subject/${sessionId}/select`);
+      // Next cycle: check mode to decide routing
+      const cycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
+      const cycleInfo = cycleRes.data;
+      const mode: string = cycleInfo.mode || 'user_selected';
+      const isPredetermined = mode.startsWith('predetermined');
+
+      if (isPredetermined && cycleInfo.concentrations) {
+        // Auto-submit predetermined selection
+        const selRes = await api.post(`/sessions/${sessionId}/selection`, {
+          concentrations: cycleInfo.concentrations,
+          selection_mode: mode,
+        });
+        const pumpEnabled = selRes.data.pump_enabled;
+        navigate(pumpEnabled
+          ? `/subject/${sessionId}/preparing`
+          : `/subject/${sessionId}/questionnaire`
+        );
+      } else {
+        navigate(`/subject/${sessionId}/select`);
+      }
     } catch (err: unknown) {
       const detail =
         (err as { response?: { data?: { detail?: string } } })?.response?.data

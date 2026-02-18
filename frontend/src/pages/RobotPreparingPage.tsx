@@ -19,7 +19,10 @@ export default function RobotPreparingPage() {
   function advance() {
     if (navigatedRef.current || !sessionId) return;
     navigatedRef.current = true;
-    navigate(`/subject/${sessionId}/questionnaire`);
+    // Advance phase in DB before navigating
+    api.post(`/sessions/${sessionId}/phase`, { phase: 'questionnaire' })
+      .catch(() => {/* best-effort */})
+      .finally(() => navigate(`/subject/${sessionId}/questionnaire`));
   }
 
   useEffect(() => {

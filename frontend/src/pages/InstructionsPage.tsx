@@ -14,6 +14,8 @@ interface InstructionContent {
   title: string;
   text: string;
   callout: string | null;
+  confirm_label: string;
+  button_label: string;
 }
 
 const DEFAULT_INSTRUCTIONS: InstructionContent = {
@@ -25,6 +27,8 @@ const DEFAULT_INSTRUCTIONS: InstructionContent = {
     'Please be honest and rely on your own perception — there are no right or wrong answers.',
   ].join('\n\n'),
   callout: 'Important: Rinse your mouth with water between each sample to ensure accurate results.',
+  confirm_label: 'I have read and understand the above instructions',
+  button_label: 'Start Experiment →',
 };
 
 export default function InstructionsPage() {
@@ -53,17 +57,14 @@ export default function InstructionsPage() {
 
         // Look for instruction content in protocol config
         const screen = config.instructions_screen;
-        const phases = config.phase_sequence;
-        const instructionPhase = phases?.find(
-          (p: { phase?: string }) => p.phase === 'instructions'
-        );
-        const source = screen || instructionPhase;
 
-        if (source) {
+        if (screen) {
           setInstructions({
-            title: source.title || DEFAULT_INSTRUCTIONS.title,
-            text: source.text || source.body || DEFAULT_INSTRUCTIONS.text,
-            callout: source.callout || source.important || DEFAULT_INSTRUCTIONS.callout,
+            title: screen.title || DEFAULT_INSTRUCTIONS.title,
+            text: screen.text || DEFAULT_INSTRUCTIONS.text,
+            callout: screen.callout || DEFAULT_INSTRUCTIONS.callout,
+            confirm_label: screen.confirm_label || DEFAULT_INSTRUCTIONS.confirm_label,
+            button_label: screen.button_label || DEFAULT_INSTRUCTIONS.button_label,
           });
         }
       } catch {
@@ -84,8 +85,29 @@ export default function InstructionsPage() {
     setError(null);
 
     try {
-      await api.post(`/sessions/${sessionId}/phase`, { phase: 'selection' });
-      navigate(`/subject/${sessionId}/select`);
+      // Get cycle info to determine selection mode
+      const cycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
+      const cycleInfo = cycleRes.data;
+      const mode: string = cycleInfo.mode || 'user_selected';
+      const isPredetermined = mode.startsWith('predetermined');
+
+      if (isPredetermined && cycleInfo.concentrations) {
+        // Auto-submit the predetermined selection and skip to next phase
+        const selRes = await api.post(`/sessions/${sessionId}/selection`, {
+          concentrations: cycleInfo.concentrations,
+          selection_mode: mode,
+        });
+        const pumpEnabled = selRes.data.pump_enabled;
+        if (pumpEnabled) {
+          navigate(`/subject/${sessionId}/preparing`);
+        } else {
+          navigate(`/subject/${sessionId}/questionnaire`);
+        }
+      } else {
+        // User-selected or BO mode: go to selection page
+        await api.post(`/sessions/${sessionId}/phase`, { phase: 'selection' });
+        navigate(`/subject/${sessionId}/select`);
+      }
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
         ?.response?.data?.detail || 'Failed to proceed. Please try again.';
@@ -141,7 +163,7 @@ export default function InstructionsPage() {
               className="mt-0.5 h-5 w-5 rounded border-border text-primary focus:ring-primary"
             />
             <span className="text-sm text-text-primary">
-              I have read and understand the above instructions
+              {instructions.confirm_label}
             </span>
           </label>
 
@@ -165,7 +187,7 @@ export default function InstructionsPage() {
               }
             `}
           >
-            {submitting ? 'Starting...' : 'Start Experiment →'}
+            {submitting ? 'Starting...' : instructions.button_label}
           </button>
         </div>
       </div>

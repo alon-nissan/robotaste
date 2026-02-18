@@ -65,6 +65,7 @@ from robotaste.core.moderator_metrics import get_current_mode_info
 from robotaste.config.bo_config import get_default_bo_config
 from robotaste.core.bo_integration import get_bo_suggestion_for_session
 from robotaste.core.bo_engine import train_bo_model
+from robotaste.core.trials import prepare_cycle_sample
 
 
 # ─── REQUEST MODELS ─────────────────────────────────────────────────────────
@@ -248,9 +249,20 @@ def start_session(session_id: str, request: StartSessionRequest):
             detail=f"Failed to save config: {str(e)}"
         )
 
-    # Step 5: Transition to first phase
+    # Step 5: Transition to first active phase from protocol
     try:
-        update_current_phase(session_id, "registration")
+        # Determine first phase from protocol's phase_sequence
+        first_phase = "consent"
+        phase_seq = experiment_config.get("phase_sequence")
+        if phase_seq:
+            phases_list = phase_seq.get("phases", []) if isinstance(phase_seq, dict) else phase_seq
+            for p in phases_list:
+                pid = p.get("phase_id", "") if isinstance(p, dict) else ""
+                if pid and pid not in ("waiting",):
+                    first_phase = pid
+                    break
+
+        update_current_phase(session_id, first_phase)
         update_session_state(session_id, "active")
     except Exception as e:
         raise HTTPException(
@@ -262,7 +274,7 @@ def start_session(session_id: str, request: StartSessionRequest):
         "message": "Session started successfully",
         "session_id": session_id,
         "protocol_name": protocol.get("name", "Unknown"),
-        "current_phase": "registration",
+        "current_phase": first_phase,
     }
 
 
@@ -361,6 +373,49 @@ def end_session(session_id: str):
     return {"message": "Session ended", "session_id": session_id}
 
 
+# ─── GET CYCLE INFO ─────────────────────────────────────────────────────────
+@router.get("/{session_id}/cycle-info")
+def get_cycle_info(session_id: str):
+    """
+    Get cycle preparation info including selection mode and predetermined concentrations.
+
+    This wraps prepare_cycle_sample() — the same function the Streamlit UI uses
+    to decide whether to show a selection UI or auto-advance.
+
+    Returns:
+        {
+            "mode": "user_selected" | "bo_selected" | "predetermined_absolute" | ...,
+            "concentrations": {...} | null,
+            "metadata": { "is_predetermined": bool, ... },
+            "pump_enabled": bool,
+            "current_cycle": int
+        }
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    current_cycle = get_current_cycle(session_id)
+
+    try:
+        cycle_info = prepare_cycle_sample(session_id, current_cycle)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to prepare cycle: {str(e)}"
+        )
+
+    # Add pump_enabled flag for routing decisions
+    config = session.get("experiment_config", {})
+    pump_config = config.get("pump_config", {})
+    pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
+
+    cycle_info["pump_enabled"] = pump_enabled
+    cycle_info["current_cycle"] = current_cycle
+
+    return cycle_info
+
+
 # ─── RECORD CONSENT ────────────────────────────────────────────────────────
 @router.post("/{session_id}/consent")
 def record_consent(session_id: str, request: ConsentRequest):
@@ -412,6 +467,7 @@ def advance_phase(session_id: str, request: PhaseRequest):
 def submit_selection(session_id: str, request: SelectionRequest):
     """
     Submit a sample selection with concentrations for the current cycle.
+    Also advances the phase to loading/robot_preparing based on pump config.
     """
     session = get_session(session_id)
     if not session:
@@ -428,7 +484,19 @@ def submit_selection(session_id: str, request: SelectionRequest):
         request.selection_mode,
     )
 
-    return {"message": "Selection saved", "cycle": cycle_number}
+    # Advance phase: selection → robot_preparing (pump) or loading (no pump)
+    config = session.get("experiment_config", {})
+    pump_config = config.get("pump_config", {})
+    pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
+    next_phase = "robot_preparing" if pump_enabled else "loading"
+    update_current_phase(session_id, next_phase)
+
+    return {
+        "message": "Selection saved",
+        "cycle": cycle_number,
+        "next_phase": next_phase,
+        "pump_enabled": pump_enabled,
+    }
 
 
 # ─── GET BO SUGGESTION ─────────────────────────────────────────────────────
@@ -477,7 +545,26 @@ def submit_response(session_id: str, request: ResponseRequest):
     )
     increment_cycle(session_id)
 
-    return {"message": "Response saved", "cycle": cycle_number}
+    # Determine next phase: check stopping criteria
+    config = session.get("experiment_config", {})
+    stopping_criteria = config.get("stopping_criteria", {})
+    max_cycles = stopping_criteria.get("max_cycles", 0)
+    new_cycle = cycle_number + 1
+
+    if max_cycles and new_cycle > max_cycles:
+        next_phase = "complete"
+        update_current_phase(session_id, "complete")
+        update_session_state(session_id, "completed")
+    else:
+        next_phase = "selection"
+        update_current_phase(session_id, "selection")
+
+    return {
+        "message": "Response saved",
+        "cycle": cycle_number,
+        "next_phase": next_phase,
+        "new_cycle": new_cycle,
+    }
 
 
 # ─── GET BO MODEL ──────────────────────────────────────────────────────────
@@ -617,5 +704,15 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     phase_sequence = protocol.get("phase_sequence")
     if phase_sequence:
         config["phase_sequence"] = phase_sequence
+
+    # Add consent form if present
+    consent_form = protocol.get("consent_form")
+    if consent_form:
+        config["consent_form"] = consent_form
+
+    # Add instructions screen if present
+    instructions_screen = protocol.get("instructions_screen")
+    if instructions_screen:
+        config["instructions_screen"] = instructions_screen
 
     return config

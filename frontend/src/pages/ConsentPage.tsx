@@ -47,7 +47,7 @@ export default function ConsentPage() {
     async function fetchConsent() {
       try {
         const res = await api.get(`/sessions/${sessionId}`);
-        const config = res.data.experiment_config?.consent as ConsentConfig | undefined;
+        const config = res.data.experiment_config?.consent_form as ConsentConfig | undefined;
         setConsent(config ?? null);
       } catch (err: unknown) {
         const detail = (err as { response?: { data?: { detail?: string } } })
@@ -67,6 +67,7 @@ export default function ConsentPage() {
     setError(null);
     try {
       await api.post(`/sessions/${sessionId}/consent`, { consent_given: true });
+      await api.post(`/sessions/${sessionId}/phase`, { phase: 'registration' });
       navigate(`/subject/${sessionId}/register`);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })

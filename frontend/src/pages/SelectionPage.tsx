@@ -177,6 +177,39 @@ export default function SelectionPage() {
         ?.stopping_criteria?.max_cycles)
     || 0;
 
+  // ─── AUTO-SUBMIT FOR PREDETERMINED MODE ─────────────────────────────────
+  const autoSubmitDone = useRef(false);
+  useEffect(() => {
+    if (!sessionId || !session || !status || loading || autoSubmitDone.current) return;
+    if (!currentMode.startsWith('predetermined')) return;
+
+    autoSubmitDone.current = true;
+
+    (async () => {
+      try {
+        // Fetch cycle info for predetermined concentrations
+        const cycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
+        const cycleInfo = cycleRes.data;
+
+        if (cycleInfo.concentrations) {
+          const selRes = await api.post(`/sessions/${sessionId}/selection`, {
+            concentrations: cycleInfo.concentrations,
+            selection_mode: cycleInfo.mode,
+          });
+          const pumpEnabled = selRes.data.pump_enabled;
+          navigate(pumpEnabled
+            ? `/subject/${sessionId}/preparing`
+            : `/subject/${sessionId}/questionnaire`
+          );
+        }
+      } catch (err) {
+        console.error('Auto-submit failed:', err);
+        setError('Failed to auto-submit predetermined selection');
+        autoSubmitDone.current = false;
+      }
+    })();
+  }, [sessionId, session, status, loading, currentMode, navigate]);
+
 
   // ─── CONFIRM SELECTION ──────────────────────────────────────────────────
   async function handleConfirm() {
@@ -185,13 +218,12 @@ export default function SelectionPage() {
     setError(null);
 
     try {
-      await api.post(`/sessions/${sessionId}/selection`, {
+      const res = await api.post(`/sessions/${sessionId}/selection`, {
         concentrations: selectedConcentrations,
         selection_mode: currentMode,
       });
 
-      const config = session?.experiment_config as Record<string, unknown> | undefined;
-      const pumpEnabled = (config?.pump_config as { enabled?: boolean } | undefined)?.enabled;
+      const pumpEnabled = res.data.pump_enabled;
       if (pumpEnabled) {
         navigate(`/subject/${sessionId}/preparing`);
       } else {
