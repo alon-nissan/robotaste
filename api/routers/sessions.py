@@ -68,6 +68,8 @@ from robotaste.core.bo_integration import get_bo_suggestion_for_session
 from robotaste.core.bo_engine import train_bo_model
 from robotaste.core.trials import prepare_cycle_sample
 
+import json
+
 
 # ─── REQUEST MODELS ─────────────────────────────────────────────────────────
 # These classes define what JSON the frontend must send in POST requests.
@@ -514,8 +516,23 @@ def submit_selection(session_id: str, request: SelectionRequest):
         f"mode={request.selection_mode}, concentrations={request.concentrations}"
     )
 
-    # Advance phase: selection → robot_preparing (pump) or loading (no pump)
+    # Persist concentrations in experiment_config for response-time retrieval
     config = session.get("experiment_config", {})
+    if "_pending_concentrations" not in config:
+        config["_pending_concentrations"] = {}
+    config["_pending_concentrations"][str(cycle_number)] = {
+        "concentrations": request.concentrations,
+        "selection_mode": request.selection_mode,
+    }
+    from robotaste.data.database import get_database_connection
+    with get_database_connection() as conn:
+        conn.execute(
+            "UPDATE sessions SET experiment_config = ? WHERE session_id = ?",
+            (json.dumps(config), session_id),
+        )
+        conn.commit()
+
+    # Advance phase: selection → robot_preparing (pump) or loading (no pump)
     pump_config = config.get("pump_config", {})
     pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
     next_phase = "robot_preparing" if pump_enabled else "loading"
@@ -525,13 +542,16 @@ def submit_selection(session_id: str, request: SelectionRequest):
         # Create a pump operation so the pump_control_service can pick it up
         try:
             from robotaste.core.pump_integration import create_pump_operation_for_cycle
-            op_id = create_pump_operation_for_cycle(session_id, cycle_number)
+            op_id = create_pump_operation_for_cycle(
+                session_id, cycle_number,
+                concentrations=request.concentrations,
+            )
             if op_id:
-                logger.info(f"🔧 Pump operation created: op_id={op_id}, session={session_id}, cycle={cycle_number}")
+                logger.info(f"Pump operation created: op_id={op_id}, session={session_id}, cycle={cycle_number}")
             else:
-                logger.warning(f"🔧 Pump operation creation returned None for session {session_id}, cycle {cycle_number}")
+                logger.warning(f"Pump operation creation returned None for session {session_id}, cycle {cycle_number}")
         except Exception as e:
-            logger.error(f"❌ Failed to create pump operation for session {session_id}, cycle {cycle_number}: {e}")
+            logger.error(f"Failed to create pump operation for session {session_id}, cycle {cycle_number}: {e}")
     else:
         logger.info(f"Selection saved for session {session_id} → phase=loading, cycle={cycle_number}")
 
@@ -573,15 +593,21 @@ def submit_response(session_id: str, request: ResponseRequest):
     cycle_number = get_current_cycle(session_id)
     logger.info(f"📝 Response submitted for session {session_id}: cycle={cycle_number}")
 
-    # Get concentrations for this cycle from prepare_cycle_sample (deterministic)
-    try:
-        cycle_info = prepare_cycle_sample(session_id, cycle_number)
-        concentrations = cycle_info.get("concentrations", {})
-        selection_mode = cycle_info.get("mode", "user_selected")
-    except Exception as e:
-        logger.warning(f"Could not get cycle info for concentrations: {e}")
-        concentrations = {}
-        selection_mode = "user_selected"
+    # Get concentrations for this cycle: check persisted selection first, then fall back
+    config = session.get("experiment_config", {})
+    pending = config.get("_pending_concentrations", {}).get(str(cycle_number))
+    if pending:
+        concentrations = pending["concentrations"]
+        selection_mode = pending.get("selection_mode", "user_selected")
+    else:
+        try:
+            cycle_info = prepare_cycle_sample(session_id, cycle_number)
+            concentrations = cycle_info.get("concentrations", {})
+            selection_mode = cycle_info.get("mode", "user_selected")
+        except Exception as e:
+            logger.warning(f"Could not get cycle info for concentrations: {e}")
+            concentrations = {}
+            selection_mode = "user_selected"
 
     save_sample_cycle(
         session_id,

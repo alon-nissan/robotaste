@@ -45,6 +45,7 @@ from robotaste.utils.pump_db import (
 )
 from robotaste.data.protocol_repo import get_protocol_by_id
 from robotaste.data.database import get_database_connection
+from robotaste.core.pump_volume_manager import update_volume_after_dispense
 
 # Global state
 pumps: Dict[int, NE4000Pump] = {}  # address -> pump instance
@@ -395,6 +396,17 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
     else:
         mark_operation_completed(operation_id, actual_volumes, db_path)
         logger.info(f"Operation {operation_id} completed successfully")
+
+        # Update volume tracking so moderator dashboard stays in sync
+        try:
+            update_volume_after_dispense(
+                db_path=db_path,
+                session_id=operation['session_id'],
+                actual_volumes=actual_volumes,
+                cycle_number=operation['cycle_number'],
+            )
+        except Exception as e:
+            logger.warning(f"Volume tracking update failed (non-fatal): {e}")
 
 
 def cleanup_pumps():
