@@ -42,14 +42,11 @@ from robotaste.data.database import init_database
 
 
 # ─── LOGGING SETUP ──────────────────────────────────────────────────────────
-# Configure Python logging so all API activity goes to stdout (captured by
-# start_new_ui.sh into logs/uvicorn.log). Uvicorn's own access log is separate;
-# this covers application-level messages (errors, warnings, request timing).
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Use the centralized logging_manager for consistent log format, daily rotation,
+# and pump-module DEBUG tracing — same infrastructure the Streamlit app uses.
+from robotaste.utils.logging_manager import setup_logging
+
+setup_logging(component="api")
 logger = logging.getLogger("robotaste.api")
 
 

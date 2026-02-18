@@ -60,9 +60,10 @@ def get_pump_status(session_id: str):
         volume_status = get_volume_status(DB_PATH, session_id)
 
         if not volume_status:
-            # Pumps not configured or no data yet — return empty
+            logger.debug(f"🔧 Pump status for session {session_id}: not configured or no data")
             return {"pump_enabled": False, "ingredients": {}}
 
+        logger.info(f"🔧 Pump status for session {session_id}: {len(volume_status)} ingredients tracked")
         return {
             "pump_enabled": True,
             "ingredients": volume_status,
@@ -70,10 +71,10 @@ def get_pump_status(session_id: str):
 
     except ImportError:
         # pump_volume_manager not available (no pump hardware)
-        logger.warning("Pump volume manager not available")
+        logger.warning(f"🔧 Pump volume manager not available for session {session_id}")
         return {"pump_enabled": False, "ingredients": {}}
     except Exception as e:
-        logger.error(f"Error getting pump status: {e}")
+        logger.error(f"❌ Error getting pump status for session {session_id}: {e}")
         return {"pump_enabled": False, "ingredients": {}, "error": str(e)}
 
 
@@ -91,6 +92,10 @@ def record_refill(request: RefillRequest):
         from robotaste.data.database import DB_PATH
 
         do_refill(DB_PATH, request.session_id, request.ingredient, request.volume_ul)
+        logger.info(
+            f"🔧 Refill recorded: session={request.session_id}, "
+            f"ingredient={request.ingredient}, volume={request.volume_ul}µL"
+        )
 
         return {
             "message": f"Refill recorded for {request.ingredient}",
@@ -99,11 +104,16 @@ def record_refill(request: RefillRequest):
         }
 
     except ImportError:
+        logger.error(f"❌ Pump volume manager not available for refill: {request.ingredient}")
         raise HTTPException(
             status_code=501,
             detail="Pump volume manager not available"
         )
     except Exception as e:
+        logger.error(
+            f"❌ Failed to record refill: session={request.session_id}, "
+            f"ingredient={request.ingredient}, error={e}"
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to record refill: {str(e)}"

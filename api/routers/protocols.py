@@ -25,8 +25,8 @@ No business logic is duplicated — we just call the existing functions.
 # UploadFile / File: for handling file uploads from the frontend
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
-# json: for parsing uploaded JSON files
 import json
+import logging
 
 # Import the EXISTING protocol repository functions from your codebase.
 # These are the same functions that Streamlit's protocol_manager.py uses.
@@ -43,6 +43,7 @@ from robotaste.config.protocols import validate_protocol
 # ─── CREATE ROUTER ──────────────────────────────────────────────────────────
 # This router will be mounted at /api/protocols in main.py
 router = APIRouter()
+logger = logging.getLogger("robotaste.api.protocols")
 
 
 # ─── GET ALL PROTOCOLS ──────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ async def upload_protocol(file: UploadFile = File(...)):
     # Step 3: Validate using existing validation function
     is_valid, errors = validate_protocol(protocol_data)
     if not is_valid:
+        logger.warning(f"Protocol upload validation failed for '{file.filename}': {errors}")
         raise HTTPException(
             status_code=400,
             detail=f"Protocol validation failed: {errors}"
@@ -146,7 +148,10 @@ async def upload_protocol(file: UploadFile = File(...)):
     success = create_protocol_in_db(protocol_data)
 
     if not success:
+        logger.error(f"Failed to save protocol '{protocol_data.get('name', '?')}' to database")
         raise HTTPException(status_code=500, detail="Failed to save protocol")
+
+    logger.info(f"Protocol uploaded: '{protocol_data.get('name', '?')}' (id={protocol_data['protocol_id']})")
 
     # Step 5: Return the saved protocol
     return {

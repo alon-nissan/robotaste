@@ -28,6 +28,7 @@ Provides endpoints for the moderator and subject to:
 """
 
 import uuid
+import logging
 
 from fastapi import APIRouter, HTTPException
 
@@ -132,6 +133,7 @@ class ResponseRequest(BaseModel):
 
 # ─── CREATE ROUTER ──────────────────────────────────────────────────────────
 router = APIRouter()
+logger = logging.getLogger("robotaste.api.sessions")
 
 
 # ─── CREATE SESSION ─────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ def create_new_session(request: CreateSessionRequest):
     """
     # Call existing function — it creates a row in the 'sessions' SQLite table
     session_id, session_code = create_session(request.moderator_name)
+    logger.info(f"Session created: {session_id} (code={session_code}, moderator={request.moderator_name})")
 
     return {
         "session_id": session_id,
@@ -175,7 +178,9 @@ def get_session_by_code_endpoint(code: str):
     """
     session = get_session_by_code(code.upper())
     if not session:
+        logger.warning(f"Session code lookup failed: {code.upper()}")
         raise HTTPException(status_code=404, detail="Session not found")
+    logger.info(f"Session found by code: {code.upper()} → {session.get('session_id', '?')}")
     return session
 
 
@@ -211,12 +216,16 @@ def start_session(session_id: str, request: StartSessionRequest):
     # Step 1: Load the protocol
     protocol = get_protocol_by_id(request.protocol_id)
     if not protocol:
+        logger.error(f"Start session failed: protocol {request.protocol_id} not found")
         raise HTTPException(status_code=404, detail="Protocol not found")
 
     # Step 2: Verify session exists
     session = get_session(session_id)
     if not session:
+        logger.error(f"Start session failed: session {session_id} not found")
         raise HTTPException(status_code=404, detail="Session not found")
+
+    logger.info(f"Starting session {session_id} with protocol '{protocol.get('name', '?')}' (id={request.protocol_id})")
 
     # Step 3: Build experiment config from protocol
     # This mirrors what start_session_with_protocol() does in moderator.py
@@ -244,6 +253,7 @@ def start_session(session_id: str, request: StartSessionRequest):
             experiment_config=experiment_config,
         )
     except Exception as e:
+        logger.error(f"Failed to save config for session {session_id}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to save config: {str(e)}"
@@ -264,7 +274,9 @@ def start_session(session_id: str, request: StartSessionRequest):
 
         update_current_phase(session_id, first_phase)
         update_session_state(session_id, "active")
+        logger.info(f"Session {session_id} started → phase={first_phase}, state=active")
     except Exception as e:
+        logger.error(f"Failed to start session {session_id}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to start session: {str(e)}"
@@ -364,7 +376,9 @@ def end_session(session_id: str):
     try:
         update_current_phase(session_id, "complete")
         update_session_state(session_id, "completed")
+        logger.info(f"Session {session_id} ended → phase=complete, state=completed")
     except Exception as e:
+        logger.error(f"Failed to end session {session_id}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to end session: {str(e)}"
@@ -399,7 +413,12 @@ def get_cycle_info(session_id: str):
 
     try:
         cycle_info = prepare_cycle_sample(session_id, current_cycle)
+        logger.info(
+            f"Cycle info for session {session_id}: cycle={current_cycle}, "
+            f"mode={cycle_info.get('mode', '?')}"
+        )
     except Exception as e:
+        logger.error(f"Failed to prepare cycle for session {session_id}, cycle {current_cycle}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to prepare cycle: {str(e)}"
@@ -427,6 +446,7 @@ def record_consent(session_id: str, request: ConsentRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     save_consent_response(session_id, request.consent_given)
+    logger.info(f"Consent recorded for session {session_id}: given={request.consent_given}")
     return {"message": "Consent recorded", "session_id": session_id}
 
 
@@ -444,6 +464,7 @@ def register_participant(session_id: str, request: RegisterRequest):
     create_user(user_id)
     update_user_profile(user_id, request.name, request.gender, request.age)
     update_session_user_id(session_id, user_id)
+    logger.info(f"Participant registered for session {session_id}: user={user_id}, name={request.name}")
 
     return {"message": "Registration complete", "user_id": user_id}
 
@@ -459,6 +480,7 @@ def advance_phase(session_id: str, request: PhaseRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     update_current_phase(session_id, request.phase)
+    logger.info(f"Phase advanced for session {session_id} → {request.phase}")
     return {"message": "Phase updated", "current_phase": request.phase}
 
 
@@ -474,6 +496,10 @@ def submit_selection(session_id: str, request: SelectionRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     cycle_number = get_current_cycle(session_id)
+    logger.info(
+        f"🧪 Selection submitted for session {session_id}: cycle={cycle_number}, "
+        f"mode={request.selection_mode}, concentrations={request.concentrations}"
+    )
     save_sample_cycle(
         session_id,
         cycle_number,
@@ -490,6 +516,10 @@ def submit_selection(session_id: str, request: SelectionRequest):
     pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
     next_phase = "robot_preparing" if pump_enabled else "loading"
     update_current_phase(session_id, next_phase)
+    if pump_enabled:
+        logger.info(f"🔧 Pump enabled for session {session_id} → phase=robot_preparing, cycle={cycle_number}")
+    else:
+        logger.info(f"Selection saved for session {session_id} → phase=loading, cycle={cycle_number}")
 
     return {
         "message": "Selection saved",
@@ -525,6 +555,7 @@ def submit_response(session_id: str, request: ResponseRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     cycle_number = get_current_cycle(session_id)
+    logger.info(f"📝 Response submitted for session {session_id}: cycle={cycle_number}")
 
     # Get latest sample for this cycle to preserve concentrations
     samples = get_session_samples(session_id)
@@ -555,9 +586,11 @@ def submit_response(session_id: str, request: ResponseRequest):
         next_phase = "complete"
         update_current_phase(session_id, "complete")
         update_session_state(session_id, "completed")
+        logger.info(f"Session {session_id} completed: reached max_cycles={max_cycles}")
     else:
         next_phase = "selection"
         update_current_phase(session_id, "selection")
+        logger.info(f"Session {session_id} advancing to cycle {new_cycle} → phase=selection")
 
     return {
         "message": "Response saved",

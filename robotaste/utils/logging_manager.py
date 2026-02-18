@@ -33,7 +33,7 @@ def setup_logging(
         - Consistent format across all components
     """
     # Validate component
-    valid_components = {"app", "service", "pump"}
+    valid_components = {"app", "service", "pump", "api"}
     if component not in valid_components:
         raise ValueError(f"Invalid component '{component}'. Must be one of {valid_components}")
 
@@ -51,7 +51,8 @@ def setup_logging(
     log_files = {
         "app": log_dir / f"session_log_{datetime.now().strftime('%d%m%y')}.txt",
         "service": log_dir / "pump_control_service.log",
-        "pump": log_dir / f"pump_operations_{datetime.now().strftime('%Y%m%d')}.log"
+        "pump": log_dir / f"pump_operations_{datetime.now().strftime('%Y%m%d')}.log",
+        "api": log_dir / f"api_server_{datetime.now().strftime('%d%m%y')}.log",
     }
     log_file = log_files[component]
 
@@ -89,8 +90,8 @@ def setup_logging(
     root_logger.addHandler(file_handler)
 
     # Component-specific logger configuration
-    if component == "pump":
-        # Configure pump-specific loggers
+    if component in ("pump", "api"):
+        # Configure pump-specific loggers for detailed hardware tracing
         pump_loggers = [
             "robotaste.hardware.pump_controller",
             "robotaste.core.pump_integration",
