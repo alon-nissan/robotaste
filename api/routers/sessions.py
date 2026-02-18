@@ -792,4 +792,9 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     if instructions_screen:
         config["instructions_screen"] = instructions_screen
 
+    # Add loading screen if present
+    loading_screen = protocol.get("loading_screen")
+    if loading_screen:
+        config["loading_screen"] = loading_screen
+
     return config

@@ -34,15 +34,40 @@ function SliderQuestion({
   const max = question.max ?? 10;
   const step = question.step ?? 1;
   const labels = question.scale_labels ?? {};
-  const minLabel = labels[String(min)] ?? String(min);
-  const maxLabel = labels[String(max)] ?? String(max);
+
+  // Collect all labeled keys sorted numerically
+  const labelKeys = Object.keys(labels)
+    .map(Number)
+    .filter((n) => !isNaN(n))
+    .sort((a, b) => a - b);
+
+  // Thumb position as a percentage
+  const thumbPercent = ((value - min) / (max - min)) * 100;
 
   return (
     <div>
-      <div className="flex justify-between text-sm text-text-secondary mb-2">
-        <span>{minLabel}</span>
-        <span>{maxLabel}</span>
+      {/* Scale labels evenly spaced above the slider */}
+      {labelKeys.length > 0 && (
+        <div className="flex justify-between text-xs text-text-secondary mb-1">
+          {labelKeys.map((key) => (
+            <span key={key} className="text-center flex-1">
+              {labels[String(key)]}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Current value floating above the thumb */}
+      <div className="relative mb-1">
+        <div
+          className="text-center text-sm font-semibold text-primary"
+          style={{ marginLeft: `calc(${thumbPercent}% - 1rem)`, width: '2rem' }}
+        >
+          {typeof value === 'number' ? value.toFixed(step < 1 ? 2 : 0) : value}
+        </div>
       </div>
+
+      {/* Styled range slider */}
       <input
         type="range"
         min={min}
@@ -50,11 +75,16 @@ function SliderQuestion({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-primary"
+        className="slider-range w-full"
       />
-      <div className="text-center mt-1 text-lg font-semibold text-text-primary">
-        {labels[String(value)] ?? value}
-      </div>
+
+      {/* Fallback: show only min/max if no scale labels defined */}
+      {labelKeys.length === 0 && (
+        <div className="flex justify-between text-sm text-text-secondary mt-1">
+          <span>{min}</span>
+          <span>{max}</span>
+        </div>
+      )}
     </div>
   );
 }
