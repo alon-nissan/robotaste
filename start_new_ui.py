@@ -40,11 +40,30 @@ def _port_in_use(port: int) -> bool:
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
             with socket.socket(family, socket.SOCK_STREAM) as s:
-                if s.connect_ex(('localhost', port)) == 0:
+                addr = ('::1', port, 0, 0) if family == socket.AF_INET6 else ('localhost', port)
+                if s.connect_ex(addr) == 0:
                     return True
         except OSError:
             continue
     return False
+
+
+def _kill_port_occupant(port: int) -> bool:
+    """Kill whatever process is holding *port*. Returns True if cleared."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True, text=True
+        )
+        pids = [int(p) for p in result.stdout.split() if p.strip()]
+        if not pids:
+            return True
+        for pid in pids:
+            os.kill(pid, signal.SIGTERM)
+        time.sleep(0.5)
+        return not _port_in_use(port)
+    except Exception:
+        return False
 
 
 class ReactLauncher:
@@ -71,9 +90,12 @@ class ReactLauncher:
             if self.build_mode and port == 5173:
                 continue
             if _port_in_use(port):
-                print(f"{Colors.RED}✗ Port {port} ({name}) is already in use.{Colors.END}")
-                print(f"  Find the process: lsof -i :{port} | grep LISTEN")
-                ok = False
+                print(f"{Colors.YELLOW}⚠ Port {port} ({name}) is in use — killing stale process...{Colors.END}")
+                if _kill_port_occupant(port):
+                    print(f"{Colors.GREEN}  ✓ Cleared{Colors.END}")
+                else:
+                    print(f"{Colors.RED}✗ Could not clear port {port}. Run: lsof -i :{port} | grep LISTEN{Colors.END}")
+                    ok = False
         return ok
 
     def _open_log(self, name: str):
@@ -97,6 +119,7 @@ class ReactLauncher:
                 cwd=str(self.project_root),
                 stdout=log,
                 stderr=log,
+                start_new_session=True,
             )
             # Wait for uvicorn to bind
             for _ in range(20):
@@ -125,6 +148,7 @@ class ReactLauncher:
                 cwd=str(self.frontend_dir),
                 stdout=log,
                 stderr=log,
+                start_new_session=True,
             )
             for _ in range(20):
                 time.sleep(0.5)
@@ -157,6 +181,7 @@ class ReactLauncher:
                 cwd=str(self.project_root),
                 stdout=log,
                 stderr=log,
+                start_new_session=True,
             )
             time.sleep(1)
             if self.pump_process.poll() is None:
@@ -215,11 +240,17 @@ class ReactLauncher:
         ]:
             if proc and proc.poll() is None:
                 print(f"  Stopping {name}...")
-                proc.terminate()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
         print(f"{Colors.GREEN}All services stopped.{Colors.END}\n")
 
