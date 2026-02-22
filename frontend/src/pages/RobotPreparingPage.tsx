@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
+import { MarkdownText } from '../components/MarkdownText';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -118,9 +119,10 @@ export default function RobotPreparingPage() {
 
         {/* Protocol loading message */}
         {loadingMessage ? (
-          <p className="text-base text-text-primary mt-6 max-w-md text-center leading-relaxed">
-            {loadingMessage}
-          </p>
+          <MarkdownText
+            content={loadingMessage}
+            className="text-base text-text-primary mt-6 max-w-md text-center leading-relaxed"
+          />
         ) : (
           <p className="text-base text-text-secondary mt-4">
             Please wait, do not touch the cups
