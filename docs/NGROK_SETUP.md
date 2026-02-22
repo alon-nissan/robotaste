@@ -1,5 +1,9 @@
 # Multi-Device Setup with ngrok
 
+> **⚠️ DEPRECATED:** This guide covers the legacy Streamlit + ngrok setup.
+> For the React + FastAPI stack, use LAN-based multi-device setup instead:
+> see **[MULTI_DEVICE_SETUP.md](MULTI_DEVICE_SETUP.md)** or run `python start_new_ui.py`.
+
 This guide explains how to set up RoboTaste for multi-device experiments where:
 - **PC**: Runs the moderator interface, connects to pumps via serial, stores data
 - **Tablet/Phone**: Displays the subject interface for participants

@@ -9,30 +9,41 @@ Think of it as the equivalent of main_app.py for Streamlit, but for the REST API
 - FastAPI: A Python web framework that lets you create HTTP API endpoints.
   The React frontend will call these endpoints to get/send data.
 - CORS (Cross-Origin Resource Sharing): A security feature in browsers.
-  Since the React app runs on port 5173 and FastAPI on port 8000,
-  the browser considers them "different origins" and blocks requests
-  unless we explicitly allow it via CORS middleware.
+  In development, React runs on port 5173 and FastAPI on port 8000 (different
+  origins), so CORS is needed. In production, both are served from the same
+  port so CORS is not required.
 - Router: A way to organize endpoints into groups (like protocols, sessions, etc.)
   instead of putting everything in one giant file.
 - Uvicorn: The server that actually runs FastAPI (like how Streamlit has its own server).
+- Static Serving: In production (--build mode), FastAPI serves the compiled React
+  frontend from frontend/dist/ on the same port as the API.
 
 === HOW TO RUN ===
-From the project root directory:
+Development (separate servers):
     uvicorn api.main:app --reload --port 8000
+    cd frontend && npm run dev
 
-This starts the API server at http://localhost:8000
-The --reload flag auto-restarts when you change code (great for development).
+Production (single server, multi-device):
+    python start_new_ui.py --build
+    # Serves API + frontend on http://0.0.0.0:8000
+
 The interactive API docs are at http://localhost:8000/docs (auto-generated!).
 """
 
 import logging
 import time
+import socket
+from pathlib import Path
 
 # FastAPI is the framework; we create an "app" instance from it
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 # CORSMiddleware allows the React frontend (different port) to talk to this API
 from fastapi.middleware.cors import CORSMiddleware
+
+# StaticFiles serves pre-built frontend assets (JS, CSS, images)
+from fastapi.staticfiles import StaticFiles
 
 # Import our router modules — each one handles a group of related endpoints
 from api.routers import protocols, sessions, pump, documentation
@@ -61,19 +72,17 @@ app = FastAPI(
 
 
 # ─── CORS MIDDLEWARE ────────────────────────────────────────────────────────
-# This tells the browser: "Yes, it's okay for the React app to call this API."
-# Without this, the browser would block all requests from the React dev server.
+# Only needed during development when React dev server (port 5173) and FastAPI
+# (port 8000) are on different origins. In production (--build mode), the
+# frontend is served from the same origin so CORS is not required.
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins: Which URLs are allowed to call this API.
-    # In development, React runs on port 5173 (Vite's default).
-    # The "*" wildcard allows ANY origin (fine for local development).
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
-    # allow_credentials: Whether to allow cookies/auth headers
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
-    # allow_methods: Which HTTP methods are allowed (GET, POST, PUT, DELETE, etc.)
     allow_methods=["*"],
-    # allow_headers: Which HTTP headers the frontend can send
     allow_headers=["*"],
 )
 
@@ -97,13 +106,16 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     duration_ms = (time.time() - start) * 1000
-    logger.info(
-        "%s %s → %d (%.0fms)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-    )
+    # Skip logging for static asset requests to reduce noise
+    path = request.url.path
+    if not path.startswith("/assets/") and not path.endswith((".js", ".css", ".ico", ".png", ".svg")):
+        logger.info(
+            "%s %s → %d (%.0fms)",
+            request.method,
+            path,
+            response.status_code,
+            duration_ms,
+        )
     return response
 
 
@@ -119,11 +131,83 @@ def on_startup():
 # ─── HEALTH CHECK ───────────────────────────────────────────────────────────
 # A simple endpoint to verify the server is running.
 # The React frontend can call GET /api/health to check connectivity.
-#
-# The decorator @app.get("/api/health") means:
-#   "When someone sends an HTTP GET request to /api/health, run this function
-#    and return its result as JSON."
 @app.get("/api/health")
 def health_check():
     """Return server status. Used by frontend to verify API connectivity."""
     return {"status": "ok", "service": "robotaste-api"}
+
+
+# ─── SERVER INFO ────────────────────────────────────────────────────────────
+# Returns the server's LAN IP and connection URLs so the moderator UI
+# can display QR codes / links for subject tablets to connect.
+def _get_lan_ip() -> str:
+    """Detect the machine's LAN IP address."""
+    try:
+        # Connect to a public DNS — doesn't send data, just determines route
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+@app.get("/api/server-info")
+def server_info():
+    """Return LAN connection info for multi-device setup."""
+    ip = _get_lan_ip()
+    port = 8000
+    return {
+        "lan_ip": ip,
+        "port": port,
+        "subject_url": f"http://{ip}:{port}/subject",
+        "moderator_url": f"http://{ip}:{port}/",
+    }
+
+
+@app.get("/api/server-info/qr")
+def server_info_qr(url: str):
+    """Generate a QR code SVG for the given URL. Used by the moderator UI."""
+    try:
+        import segno
+        import io
+        qr = segno.make(url)
+        buf = io.BytesIO()
+        qr.save(buf, kind="svg", scale=5, border=2)
+        svg_data = buf.getvalue()
+        from fastapi.responses import Response
+        return Response(content=svg_data, media_type="image/svg+xml")
+    except ImportError:
+        return JSONResponse(
+            status_code=501,
+            content={"detail": "QR generation unavailable. Install segno: pip install segno"},
+        )
+
+
+# ─── STATIC FILE SERVING (Production) ──────────────────────────────────────
+# In production (--build mode), serve the compiled React frontend.
+# The build output lives in frontend/dist/ after running `npm run build`.
+# We mount /assets/ for JS/CSS bundles, and serve index.html as a fallback
+# for all non-API routes (SPA routing).
+
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIST.is_dir():
+    # Serve static assets (JS, CSS, images) from the build output
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="static-assets")
+
+    # Serve other static files at the root level (favicon, manifest, etc.)
+    @app.get("/vite.svg")
+    async def vite_svg():
+        return FileResponse(str(FRONTEND_DIST / "vite.svg"))
+
+    # SPA fallback: any non-API route returns index.html so React Router
+    # can handle client-side routing (e.g., /subject/abc/consent)
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve React SPA — all non-API routes return index.html."""
+        # If a specific file exists in dist/, serve it directly
+        file_path = FRONTEND_DIST / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(str(file_path))
+        # Otherwise, return index.html for client-side routing
+        return FileResponse(str(FRONTEND_DIST / "index.html"))

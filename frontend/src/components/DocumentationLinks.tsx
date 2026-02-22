@@ -11,8 +11,8 @@
  * The browser handles the file download natively (save dialog, etc.).
  */
 
-// This is the API base URL (same as in client.ts)
-const API_BASE = 'http://localhost:8000/api';
+// Relative API base URL — works from any origin (localhost, LAN IP, etc.)
+const API_BASE = '/api';
 
 export default function DocumentationLinks() {
   return (

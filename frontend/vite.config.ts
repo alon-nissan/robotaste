@@ -21,4 +21,15 @@ export default defineConfig({
     react(),          // Enables React support (JSX, Fast Refresh)
     tailwindcss(),    // Processes Tailwind CSS classes
   ],
+  server: {
+    // Proxy /api requests to FastAPI during development.
+    // This lets the frontend use relative URLs ("/api/...") in both
+    // dev mode (Vite on 5173) and production (FastAPI serves everything).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })

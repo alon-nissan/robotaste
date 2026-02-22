@@ -19,10 +19,16 @@ cd frontend && npm install && cd ..
 
 ### Running the Application (React + FastAPI)
 
-**All-in-one launcher:**
+**Production mode (multi-device, LAN):**
 ```bash
-python start_new_ui.py            # Starts FastAPI + Vite dev server
-python start_new_ui.py --with-pump  # Also starts pump control service
+python start_new_ui.py                # Builds frontend, serves on LAN
+python start_new_ui.py --with-pump    # Also starts pump control service
+```
+On startup, the terminal shows the subject URL and a QR code for the tablet.
+
+**Development mode (localhost only):**
+```bash
+python start_new_ui.py --dev          # Vite hot-reload + FastAPI
 ```
 
 Or start each service individually:
@@ -40,21 +46,32 @@ python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
 **Access URLs:**
 | Role | URL |
 |------|-----|
-| Moderator | http://localhost:5173/ |
-| Subject | http://localhost:5173/subject |
+| Moderator (this computer) | http://localhost:8000/ |
+| Subject (tablet, LAN) | http://\<LAN-IP\>:8000/subject |
 | API docs | http://localhost:8000/docs |
+| Dev mode (Vite) | http://localhost:5173/ |
+
+### Multi-Device Setup (Moderator + Tablet)
+
+Both devices must be on the same WiFi network. In production mode (`python start_new_ui.py`),
+the server binds to `0.0.0.0:8000` and serves both the API and the React frontend.
+The startup output shows the subject URL and QR code for the tablet.
+
+If your organization's network blocks device-to-device traffic, use a personal hotspot instead.
+
+See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for full instructions.
 
 ### Legacy Streamlit UI
 ```bash
 streamlit run main_app.py
 ```
 
-### Running with ngrok (Multi-Device)
+### Legacy: Running with ngrok (Streamlit only, deprecated)
 ```bash
 python start_robotaste.py             # Streamlit + ngrok
 python start_robotaste.py --with-pump # With hardware pumps
 ```
-Full setup guide: **[docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)**
+See **[docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)** (deprecated — use LAN setup above instead).
 
 ### Testing
 ```bash
@@ -66,14 +83,14 @@ python robotaste/hardware/test_pump_movement.py # Hardware test (requires pumps)
 ## Architecture
 
 ```
-Browser (localhost:5173)
+Browser (moderator: localhost:8000, subject: <LAN-IP>:8000)
     │
     ├── React App (TypeScript + Tailwind CSS)
     │   ├── Moderator pages  → Setup, monitoring, protocol management
     │   └── Subject pages    → Consent, registration, selection, questionnaire
     │
     ▼
-FastAPI Server (localhost:8000)
+FastAPI Server (0.0.0.0:8000 — serves API + React frontend)
     │
     ├── /api/sessions    → Session lifecycle
     ├── /api/protocols   → Protocol CRUD
