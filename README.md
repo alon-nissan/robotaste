@@ -19,10 +19,16 @@ cd frontend && npm install && cd ..
 
 ### Running the Application (React + FastAPI)
 
-**All-in-one launcher:**
+**Production mode (multi-device, LAN):**
 ```bash
-python start_new_ui.py            # Starts FastAPI + Vite dev server
-python start_new_ui.py --with-pump  # Also starts pump control service
+python start_new_ui.py                # Builds frontend, serves on LAN
+python start_new_ui.py --with-pump    # Also starts pump control service
+```
+On startup, the terminal shows the subject URL and a QR code for the tablet.
+
+**Development mode (localhost only):**
+```bash
+python start_new_ui.py --dev          # Vite hot-reload + FastAPI
 ```
 
 Or start each service individually:
@@ -40,21 +46,25 @@ python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
 **Access URLs:**
 | Role | URL |
 |------|-----|
-| Moderator | http://localhost:5173/ |
-| Subject | http://localhost:5173/subject |
+| Moderator (this computer) | http://localhost:8000/ |
+| Subject (tablet, LAN) | http://\<LAN-IP\>:8000/subject |
 | API docs | http://localhost:8000/docs |
+| Dev mode (Vite) | http://localhost:5173/ |
+
+### Multi-Device Setup (Moderator + Tablet)
+
+Both devices need [Tailscale](https://tailscale.com/) (free) installed and signed into
+the same account. In production mode, the server auto-detects Tailscale and shows the
+correct subject URL.
+
+See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for complete
+step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPad.
 
 ### Legacy Streamlit UI
 ```bash
 streamlit run main_app.py
 ```
 
-### Running with ngrok (Multi-Device)
-```bash
-python start_robotaste.py             # Streamlit + ngrok
-python start_robotaste.py --with-pump # With hardware pumps
-```
-Full setup guide: **[docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)**
 
 ### Testing
 ```bash
@@ -66,14 +76,14 @@ python robotaste/hardware/test_pump_movement.py # Hardware test (requires pumps)
 ## Architecture
 
 ```
-Browser (localhost:5173)
+Browser (moderator: localhost:8000, subject: <LAN-IP>:8000)
     │
     ├── React App (TypeScript + Tailwind CSS)
     │   ├── Moderator pages  → Setup, monitoring, protocol management
     │   └── Subject pages    → Consent, registration, selection, questionnaire
     │
     ▼
-FastAPI Server (localhost:8000)
+FastAPI Server (0.0.0.0:8000 — serves API + React frontend)
     │
     ├── /api/sessions    → Session lifecycle
     ├── /api/protocols   → Protocol CRUD
@@ -115,9 +125,10 @@ SQLite Database (robotaste.db)
 - 2D grid interface (binary mixtures) or 1D sliders (single ingredient)
 
 ## Documentation
-- **Getting Started**: `docs/NEW_STACK_GUIDE.md`, `docs/WORKFLOW_GUIDE.md`
-- **For AI Agents**: `CLAUDE.md`, `AGENTS.md`, `docs/AGENT_EFFICIENCY.md`
-- **For Humans**: `docs/PROJECT_CONTEXT.md`, `docs/protocol_user_guide.md`
+- **Running Experiments**: `docs/MULTI_DEVICE_SETUP.md` — step-by-step guide for moderator + tablet setup
+- **Getting Started (dev)**: `docs/WORKFLOW_GUIDE.md`
+- **For AI Agents**: `CLAUDE.md`, `AGENTS.md`
+- **For Humans**: `docs/protocol_user_guide.md`
 - **For Researchers**: `docs/protocol_schema.md`, `docs/pump_config.md`
 - **UI Guidelines**: `frontend/DESIGN_GUIDELINES.md`
 

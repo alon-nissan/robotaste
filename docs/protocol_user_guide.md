@@ -608,7 +608,7 @@ The protocol controls:
 ### Resources
 
 - **Protocol Schema Reference:** [protocol_schema.md](protocol_schema.md)
-- **Project Context:** [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+- **Workflow Guide:** [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md)
 - **Example Protocols:** `protocols/test_protocol_mixed_mode_new_format.json`
 
 ### Support

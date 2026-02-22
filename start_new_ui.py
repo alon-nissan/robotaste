@@ -4,11 +4,17 @@ RoboTaste React + FastAPI Launcher
 Starts FastAPI backend, Vite dev server, and optionally the pump service.
 
 Usage:
-    python start_new_ui.py [--with-pump] [--build]
+    python start_new_ui.py [--with-pump] [--build] [--dev] [--port PORT]
+
+Modes:
+    (default)       Production: builds frontend, serves everything on one port.
+                    Subject tablets connect via LAN IP shown at startup.
+    --dev           Development: runs Vite dev server (hot reload) + FastAPI separately.
+    --build         Alias for default mode (kept for backward compatibility).
 
 Options:
     --with-pump     Also start the pump control service (requires hardware)
-    --build         Serve production build via FastAPI instead of Vite dev server
+    --port PORT     Server port (default: 8000)
 
 Press Ctrl+C to stop all services.
 """
@@ -19,6 +25,7 @@ import time
 import signal
 import argparse
 import os
+import socket
 from pathlib import Path
 
 
@@ -31,12 +38,12 @@ class Colors:
     YELLOW = '\033[93m'
     RED = '\033[91m'
     BOLD = '\033[1m'
+    DIM = '\033[2m'
     END = '\033[0m'
 
 
 def _port_in_use(port: int) -> bool:
     """Check if a port is already in use (IPv4 or IPv6)."""
-    import socket
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
             with socket.socket(family, socket.SOCK_STREAM) as s:
@@ -66,29 +73,98 @@ def _kill_port_occupant(port: int) -> bool:
         return False
 
 
+def _get_lan_ip() -> str:
+    """Detect the machine's LAN IP address."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+def _get_tailscale_ip() -> str | None:
+    """Detect the machine's Tailscale IP, if Tailscale is running."""
+    import subprocess
+    try:
+        # Try common Tailscale binary locations
+        for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:
+            try:
+                result = subprocess.run(
+                    [cmd, "ip", "-4"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split("\n")[0]
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+    except Exception:
+        pass
+    # Fallback: check for Tailscale interface by scanning interfaces
+    try:
+        import netifaces  # type: ignore
+    except ImportError:
+        pass
+    # Check for 100.x.y.z addresses on any interface
+    try:
+        import fcntl
+        import struct
+        for iface_name in socket.if_nameindex():
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                ip = socket.inet_ntoa(fcntl.ioctl(
+                    s.fileno(), 0x8915,  # SIOCGIFADDR
+                    struct.pack('256s', iface_name[1].encode())
+                )[20:24])
+                if ip.startswith("100."):
+                    return ip
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _generate_qr_text(url: str) -> str:
+    """Generate a text-based QR code for terminal display using segno."""
+    try:
+        import segno
+        import io
+        qr = segno.make(url)
+        buf = io.StringIO()
+        qr.terminal(out=buf, compact=True)
+        return buf.getvalue()
+    except ImportError:
+        return ""
+
+
 class ReactLauncher:
     """Manages FastAPI, Vite, and pump service processes."""
 
-    def __init__(self, with_pump: bool = False, build_mode: bool = False):
+    def __init__(self, with_pump: bool = False, dev_mode: bool = False, port: int = 8000):
         self.api_process = None
         self.vite_process = None
         self.pump_process = None
         self.with_pump = with_pump
-        self.build_mode = build_mode
+        self.dev_mode = dev_mode
+        self.port = port
         self.project_root = Path(__file__).parent
         self.frontend_dir = self.project_root / "frontend"
+        self.dist_dir = self.frontend_dir / "dist"
 
     def print_banner(self):
+        mode_label = "Development" if self.dev_mode else "Production (LAN)"
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}")
-        print(f"{Colors.BOLD}{Colors.CYAN}{'RoboTaste — React + FastAPI':^70}{Colors.END}")
+        print(f"{Colors.BOLD}{Colors.CYAN}{f'RoboTaste — {mode_label}':^70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}\n")
 
     def check_ports(self) -> bool:
         """Check that required ports are free."""
         ok = True
-        for port, name in [(8000, "FastAPI"), (5173, "Vite")]:
-            if self.build_mode and port == 5173:
-                continue
+        ports = [(self.port, "FastAPI")]
+        if self.dev_mode:
+            ports.append((5173, "Vite"))
+        for port, name in ports:
             if _port_in_use(port):
                 print(f"{Colors.YELLOW}⚠ Port {port} ({name}) is in use — killing stale process...{Colors.END}")
                 if _kill_port_occupant(port):
@@ -104,18 +180,71 @@ class ReactLauncher:
         log_dir.mkdir(exist_ok=True)
         return open(log_dir / f"{name}.log", "a")
 
+    def build_frontend(self) -> bool:
+        """Build the React frontend if dist/ is missing or stale."""
+        if self.dev_mode:
+            return True
+
+        index_html = self.dist_dir / "index.html"
+        src_dir = self.frontend_dir / "src"
+
+        # Check if build is needed
+        needs_build = False
+        if not index_html.exists():
+            needs_build = True
+            print(f"{Colors.BLUE}[0] Building React frontend (first time)...{Colors.END}")
+        else:
+            # Rebuild if any source file is newer than the build output
+            build_time = index_html.stat().st_mtime
+            for src_file in src_dir.rglob("*"):
+                if src_file.is_file() and src_file.stat().st_mtime > build_time:
+                    needs_build = True
+                    print(f"{Colors.BLUE}[0] Rebuilding React frontend (source changed)...{Colors.END}")
+                    break
+
+        if not needs_build:
+            print(f"{Colors.GREEN}✓ Frontend build is up to date{Colors.END}")
+            return True
+
+        try:
+            result = subprocess.run(
+                ["npm", "run", "build"],
+                cwd=str(self.frontend_dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                print(f"{Colors.GREEN}✓ Frontend built successfully{Colors.END}")
+                return True
+            else:
+                print(f"{Colors.RED}✗ Frontend build failed:{Colors.END}")
+                print(result.stderr[-500:] if result.stderr else result.stdout[-500:])
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"{Colors.RED}✗ Frontend build timed out{Colors.END}")
+            return False
+        except FileNotFoundError:
+            print(f"{Colors.RED}✗ npm not found. Run: cd frontend && npm install{Colors.END}")
+            return False
+
     def start_api(self) -> bool:
-        """Start FastAPI backend on port 8000."""
+        """Start FastAPI backend."""
         step = 1
-        print(f"{Colors.BLUE}[{step}] Starting FastAPI backend...{Colors.END}")
+        bind_host = "127.0.0.1" if self.dev_mode else "0.0.0.0"
+        print(f"{Colors.BLUE}[{step}] Starting FastAPI backend ({bind_host}:{self.port})...{Colors.END}")
         try:
             log = self._open_log("fastapi_process")
+            cmd = [
+                sys.executable, "-m", "uvicorn",
+                "api.main:app",
+                "--host", bind_host,
+                "--port", str(self.port),
+            ]
+            if self.dev_mode:
+                cmd.append("--reload")
             self.api_process = subprocess.Popen(
-                [
-                    sys.executable, "-m", "uvicorn",
-                    "api.main:app",
-                    "--reload", "--port", "8000"
-                ],
+                cmd,
                 cwd=str(self.project_root),
                 stdout=log,
                 stderr=log,
@@ -124,8 +253,8 @@ class ReactLauncher:
             # Wait for uvicorn to bind
             for _ in range(20):
                 time.sleep(0.5)
-                if _port_in_use(8000):
-                    print(f"{Colors.GREEN}✓ FastAPI started on http://localhost:8000{Colors.END}")
+                if _port_in_use(self.port):
+                    print(f"{Colors.GREEN}✓ FastAPI started on {bind_host}:{self.port}{Colors.END}")
                     return True
                 if self.api_process.poll() is not None:
                     break
@@ -138,7 +267,7 @@ class ReactLauncher:
 
     def start_vite(self) -> bool:
         """Start Vite dev server on port 5173."""
-        if self.build_mode:
+        if not self.dev_mode:
             return True  # skip — FastAPI serves static build
         print(f"{Colors.BLUE}[2] Starting Vite dev server...{Colors.END}")
         try:
@@ -195,23 +324,57 @@ class ReactLauncher:
             return False
 
     def print_access_info(self):
+        lan_ip = _get_lan_ip()
+        tailscale_ip = _get_tailscale_ip()
+
         print(f"\n{Colors.BOLD}{Colors.GREEN}{'='*70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.GREEN}{'RoboTaste is ready!':^70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.GREEN}{'='*70}{Colors.END}\n")
 
-        if self.build_mode:
-            base = "http://localhost:8000"
+        if self.dev_mode:
+            print(f"{Colors.BOLD}Development Mode:{Colors.END}\n")
+            print(f"  {Colors.CYAN}Moderator:{Colors.END}  http://localhost:5173/")
+            print(f"  {Colors.CYAN}Subject:{Colors.END}    http://localhost:5173/subject")
+            print(f"  {Colors.CYAN}API:{Colors.END}        http://localhost:{self.port}/api")
+            print(f"  {Colors.CYAN}API docs:{Colors.END}   http://localhost:{self.port}/docs\n")
+            print(f"{Colors.DIM}  Note: Vite proxies /api to FastAPI automatically.{Colors.END}")
+            print(f"{Colors.DIM}  For multi-device testing, use: python start_new_ui.py{Colors.END}\n")
         else:
-            base = "http://localhost:5173"
+            # Prefer Tailscale IP (works through client isolation)
+            preferred_ip = tailscale_ip or lan_ip
+            subject_url = f"http://{preferred_ip}:{self.port}/subject"
 
-        print(f"{Colors.BOLD}Access URLs:{Colors.END}\n")
-        print(f"  {Colors.CYAN}Moderator:{Colors.END}  {base}/")
-        print(f"  {Colors.CYAN}Subject:{Colors.END}    {base}/subject\n")
+            print(f"{Colors.BOLD}Moderator (this computer):{Colors.END}\n")
+            print(f"  {Colors.CYAN}→{Colors.END}  http://localhost:{self.port}/\n")
+
+            print(f"{Colors.BOLD}Subject (tablet):{Colors.END}\n")
+            if tailscale_ip:
+                print(f"  {Colors.CYAN}→{Colors.END}  http://{tailscale_ip}:{self.port}/subject  {Colors.GREEN}(Tailscale ✓){Colors.END}")
+                if lan_ip != "127.0.0.1":
+                    print(f"  {Colors.DIM}   http://{lan_ip}:{self.port}/subject  (LAN — may not work with client isolation){Colors.END}")
+            else:
+                print(f"  {Colors.CYAN}→{Colors.END}  http://{lan_ip}:{self.port}/subject")
+            print()
+
+            # Show QR code for easy tablet connection
+            qr = _generate_qr_text(subject_url)
+            if qr:
+                print(f"{Colors.BOLD}Scan this QR code on the tablet:{Colors.END}\n")
+                print(qr)
+            else:
+                print(f"{Colors.DIM}  (Install 'segno' for a QR code: pip install segno){Colors.END}\n")
+
+            if preferred_ip == "127.0.0.1":
+                print(f"{Colors.YELLOW}⚠ Could not detect LAN IP. Are you connected to WiFi?{Colors.END}\n")
+            elif not tailscale_ip:
+                print(f"{Colors.DIM}  Tip: Install Tailscale for reliable connectivity through firewalls.{Colors.END}\n")
 
         print(f"{Colors.BOLD}Services running:{Colors.END}")
-        print(f"  • FastAPI API    → http://localhost:8000/api")
-        if not self.build_mode:
+        print(f"  • FastAPI API    → http://localhost:{self.port}/api")
+        if self.dev_mode:
             print(f"  • Vite dev       → http://localhost:5173 (hot reload)")
+        else:
+            print(f"  • React frontend → served from FastAPI (production build)")
         if self.with_pump:
             print(f"  • Pump service   → polling robotaste.db")
         print()
@@ -260,6 +423,9 @@ class ReactLauncher:
         if not self.check_ports():
             return 1
 
+        if not self.build_frontend():
+            return 1
+
         if not self.start_api():
             self.cleanup()
             return 1
@@ -304,13 +470,27 @@ def main():
         help="Also start the pump control service (requires hardware)"
     )
     parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Development mode: run Vite dev server with hot reload (localhost only)"
+    )
+    parser.add_argument(
         "--build",
         action="store_true",
-        help="Serve production build via FastAPI instead of Vite dev server"
+        help="(Legacy alias) Same as default mode — build and serve production frontend"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Server port (default: 8000)"
     )
     args = parser.parse_args()
 
-    launcher = ReactLauncher(with_pump=args.with_pump, build_mode=args.build)
+    # Default is production mode; --dev enables development mode
+    dev_mode = args.dev
+
+    launcher = ReactLauncher(with_pump=args.with_pump, dev_mode=dev_mode, port=args.port)
 
     def signal_handler(sig, frame):
         launcher.cleanup()

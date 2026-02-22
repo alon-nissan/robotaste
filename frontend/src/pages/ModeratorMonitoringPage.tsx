@@ -46,6 +46,7 @@ import { api } from '../api/client';
 import type { SessionStatus, PumpStatus, ModeInfo, Sample } from '../types';
 
 import PageLayout from '../components/PageLayout';
+import SubjectConnectionCard from '../components/SubjectConnectionCard';
 
 export default function ModeratorMonitoringPage() {
   // ─── URL PARAMS ────────────────────────────────────────────────────────
@@ -271,8 +272,8 @@ export default function ModeratorMonitoringPage() {
         )}
       </div>
 
-      {/* ═══ BOTTOM ROW: Status Card + Pump Status ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      {/* ═══ BOTTOM ROW: Status Card + Pump Status + Subject Connection ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
 
         {/* LEFT: Cycle Status Card */}
         <div className="bg-surface rounded-xl border border-border p-6">
@@ -371,6 +372,9 @@ export default function ModeratorMonitoringPage() {
             </div>
           )}
         </div>
+
+        {/* RIGHT: Subject Connection */}
+        <SubjectConnectionCard />
       </div>
 
       {/* ═══ END SESSION BUTTON ═══ */}
