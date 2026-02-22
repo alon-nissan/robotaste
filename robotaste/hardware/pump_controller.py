@@ -453,7 +453,7 @@ class NE4000Pump:
         port: str,
         address: int = 0,
         baud: int = 19200,
-        timeout: float = 5.0,
+        timeout: float = 1.0,
         max_retries: int = 3,
     ):
         """
@@ -1255,12 +1255,12 @@ class NE4000Pump:
                         f"[Pump {self.address}] → Sending: {full_command.strip()!r}"
                     )
 
-                    # Read response (terminated by \r or \n)
-                    response = self.serial.read_until(b"\r").decode("ascii").strip()
+                    # Read response (NE-4000 uses STX/ETX framing, terminated by \x03)
+                    response = self.serial.read_until(b"\x03").decode("ascii").strip()
 
                     if not response:
-                        # Try reading with \n terminator
-                        response = self.serial.read_until(b"\n").decode("ascii").strip()
+                        # Fallback: try reading with \r terminator
+                        response = self.serial.read_until(b"\r").decode("ascii").strip()
 
                     if not response:
                         raise PumpTimeoutError(f"No response from pump {self.address}")
@@ -1353,10 +1353,10 @@ class NE4000Pump:
                 self.serial.write(full_command.encode("ascii"))
 
                 # Read response (will be gibberish, but read it anyway to clear buffer)
-                response = self.serial.read_until(b"\r").decode("ascii", errors="ignore").strip()
+                response = self.serial.read_until(b"\x03").decode("ascii", errors="ignore").strip()
 
                 if not response:
-                    response = self.serial.read_until(b"\n").decode("ascii", errors="ignore").strip()
+                    response = self.serial.read_until(b"\r").decode("ascii", errors="ignore").strip()
 
                 logger.info(f"[Burst Mode] Response (gibberish): {response!r}")
 

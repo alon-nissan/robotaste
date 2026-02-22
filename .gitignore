@@ -47,6 +47,7 @@ Thumbs.db
 *.log
 backup_v0/
 session_log_*.txt
+logs/*
 
 # ngrok
 .ngrok_url
@@ -54,5 +55,11 @@ session_log_*.txt
 # AI assistance tools
 .claude/
 
+# Node.js / Frontend
+node_modules/
+frontend/dist/
+
+# Photos
+visual_references/
 # Archived code (tracked for reference, not active development)
 # Note: archive/ is INCLUDED in git for historical reference

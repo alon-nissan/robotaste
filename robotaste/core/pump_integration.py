@@ -91,7 +91,8 @@ def create_pump_operation_for_cycle(
     session_id: str,
     cycle_number: int,
     trial_number: int = 1,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    concentrations: Optional[Dict[str, float]] = None
 ) -> Optional[int]:
     """
     Create a pump operation for the current cycle.
@@ -137,8 +138,10 @@ def create_pump_operation_for_cycle(
         logger.info(f"Creating pump operation for session {session_id}, cycle {cycle_number}")
 
         # Get sample concentrations for this cycle
-        sample_data = prepare_cycle_sample(session_id, cycle_number)
-        concentrations = sample_data.get("concentrations")
+        # Use passed concentrations first (from API endpoint), fall back to prepare_cycle_sample()
+        if concentrations is None:
+            sample_data = prepare_cycle_sample(session_id, cycle_number)
+            concentrations = sample_data.get("concentrations")
 
         if not concentrations:
             logger.error(f"No concentrations determined for cycle {cycle_number}")

@@ -1,0 +1,129 @@
+"""
+FastAPI Application Entry Point for RoboTaste
+
+=== WHAT IS THIS FILE? ===
+This is the main entry point for the FastAPI backend server.
+Think of it as the equivalent of main_app.py for Streamlit, but for the REST API.
+
+=== KEY CONCEPTS ===
+- FastAPI: A Python web framework that lets you create HTTP API endpoints.
+  The React frontend will call these endpoints to get/send data.
+- CORS (Cross-Origin Resource Sharing): A security feature in browsers.
+  Since the React app runs on port 5173 and FastAPI on port 8000,
+  the browser considers them "different origins" and blocks requests
+  unless we explicitly allow it via CORS middleware.
+- Router: A way to organize endpoints into groups (like protocols, sessions, etc.)
+  instead of putting everything in one giant file.
+- Uvicorn: The server that actually runs FastAPI (like how Streamlit has its own server).
+
+=== HOW TO RUN ===
+From the project root directory:
+    uvicorn api.main:app --reload --port 8000
+
+This starts the API server at http://localhost:8000
+The --reload flag auto-restarts when you change code (great for development).
+The interactive API docs are at http://localhost:8000/docs (auto-generated!).
+"""
+
+import logging
+import time
+
+# FastAPI is the framework; we create an "app" instance from it
+from fastapi import FastAPI, Request
+
+# CORSMiddleware allows the React frontend (different port) to talk to this API
+from fastapi.middleware.cors import CORSMiddleware
+
+# Import our router modules — each one handles a group of related endpoints
+from api.routers import protocols, sessions, pump, documentation
+
+# Initialize the database on startup (same function Streamlit uses)
+from robotaste.data.database import init_database
+
+
+# ─── LOGGING SETUP ──────────────────────────────────────────────────────────
+# Use the centralized logging_manager for consistent log format, daily rotation,
+# and pump-module DEBUG tracing — same infrastructure the Streamlit app uses.
+from robotaste.utils.logging_manager import setup_logging
+
+setup_logging(component="api")
+logger = logging.getLogger("robotaste.api")
+
+
+# ─── CREATE THE APP ─────────────────────────────────────────────────────────
+# This creates the FastAPI application instance.
+# All configuration, middleware, and routes are attached to this object.
+app = FastAPI(
+    title="RoboTaste API",                          # Name shown in auto-generated docs
+    description="REST API for the RoboTaste experiment platform",
+    version="1.0.0",
+)
+
+
+# ─── CORS MIDDLEWARE ────────────────────────────────────────────────────────
+# This tells the browser: "Yes, it's okay for the React app to call this API."
+# Without this, the browser would block all requests from the React dev server.
+app.add_middleware(
+    CORSMiddleware,
+    # allow_origins: Which URLs are allowed to call this API.
+    # In development, React runs on port 5173 (Vite's default).
+    # The "*" wildcard allows ANY origin (fine for local development).
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    # allow_credentials: Whether to allow cookies/auth headers
+    allow_credentials=True,
+    # allow_methods: Which HTTP methods are allowed (GET, POST, PUT, DELETE, etc.)
+    allow_methods=["*"],
+    # allow_headers: Which HTTP headers the frontend can send
+    allow_headers=["*"],
+)
+
+
+# ─── REGISTER ROUTERS ──────────────────────────────────────────────────────
+# Each router is a group of related endpoints.
+# The prefix means all routes in that router start with that path.
+# For example, the protocols router with prefix="/api/protocols" means:
+#   GET /api/protocols, GET /api/protocols/{id}, etc.
+app.include_router(protocols.router, prefix="/api/protocols", tags=["Protocols"])
+app.include_router(sessions.router,  prefix="/api/sessions",  tags=["Sessions"])
+app.include_router(pump.router,      prefix="/api/pump",      tags=["Pump"])
+app.include_router(documentation.router, prefix="/api/docs",  tags=["Documentation"])
+
+
+# ─── REQUEST LOGGING MIDDLEWARE ─────────────────────────────────────────────
+# Logs every incoming request with method, path, status code, and timing.
+# This goes to logs/uvicorn.log when started via start_new_ui.sh.
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    logger.info(
+        "%s %s → %d (%.0fms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+
+# ─── STARTUP EVENT ──────────────────────────────────────────────────────────
+# This function runs once when the server starts up.
+# We use it to initialize the database (create tables if they don't exist).
+@app.on_event("startup")
+def on_startup():
+    """Initialize database tables on server startup."""
+    init_database()
+
+
+# ─── HEALTH CHECK ───────────────────────────────────────────────────────────
+# A simple endpoint to verify the server is running.
+# The React frontend can call GET /api/health to check connectivity.
+#
+# The decorator @app.get("/api/health") means:
+#   "When someone sends an HTTP GET request to /api/health, run this function
+#    and return its result as JSON."
+@app.get("/api/health")
+def health_check():
+    """Return server status. Used by frontend to verify API connectivity."""
+    return {"status": "ok", "service": "robotaste-api"}

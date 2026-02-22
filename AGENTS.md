@@ -5,6 +5,13 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 
 ## Quick Orientation
 - App entrypoint: `main_app.py` (Streamlit UI).
+- React frontend: `frontend/` (Vite + React 19 + TypeScript + Tailwind 4.1)
+- FastAPI backend: `api/main.py` (serves at port 8000)
+- API routers: `api/routers/sessions.py`, `api/routers/protocols.py`, `api/routers/pump.py`
+- Frontend pages: `frontend/src/pages/` (13 page components)
+- Frontend components: `frontend/src/components/` (reusable React components)
+- Design guidelines: `frontend/DESIGN_GUIDELINES.md`
+- Workflow guide: `docs/WORKFLOW_GUIDE.md`
 - Pump daemon: `pump_control_service.py` (hardware-connected machine).
 - State machine: `robotaste/core/state_machine.py`.
 - DB: `robotaste.db` (SQLite); schema in `robotaste/data/schema.sql`.
@@ -23,6 +30,10 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 | Pump problems | `robotaste/hardware/pump_controller.py`, `robotaste/core/pump_manager.py` | `robotaste/core/pump_integration.py`, `robotaste/utils/pump_db.py` |
 | Database queries | `robotaste/data/database.py` (low-level SQL) | `robotaste/data/session_repo.py`, `robotaste/data/protocol_repo.py` |
 | Questionnaire changes | `robotaste/views/questionnaire.py`, `robotaste/config/questionnaire.py` | `robotaste/data/database.py` (save logic) |
+| Change React UI page    | `frontend/src/pages/<PageName>.tsx`          | `frontend/src/components/`, `frontend/src/types/index.ts` |
+| Add/modify API endpoint | `api/routers/sessions.py` or `api/routers/protocols.py` | `robotaste/data/database.py`, `robotaste/data/session_repo.py` |
+| Change frontend routing | `frontend/src/App.tsx`                       | `frontend/src/pages/` |
+| Frontend styling/layout | `frontend/src/components/PageLayout.tsx`     | `frontend/DESIGN_GUIDELINES.md`, `frontend/src/index.css` |
 
 ### By Component
 - **Entry points**: `main_app.py` (UI), `pump_control_service.py` (daemon)
@@ -32,10 +43,22 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - **Trials**: `robotaste/core/trials.py` (BO suggestions, sample tracking)
 - **Views**: `robotaste/views/moderator.py` (moderator UI), `robotaste/views/subject.py` (subject UI)
 - **Components**: `robotaste/components/` (reusable UI widgets)
+- **React entry point**: `frontend/src/App.tsx` (router), `frontend/src/main.tsx` (bootstrap)
+- **React pages**: `frontend/src/pages/` — 13 page components (LandingPage, ConsentPage, RegistrationPage, etc.)
+- **React components**: `frontend/src/components/` — PageLayout, ProtocolSelector, PumpSetup, BOVisualization1D/2D, etc.
+- **TypeScript types**: `frontend/src/types/index.ts` — Session, Protocol, Participant, etc.
+- **API client**: `frontend/src/api/client.ts` — Axios instance (baseURL: /api)
+- **FastAPI app**: `api/main.py` — Registers routers, CORS, static files
+- **API routers**: `api/routers/sessions.py` (15 endpoints), `api/routers/protocols.py`, `api/routers/pump.py`
 
 ## Build / Run Commands
 - **App UI**: `streamlit run main_app.py`
 - **Pump service**: `python pump_control_service.py --db-path robotaste.db --poll-interval 0.5`
+- **React frontend (dev)**: `cd frontend && npm run dev` (port 5173, hot reload)
+- **React frontend (build)**: `cd frontend && npm run build` (outputs to frontend/dist/)
+- **React frontend (type-check)**: `cd frontend && npx tsc --noEmit`
+- **FastAPI backend**: `uvicorn api.main:app --reload --port 8000`
+- **Full stack**: Run FastAPI (port 8000) + Vite dev (port 5173) + pump service concurrently
 - **Tests (all)**: `pytest`
 - **Tests (single file)**: `pytest tests/test_protocol_integration.py`
 - **Tests (single test)**: `pytest tests/test_protocol_integration.py::test_name`
@@ -116,6 +139,22 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - Initialize state early in `main_app.py` before rendering views.
 - Avoid circular imports; defer view imports when necessary.
 
+### TypeScript / React (frontend/)
+- Use functional components with hooks (no class components).
+- Follow existing PageLayout pattern: wrap every page in `<PageLayout>` (accepts `showLogo?: boolean`).
+- Moderator pages: `showLogo` defaults to `true`. Subject experiment pages (Selection, Questionnaire, RobotPreparing, Completion, CustomPhase): pass `showLogo={false}`.
+- Use Tailwind CSS design tokens defined in `frontend/DESIGN_GUIDELINES.md` — do not use raw hex colors.
+- API calls go through the shared Axios client: `import { api } from '../api/client'`.
+- Types live in `frontend/src/types/index.ts` — add new interfaces there, not in page files.
+- Use `useNavigate()` from React Router for page transitions.
+- Use `useParams()` to read URL parameters like `:sessionId`.
+
+### FastAPI (api/)
+- Each router file in `api/routers/` handles one resource (sessions, protocols, pump).
+- Request bodies use Pydantic `BaseModel` classes defined at the top of the router file.
+- Reuse existing `robotaste.data.database` functions — do not write raw SQL in router handlers.
+- Always validate session existence before operating on it (return 404 if not found).
+
 ### Hardware / Pump Integration
 - Never create new pump instances per cycle; reuse cached manager instances.
 - Serial init must be sequential to avoid port conflicts.
@@ -153,6 +192,12 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - **Minimum samples**: Need ≥3 samples before BO can suggest
 - **Convergence**: Check `bo_integration.check_convergence()` for stopping criteria
 - **Storage**: `samples` table stores `concentrations_json` as JSON string
+
+### React Frontend Routing Pattern
+- **Moderator flow**: `/` → `/moderator/setup` → `/moderator/monitoring`
+- **Subject flow**: `/subject` (auto-join) → `/subject/{sessionId}/consent` → `/subject/{sessionId}/register` → `.../instructions` → `.../select` → `.../questionnaire` → `.../complete`
+- **Subject auto-connect**: `/subject` route polls `GET /api/sessions` for active sessions, auto-redirects when exactly 1 session found (matches Streamlit auto-join behavior)
+- **Logo visibility**: Moderator pages always show logo. Subject pages show logo only on consent, registration, instructions.
 
 ## What Not To Do
 - Do not add dependencies or tooling without asking.
