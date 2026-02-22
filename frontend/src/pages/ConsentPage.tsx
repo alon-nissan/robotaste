@@ -115,13 +115,13 @@ export default function ConsentPage() {
           {/* Study Purpose */}
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-2">Study Purpose</h2>
-            <MarkdownText content={explanation} className="text-base text-text-secondary" />
+            <MarkdownText content={explanation} className="text-base text-text-primary" />
           </section>
 
           {/* What to Expect */}
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-2">What to Expect</h2>
-            <ul className="list-disc list-inside space-y-1 text-base text-text-secondary">
+            <ul className="list-disc list-inside space-y-1 text-base text-text-primary">
               {DEFAULT_BULLETS.map((bullet, i) => (
                 <li key={i}>{bullet}</li>
               ))}
@@ -143,7 +143,7 @@ export default function ConsentPage() {
           {/* Contact */}
           <section className="mb-8">
             <h2 className="text-lg font-semibold mb-1">Contact</h2>
-            <p className="text-base text-text-secondary">{contact}</p>
+            <MarkdownText content={contact} className="text-base text-text-primary" />
           </section>
 
           {/* Consent Checkbox */}

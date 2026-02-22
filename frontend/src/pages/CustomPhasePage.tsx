@@ -95,7 +95,7 @@ function BreakPhase({
         Take a Break
       </h2>
 
-      <p className="text-base text-text-secondary mb-6">{message}</p>
+      <p className="text-base text-text-primary mb-6">{message}</p>
 
       <div className="text-3xl font-mono text-text-primary mb-6">
         {timeStr} remaining
@@ -151,7 +151,7 @@ function MediaPhase({
         {config.caption && (
           <MarkdownText
             content={config.caption}
-            className="text-base text-text-secondary mb-4"
+            className="text-base text-text-primary mb-4"
           />
         )}
 

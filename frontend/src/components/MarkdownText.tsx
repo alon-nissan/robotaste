@@ -40,6 +40,17 @@ export function MarkdownText({ content, className = '' }: MarkdownTextProps) {
         li: ({ children }) => (
           <li className="leading-relaxed">{children}</li>
         ),
+        // Links: blue + underlined (for autolinked emails via remark-gfm)
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            className="text-blue-600 underline hover:text-blue-800"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {children}
+          </a>
+        ),
         // Headings (in case protocol text includes them)
         h1: ({ children }) => (
           <h1 className="text-2xl font-semibold mb-4">{children}</h1>
