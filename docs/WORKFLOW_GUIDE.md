@@ -24,12 +24,21 @@ Runs on port 5173.
 python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
 ```
 
-### All-in-One
+### All-in-One (Production — for experiments)
 
 ```bash
-bash start_new_ui.sh
+python start_new_ui.py              # Serves everything on port 8000
+python start_new_ui.py --with-pump  # Also starts pump service
 ```
-Starts the API server, frontend dev server, and pump service together. Logs are written to `logs/`.
+Builds the frontend, starts FastAPI, and serves everything on a single port. The
+terminal shows the subject URL and a QR code for the tablet.
+
+### All-in-One (Development — for coding)
+
+```bash
+python start_new_ui.py --dev
+```
+Starts FastAPI (port 8000) and Vite dev server (port 5173) with hot reload.
 
 ### API Documentation
 
@@ -40,15 +49,16 @@ Auto-generated Swagger UI is available at [http://localhost:8000/docs](http://lo
 ## 2. Architecture Overview
 
 ```
-┌─────────────────┐     HTTP/JSON      ┌──────────────────┐
-│  React Frontend │ ◄──────────────────► │  FastAPI Backend  │
-│  (port 5173)    │                     │  (port 8000)      │
-│                 │                     │                    │
-│  Pages:         │                     │  Routers:          │
-│  /              │                     │  /api/sessions     │
-│  /moderator/*   │                     │  /api/protocols    │
-│  /subject/*     │                     │  /api/pump         │
-│  /protocols     │                     │  /api/docs         │
+┌─────────────────┐                     ┌──────────────────┐
+│  React Frontend │ ◄─── same-origin ──► │  FastAPI Backend  │
+│  (served from   │       /api/*        │  (port 8000)      │
+│   port 8000)    │                     │                    │
+│                 │                     │  Routers:          │
+│  Pages:         │                     │  /api/sessions     │
+│  /              │                     │  /api/protocols    │
+│  /moderator/*   │                     │  /api/pump         │
+│  /subject/*     │                     │  /api/docs         │
+│  /protocols     │                     │                    │
 └─────────────────┘                     └────────┬───────────┘
                                                  │ Python imports
                                                  ▼
@@ -69,9 +79,8 @@ Auto-generated Swagger UI is available at [http://localhost:8000/docs](http://lo
 ```
 
 - The **React frontend** handles all UI rendering and user interaction.
-- The **FastAPI backend** exposes a JSON API that the frontend consumes.
-- The backend imports directly from the existing `robotaste/` package for all business logic, database access, and hardware control.
-- **SQLite** (`robotaste.db`) remains the single source of truth for session state.
+- The **FastAPI backend** serves both the API and the React production build on a single port (8000).
+- In **development mode** (`--dev`), the frontend runs separately on Vite (port 5173) with hot reload, and proxies `/api` requests to FastAPI.
 
 ---
 

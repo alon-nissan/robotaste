@@ -53,15 +53,12 @@ python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
 
 ### Multi-Device Setup (Moderator + Tablet)
 
-Both devices must be on the same WiFi network. In production mode (`python start_new_ui.py`),
-the server binds to `0.0.0.0:8000` and serves both the API and the React frontend.
-The startup output shows the subject URL and QR code for the tablet.
+Both devices need [Tailscale](https://tailscale.com/) (free) installed and signed into
+the same account. In production mode, the server auto-detects Tailscale and shows the
+correct subject URL.
 
-If your organization's network blocks device-to-device traffic (client isolation),
-install [Tailscale](https://tailscale.com/) on both devices — the launcher auto-detects
-the Tailscale IP and uses it for the subject URL.
-
-See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for full instructions.
+See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for complete
+step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPad.
 
 ### Legacy Streamlit UI
 ```bash
@@ -134,7 +131,8 @@ SQLite Database (robotaste.db)
 - 2D grid interface (binary mixtures) or 1D sliders (single ingredient)
 
 ## Documentation
-- **Getting Started**: `docs/NEW_STACK_GUIDE.md`, `docs/WORKFLOW_GUIDE.md`
+- **Running Experiments**: `docs/MULTI_DEVICE_SETUP.md` — step-by-step guide for moderator + tablet setup
+- **Getting Started (dev)**: `docs/NEW_STACK_GUIDE.md`, `docs/WORKFLOW_GUIDE.md`
 - **For AI Agents**: `CLAUDE.md`, `AGENTS.md`, `docs/AGENT_EFFICIENCY.md`
 - **For Humans**: `docs/PROJECT_CONTEXT.md`, `docs/protocol_user_guide.md`
 - **For Researchers**: `docs/protocol_schema.md`, `docs/pump_config.md`
