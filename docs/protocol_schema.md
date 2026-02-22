@@ -546,5 +546,5 @@ Use `increment_protocol_version()` to create new versions programmatically.
 ## See Also
 
 - [Protocol User Guide](protocol_user_guide.md) - Step-by-step usage instructions
-- [Project Context](PROJECT_CONTEXT.md) - Architecture overview
+- [Workflow Guide](WORKFLOW_GUIDE.md) - Architecture overview
 - Example protocols in `protocols/test_protocol_mixed_mode_new_format.json`

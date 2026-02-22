@@ -16,7 +16,7 @@ Focus on correctness, hardware safety, and adherence to the experiment flow.
 - State machine: `robotaste/core/state_machine.py`.
 - DB: `robotaste.db` (SQLite); schema in `robotaste/data/schema.sql`.
 - Protocols: `robotaste/config/protocols.py` and `robotaste/config/protocol_schema.py`.
-- Docs: `docs/PROJECT_CONTEXT.md`, `docs/protocol_schema.md`, `docs/protocol_user_guide.md`.
+- Docs: `docs/protocol_schema.md`, `docs/protocol_user_guide.md`.
 
 ## Navigation Quick Reference
 

@@ -65,12 +65,6 @@ step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPa
 streamlit run main_app.py
 ```
 
-### Legacy: Running with ngrok (Streamlit only, deprecated)
-```bash
-python start_robotaste.py             # Streamlit + ngrok
-python start_robotaste.py --with-pump # With hardware pumps
-```
-See **[docs/NGROK_SETUP.md](docs/NGROK_SETUP.md)** (deprecated — use LAN setup above instead).
 
 ### Testing
 ```bash
@@ -132,9 +126,9 @@ SQLite Database (robotaste.db)
 
 ## Documentation
 - **Running Experiments**: `docs/MULTI_DEVICE_SETUP.md` — step-by-step guide for moderator + tablet setup
-- **Getting Started (dev)**: `docs/NEW_STACK_GUIDE.md`, `docs/WORKFLOW_GUIDE.md`
-- **For AI Agents**: `CLAUDE.md`, `AGENTS.md`, `docs/AGENT_EFFICIENCY.md`
-- **For Humans**: `docs/PROJECT_CONTEXT.md`, `docs/protocol_user_guide.md`
+- **Getting Started (dev)**: `docs/WORKFLOW_GUIDE.md`
+- **For AI Agents**: `CLAUDE.md`, `AGENTS.md`
+- **For Humans**: `docs/protocol_user_guide.md`
 - **For Researchers**: `docs/protocol_schema.md`, `docs/pump_config.md`
 - **UI Guidelines**: `frontend/DESIGN_GUIDELINES.md`
 

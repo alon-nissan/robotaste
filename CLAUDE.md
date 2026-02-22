@@ -99,4 +99,4 @@ Map common tasks to exact file paths (use these before exploring):
 - No `.cursorrules`, `.cursor/rules/`, or `.github/copilot-instructions.md` files found.
 
 ## 7. Documentation
-For deep context on Session Flows, BO Algorithms, or Protocol JSON schemas, refer to `docs/PROJECT_CONTEXT.md` (if created) or the specific file headers.
+For deep context on Session Flows, BO Algorithms, or Protocol JSON schemas, refer to `docs/WORKFLOW_GUIDE.md`, `docs/protocol_schema.md`, or the specific file headers.
