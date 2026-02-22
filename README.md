@@ -57,7 +57,9 @@ Both devices must be on the same WiFi network. In production mode (`python start
 the server binds to `0.0.0.0:8000` and serves both the API and the React frontend.
 The startup output shows the subject URL and QR code for the tablet.
 
-If your organization's network blocks device-to-device traffic, use a personal hotspot instead.
+If your organization's network blocks device-to-device traffic (client isolation),
+install [Tailscale](https://tailscale.com/) on both devices — the launcher auto-detects
+the Tailscale IP and uses it for the subject URL.
 
 See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for full instructions.
 

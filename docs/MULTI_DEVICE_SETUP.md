@@ -90,9 +90,22 @@ Development mode binds to `localhost` only — not accessible from other devices
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Connection refused | Server not bound to 0.0.0.0 | Use `python start_new_ui.py` (not `--dev`) |
-| Connection timed out | Network blocks device-to-device traffic | Use a personal hotspot (see below) |
+| Connection timed out | Network blocks device-to-device traffic | Use **Tailscale** (recommended) or a personal hotspot (see below) |
 | "No active sessions" | No session started yet | Start a session from the moderator page first |
 | Wrong IP shown | Multiple network interfaces | Check `ifconfig` / `ipconfig` for the correct WiFi IP |
+
+### Using Tailscale (recommended for enterprise networks)
+
+Many organization WiFi networks enable "client isolation" which prevents devices
+from communicating directly. Tailscale creates a private encrypted tunnel between
+your devices that works through any network restrictions.
+
+1. Install [Tailscale](https://tailscale.com/) on both the Mac and the Android tablet
+2. Sign in with the **same account** on both devices
+3. Run `python start_new_ui.py` — it auto-detects the Tailscale IP (`100.x.y.z`)
+4. The terminal and moderator UI will show the Tailscale-based subject URL
+
+Tailscale is free for personal use and requires no IT involvement.
 
 ### Using a personal hotspot (fallback)
 

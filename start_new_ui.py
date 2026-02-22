@@ -83,6 +83,48 @@ def _get_lan_ip() -> str:
         return "127.0.0.1"
 
 
+def _get_tailscale_ip() -> str | None:
+    """Detect the machine's Tailscale IP, if Tailscale is running."""
+    import subprocess
+    try:
+        # Try common Tailscale binary locations
+        for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:
+            try:
+                result = subprocess.run(
+                    [cmd, "ip", "-4"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split("\n")[0]
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+    except Exception:
+        pass
+    # Fallback: check for Tailscale interface by scanning interfaces
+    try:
+        import netifaces  # type: ignore
+    except ImportError:
+        pass
+    # Check for 100.x.y.z addresses on any interface
+    try:
+        import fcntl
+        import struct
+        for iface_name in socket.if_nameindex():
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                ip = socket.inet_ntoa(fcntl.ioctl(
+                    s.fileno(), 0x8915,  # SIOCGIFADDR
+                    struct.pack('256s', iface_name[1].encode())
+                )[20:24])
+                if ip.startswith("100."):
+                    return ip
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def _generate_qr_text(url: str) -> str:
     """Generate a text-based QR code for terminal display using segno."""
     try:
@@ -283,6 +325,7 @@ class ReactLauncher:
 
     def print_access_info(self):
         lan_ip = _get_lan_ip()
+        tailscale_ip = _get_tailscale_ip()
 
         print(f"\n{Colors.BOLD}{Colors.GREEN}{'='*70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.GREEN}{'RoboTaste is ready!':^70}{Colors.END}")
@@ -297,13 +340,21 @@ class ReactLauncher:
             print(f"{Colors.DIM}  Note: Vite proxies /api to FastAPI automatically.{Colors.END}")
             print(f"{Colors.DIM}  For multi-device testing, use: python start_new_ui.py{Colors.END}\n")
         else:
-            subject_url = f"http://{lan_ip}:{self.port}/subject"
+            # Prefer Tailscale IP (works through client isolation)
+            preferred_ip = tailscale_ip or lan_ip
+            subject_url = f"http://{preferred_ip}:{self.port}/subject"
 
             print(f"{Colors.BOLD}Moderator (this computer):{Colors.END}\n")
             print(f"  {Colors.CYAN}→{Colors.END}  http://localhost:{self.port}/\n")
 
             print(f"{Colors.BOLD}Subject (tablet):{Colors.END}\n")
-            print(f"  {Colors.CYAN}→{Colors.END}  {subject_url}\n")
+            if tailscale_ip:
+                print(f"  {Colors.CYAN}→{Colors.END}  http://{tailscale_ip}:{self.port}/subject  {Colors.GREEN}(Tailscale ✓){Colors.END}")
+                if lan_ip != "127.0.0.1":
+                    print(f"  {Colors.DIM}   http://{lan_ip}:{self.port}/subject  (LAN — may not work with client isolation){Colors.END}")
+            else:
+                print(f"  {Colors.CYAN}→{Colors.END}  http://{lan_ip}:{self.port}/subject")
+            print()
 
             # Show QR code for easy tablet connection
             qr = _generate_qr_text(subject_url)
@@ -313,8 +364,10 @@ class ReactLauncher:
             else:
                 print(f"{Colors.DIM}  (Install 'segno' for a QR code: pip install segno){Colors.END}\n")
 
-            if lan_ip == "127.0.0.1":
+            if preferred_ip == "127.0.0.1":
                 print(f"{Colors.YELLOW}⚠ Could not detect LAN IP. Are you connected to WiFi?{Colors.END}\n")
+            elif not tailscale_ip:
+                print(f"{Colors.DIM}  Tip: Install Tailscale for reliable connectivity through firewalls.{Colors.END}\n")
 
         print(f"{Colors.BOLD}Services running:{Colors.END}")
         print(f"  • FastAPI API    → http://localhost:{self.port}/api")

@@ -138,12 +138,11 @@ def health_check():
 
 
 # ─── SERVER INFO ────────────────────────────────────────────────────────────
-# Returns the server's LAN IP and connection URLs so the moderator UI
+# Returns the server's LAN/Tailscale IP and connection URLs so the moderator UI
 # can display QR codes / links for subject tablets to connect.
 def _get_lan_ip() -> str:
     """Detect the machine's LAN IP address."""
     try:
-        # Connect to a public DNS — doesn't send data, just determines route
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
             return s.getsockname()[0]
@@ -151,16 +150,39 @@ def _get_lan_ip() -> str:
         return "127.0.0.1"
 
 
+def _get_tailscale_ip() -> str | None:
+    """Detect the machine's Tailscale IP, if Tailscale is running."""
+    import subprocess
+    try:
+        for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:
+            try:
+                result = subprocess.run(
+                    [cmd, "ip", "-4"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split("\n")[0]
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+    except Exception:
+        pass
+    return None
+
+
 @app.get("/api/server-info")
 def server_info():
-    """Return LAN connection info for multi-device setup."""
-    ip = _get_lan_ip()
+    """Return LAN/Tailscale connection info for multi-device setup."""
+    lan_ip = _get_lan_ip()
+    tailscale_ip = _get_tailscale_ip()
+    preferred_ip = tailscale_ip or lan_ip
     port = 8000
     return {
-        "lan_ip": ip,
+        "lan_ip": lan_ip,
+        "tailscale_ip": tailscale_ip,
+        "preferred_ip": preferred_ip,
         "port": port,
-        "subject_url": f"http://{ip}:{port}/subject",
-        "moderator_url": f"http://{ip}:{port}/",
+        "subject_url": f"http://{preferred_ip}:{port}/subject",
+        "moderator_url": f"http://{preferred_ip}:{port}/",
     }
 
 
