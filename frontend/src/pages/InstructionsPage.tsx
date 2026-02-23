@@ -27,7 +27,7 @@ const DEFAULT_INSTRUCTIONS: InstructionContent = {
     'After tasting each sample, you will be asked to answer a few questions about your experience.',
     'Please be honest and rely on your own perception — there are no right or wrong answers.',
   ].join('\n\n'),
-  callout: 'Important: Rinse your mouth with water between each sample to ensure accurate results.',
+  callout: null,
   confirm_label: 'I have read and understand the above instructions',
   button_label: 'Start Experiment →',
 };

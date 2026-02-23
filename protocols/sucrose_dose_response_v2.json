@@ -68,7 +68,8 @@
     },
     "instructions_screen": {
         "title": "Instructions",
-        "text": "**Welcome to the Experiment!**\n\nIn this experiment you will taste a number of liquid samples, one at a time.\n\nFor each sample:\n1. The robot will prepare your sample.\n2. Take the cup, and **place a clean cup** under the spout. \n3.Rinse you mouth with water and **stir lightly** with the provided wooden stirrer. \n4. Rate the **sweetness intensity** on the scale provided.\n5. Rinse your mouth thoroughly with water before the next sample.\n\n**Important:**\n- Please rinse your mouth with water **before and after** every tasting.\n- Place a **clean cup** under the spout before each new sample.\n- There are no right or wrong answers — we are only interested in your perception.",
+        "text": "**Welcome to the Experiment!**\n\nIn this experiment you will taste a number of liquid samples, one at a time.\n\nFor each sample:\n\n1. The robot will prepare your sample.\n2. Take the cup, and **place a clean cup** under the spout.\n3. Rinse your mouth with water and **stir lightly** with the provided wooden stirrer.\n4. Rate the **sweetness intensity** on the scale provided.\n5. Rinse your mouth thoroughly with water before the next sample.",
+        "callout": "**Important:**\n- Please rinse your mouth with water **before and after** every tasting.\n- Place a **clean cup** under the spout before each new sample.\n- There are no right or wrong answers — we are only interested in your perception.",
         "confirm_label": "I have read and understand the instructions.",
         "button_label": "Begin Experiment"
     },
