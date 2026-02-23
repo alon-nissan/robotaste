@@ -67,8 +67,20 @@ from robotaste.config.bo_config import get_default_bo_config
 from robotaste.core.bo_integration import get_bo_suggestion_for_session
 from robotaste.core.bo_engine import train_bo_model
 from robotaste.core.trials import prepare_cycle_sample
+from robotaste.core.phase_engine import PhaseEngine
 
 import json
+
+
+def _get_next_phase_via_engine(session: dict, current_phase: str, current_cycle: int = 0) -> str:
+    config = session.get("experiment_config", {})
+    session_id = session.get("session_id", "unknown")
+    try:
+        engine = PhaseEngine(config, session_id)
+        return engine.get_next_phase(current_phase, current_cycle=current_cycle)
+    except Exception as e:
+        logger.warning(f"PhaseEngine fallback ({e}), returning 'complete'")
+        return "complete"
 
 
 # ─── REQUEST MODELS ─────────────────────────────────────────────────────────
@@ -491,9 +503,17 @@ def advance_phase(session_id: str, request: PhaseRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    update_current_phase(session_id, request.phase)
-    logger.info(f"Phase advanced for session {session_id} → {request.phase}")
-    return {"message": "Phase updated", "current_phase": request.phase}
+    if request.phase == "next":
+        current_phase = session.get("current_phase", "waiting")
+        phase_to_set = _get_next_phase_via_engine(session, current_phase)
+    else:
+        phase_to_set = request.phase
+
+    if phase_to_set in ("complete", "completion"):
+        update_session_state(session_id, "completed")
+    update_current_phase(session_id, phase_to_set)
+    logger.info(f"Phase advanced for session {session_id} → {phase_to_set}")
+    return {"message": "Phase updated", "current_phase": phase_to_set}
 
 
 # ─── SUBMIT SELECTION ──────────────────────────────────────────────────────
@@ -620,21 +640,19 @@ def submit_response(session_id: str, request: ResponseRequest):
     )
     increment_cycle(session_id)
 
-    # Determine next phase: check stopping criteria
-    config = session.get("experiment_config", {})
-    stopping_criteria = config.get("stopping_criteria", {})
-    max_cycles = stopping_criteria.get("max_cycles", 0)
     new_cycle = cycle_number + 1
 
-    if max_cycles and new_cycle > max_cycles:
-        next_phase = "complete"
-        update_current_phase(session_id, "complete")
+    # Re-fetch session after increment for updated state
+    session = get_session(session_id)
+    next_phase = _get_next_phase_via_engine(session, "questionnaire", new_cycle)
+
+    if next_phase in ("complete", "completion"):
+        update_current_phase(session_id, next_phase)
         update_session_state(session_id, "completed")
-        logger.info(f"Session {session_id} completed: reached max_cycles={max_cycles}")
+        logger.info(f"Session {session_id} completed after cycle {cycle_number}")
     else:
-        next_phase = "selection"
-        update_current_phase(session_id, "selection")
-        logger.info(f"Session {session_id} advancing to cycle {new_cycle} → phase=selection")
+        update_current_phase(session_id, next_phase)
+        logger.info(f"Session {session_id} advancing to cycle {new_cycle} → phase={next_phase}")
 
     return {
         "message": "Response saved",

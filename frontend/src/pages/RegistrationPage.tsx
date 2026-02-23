@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
+import { phaseToPath } from '../utils/phases';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'] as const;
 
@@ -41,8 +42,8 @@ export default function RegistrationPage() {
         age: typeof age === 'number' ? age : parseInt(String(age), 10),
         gender,
       });
-      await api.post(`/sessions/${sessionId}/phase`, { phase: 'instructions' });
-      navigate(`/subject/${sessionId}/instructions`);
+      const res = await api.post(`/sessions/${sessionId}/phase`, { phase: 'next' });
+      navigate(phaseToPath(res.data.current_phase, sessionId!));
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
         ?.response?.data?.detail || 'Registration failed. Please try again.';

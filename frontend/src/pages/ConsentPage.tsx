@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ConsentConfig } from '../types';
+import { phaseToPath } from '../utils/phases';
 
 import PageLayout from '../components/PageLayout';
 import { MarkdownText } from '../components/MarkdownText';
@@ -17,13 +18,6 @@ const DEFAULT_EXPLANATION =
   'This experiment investigates taste perception. You will be asked to taste ' +
   'small samples of flavored solutions and provide your feedback through a ' +
   'short questionnaire after each sample.';
-
-const DEFAULT_BULLETS = [
-  'You will taste multiple small samples during the session.',
-  'After each sample, you will answer a brief questionnaire.',
-  'You may withdraw from the study at any time without penalty.',
-  'All responses are recorded anonymously.',
-];
 
 const DEFAULT_MEDICAL_NOTICE =
   'If you have any food allergies, dietary restrictions, or medical conditions ' +
@@ -68,8 +62,8 @@ export default function ConsentPage() {
     setError(null);
     try {
       await api.post(`/sessions/${sessionId}/consent`, { consent_given: true });
-      await api.post(`/sessions/${sessionId}/phase`, { phase: 'registration' });
-      navigate(`/subject/${sessionId}/register`);
+      const res = await api.post(`/sessions/${sessionId}/phase`, { phase: 'next' });
+      navigate(phaseToPath(res.data.current_phase, sessionId!));
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
         ?.response?.data?.detail || 'Failed to record consent';
@@ -116,16 +110,6 @@ export default function ConsentPage() {
           <section className="mb-6">
             <h2 className="text-lg font-semibold mb-2">Study Purpose</h2>
             <MarkdownText content={explanation} className="text-base text-text-primary" />
-          </section>
-
-          {/* What to Expect */}
-          <section className="mb-6">
-            <h2 className="text-lg font-semibold mb-2">What to Expect</h2>
-            <ul className="list-disc list-inside space-y-1 text-base text-text-primary">
-              {DEFAULT_BULLETS.map((bullet, i) => (
-                <li key={i}>{bullet}</li>
-              ))}
-            </ul>
           </section>
 
           {/* Medical Notice */}

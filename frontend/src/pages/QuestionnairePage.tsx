@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { phaseToPath } from '../utils/phases';
 import type { QuestionConfig, QuestionnaireConfig } from '../types';
 import PageLayout from '../components/PageLayout';
 
@@ -304,8 +305,8 @@ export default function QuestionnairePage() {
 
       const nextPhase: string = res.data.next_phase;
 
-      if (nextPhase === 'complete') {
-        navigate(`/subject/${sessionId}/complete`);
+      if (nextPhase === 'complete' || nextPhase === 'completion') {
+        navigate(phaseToPath(nextPhase, sessionId!));
         return;
       }
 
@@ -327,7 +328,7 @@ export default function QuestionnairePage() {
           : `/subject/${sessionId}/questionnaire`
         );
       } else {
-        navigate(`/subject/${sessionId}/select`);
+        navigate(phaseToPath(nextPhase, sessionId!));
       }
     } catch (err: unknown) {
       const detail =
