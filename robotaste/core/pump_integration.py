@@ -753,21 +753,7 @@ def execute_pumps_synchronously(
         result["success"] = True
         result["duration"] = time.time() - start_time
 
-        # 6. Update volume tracking
-        try:
-            from robotaste.core.pump_volume_manager import update_volume_after_dispense
-            from robotaste.data.database import DB_PATH
-
-            update_volume_after_dispense(
-                db_path=DB_PATH,
-                session_id=session_id,
-                actual_volumes=stock_volumes,  # Dict[str, float] in µL
-                cycle_number=cycle_number
-            )
-        except Exception as e:
-            logger.warning(f"Volume tracking update failed: {e}")
-
-        # 7. Update global (cross-session) volume tracking
+        # 6. Update global (cross-session) volume tracking
         try:
             from robotaste.core.pump_volume_manager import update_global_volume_after_dispense
             from robotaste.data.database import DB_PATH, get_database_connection

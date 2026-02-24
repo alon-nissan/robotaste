@@ -101,6 +101,17 @@ export default function ModeratorSetupPage() {
           `/pump/global-status/${selectedProtocol!.protocol_id}`
         );
         setGlobalPumpStatus(data);
+
+        // Sync pumpVolumes from global state so Start Session uses real values
+        if (data.pump_enabled && data.ingredients) {
+          const synced: Record<string, number> = {};
+          for (const [name, info] of Object.entries(data.ingredients)) {
+            synced[name] = info.current_ul / 1000; // µL → mL
+          }
+          if (Object.keys(synced).length > 0) {
+            setPumpVolumes(synced);
+          }
+        }
       } catch {
         setGlobalPumpStatus(null);
       }
@@ -157,7 +168,14 @@ export default function ModeratorSetupPage() {
       setSessionCode(newSessionCode);
 
       // Step 2: Start the session with the selected protocol
-      const pumpVols = selectedProtocol.pump_config?.enabled ? pumpVolumes : undefined;
+      // Only send pump_volumes when the moderator entered them via PumpSetup
+      // (i.e. no existing global state). When global state exists, send undefined
+      // so the API carries over volumes from pump_global_state.
+      const hasGlobalState = globalPumpStatus?.pump_enabled &&
+        Object.keys(globalPumpStatus.ingredients).length > 0;
+      const pumpVols = selectedProtocol.pump_config?.enabled && !hasGlobalState
+        ? pumpVolumes
+        : undefined;
       await api.post(`/sessions/${newSessionId}/start`, {
         protocol_id: selectedProtocol.protocol_id,
         pump_volumes: pumpVols,
