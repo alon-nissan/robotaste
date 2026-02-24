@@ -60,11 +60,6 @@ correct subject URL.
 See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for complete
 step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPad.
 
-### Legacy Streamlit UI
-```bash
-streamlit run main_app.py
-```
-
 
 ### Testing
 ```bash
@@ -111,7 +106,6 @@ SQLite Database (robotaste.db)
   - `core/` - State machine, phase engine, trials, BO, pump manager
   - `data/` - Database layer, repositories, schema
   - `hardware/` - NE-4000 pump serial controller
-- `main_app.py` - Legacy Streamlit UI entry point
 - `pump_control_service.py` - Background pump control daemon
 - `tests/` - Pytest test suite
 - `docs/` - Documentation

@@ -45,7 +45,7 @@ from robotaste.data.database import (
     increment_cycle,
     get_session_samples
 )
-from robotaste.core.trials import prepare_cycle_sample, start_trial
+from robotaste.core.trials import prepare_cycle_sample
 from robotaste.config.bo_config import get_default_bo_config
 
 
@@ -710,67 +710,6 @@ class TestCycleIndexingAndSessionManagement:
                     }
                 }
             )
-
-    def test_cycle_initialization_is_one_based_protocol(self, test_db, sample_protocol):
-        """Test that protocol-driven sessions initialize cycle to 1."""
-        # Create protocol
-        protocol_id = create_protocol_in_db(sample_protocol)
-
-        # Create session with protocol
-        session_id, session_code = create_session("Test Moderator", protocol_id=protocol_id)
-
-        # Mock streamlit session_state for start_trial
-        with patch('streamlit.session_state', new_callable=MagicMock) as mock_st:
-            mock_st.get.return_value = session_id
-            mock_st.session_id = session_id
-
-            # Start trial with protocol
-            success = start_trial(
-                user_type="mod",
-                participant_id="test_participant",
-                protocol_id=protocol_id
-            )
-
-            assert success, "start_trial should succeed"
-
-        # Verify cycle starts at 1
-        session = get_session(session_id)
-        assert session is not None
-        assert session['experiment_config']['current_cycle'] == 1, \
-            "Protocol session should start at cycle 1"
-
-    def test_cycle_initialization_is_one_based_manual(self, test_db):
-        """Test that manual configuration sessions initialize cycle to 1."""
-        # Create session without protocol
-        session_id, session_code = create_session("Test Moderator 2")
-
-        # Mock streamlit session_state
-        with patch('streamlit.session_state', new_callable=MagicMock) as mock_st:
-            from robotaste.config.questionnaire import QUESTIONNAIRE_EXAMPLES
-            mock_st.get.side_effect = lambda key, default=None: {
-                "session_id": session_id,
-                "manual_questionnaire": QUESTIONNAIRE_EXAMPLES["hedonic_continuous"],
-                "bo_config": get_default_bo_config()
-            }.get(key, default)
-            mock_st.session_id = session_id
-
-            # Start trial with manual config
-            success = start_trial(
-                user_type="mod",
-                participant_id="test_participant_2",
-                method="linear",
-                num_ingredients=1,
-                selected_ingredients=["Sugar"],
-                ingredient_configs=[{"name": "Sugar", "min": 0, "max": 100}]
-            )
-
-            assert success, "start_trial with manual config should succeed"
-
-        # Verify cycle starts at 1
-        session = get_session(session_id)
-        assert session is not None
-        assert session['experiment_config']['current_cycle'] == 1, \
-            "Manual session should start at cycle 1"
 
     def test_complete_session_lifecycle_with_cycles(self, test_db):
         """Test complete flow: create → configure → run cycles → verify indexing."""

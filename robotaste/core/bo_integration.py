@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any
 
 from robotaste.data import database as sql
 from robotaste.core.calculations import ConcentrationMapper
-from robotaste.components.canvas import CANVAS_SIZE
+CANVAS_SIZE = 500  # Default canvas size for coordinate mapping
 
 # Setup logging
 logger = logging.getLogger(__name__)
