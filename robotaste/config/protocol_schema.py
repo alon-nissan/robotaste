@@ -493,6 +493,13 @@ PROTOCOL_JSON_SCHEMA = {
                                 "description": "Low volume alert threshold in microliters",
                                 "default": 2000,
                             },
+                            "dual_syringe": {
+                                "type": "boolean",
+                                "description": "Load 2 identical syringes on the same pump to double capacity. "
+                                               "When true, commanded volumes are halved (both syringes dispense equally) "
+                                               "and effective capacity is doubled for volume tracking.",
+                                "default": False,
+                            },
                         },
                     },
                 },

@@ -1,0 +1,222 @@
+{
+    "protocol_id": "sucrose_dose_response_002_dual_pumps",
+    "name": "Sucrose Dose Response Curve - Updated Instructions and Consent Wording - Dual Syringe Pumps",
+    "description": "Simple experiment with predetermined samples to showcase RoboTaste abilities, with dual-syringe pump dispensing enabled",
+    "version": "1.0",
+    "schema_version": "1.0",
+    "created_by": "Alon Nissan",
+    "created_at": "2026-02-24T00:00:00Z",
+    "tags": [
+        "dose-response",
+        "sucrose",
+        "predetermined_randomized",
+        "latin_square",
+        "pilot",
+        "dual_syringe"
+    ],
+    "ingredients": [
+        {
+            "name": "Sugar",
+            "min_concentration": 0.0,
+            "max_concentration": 100.0,
+            "unit": "mM",
+            "molecular_weight": 342.3,
+            "stock_concentration_mM": 200.0
+        },
+        {
+            "name": "Water",
+            "min_concentration": 0.0,
+            "max_concentration": 1.0,
+            "unit": "mM",
+            "molecular_weight": 18.015,
+            "stock_concentration_mM": 0.001,
+            "is_diluent": true
+        }
+    ],
+    "pump_config": {
+        "enabled": true,
+        "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+        "baud_rate": 19200,
+        "pumps": [
+            {
+                "address": 0,
+                "ingredient": "Water",
+                "syringe_diameter_mm": 29.0,
+                "max_rate_ul_min": 90000,
+                "stock_concentration_mM": 0.0,
+                "dual_syringe": true,
+                "description": "BD 50mL dual syringes with plain water for dilution"
+            },
+            {
+                "address": 1,
+                "ingredient": "Sugar",
+                "syringe_diameter_mm": 29.0,
+                "max_rate_ul_min": 90000,
+                "stock_concentration_mM": 200.0,
+                "dual_syringe": true,
+                "description": "BD 50mL dual syringes with sugar stock solution (200 mM)"
+            }
+        ],
+        "total_volume_ml": 10.0,
+        "dispensing_rate_ul_min": 90000,
+        "simultaneous_dispensing": true,
+        "use_burst_mode": true
+    },
+    "consent_form": {
+        "explanation": "Dear Participant,\n\nWelcome to the RoboTaste pilot experiment.\nParticipation will take approximately 10 minutes of your time. There are no right or wrong answers and we are only interested in your opinion.\nParticipation in the study will not entitle you to any compensation and carries no risk. Your answers are confidential, and we will not include any information that would identify you in any type of public reporting. Only researchers will have access to the study data.\nParticipation in the study is voluntary. You are free to choose not to participate in the study and to stop it at any time without providing a reason and without your rights being violated.",
+        "contact_info": "If you have any questions, please contact: Prof. Masha Niv (masha.niv@mail.huji.ac.il) or Alon Nissan (alon.nissan1@mail.huji.ac.il)",
+        "medical_disclaimers": [],
+        "consent_label": "I have read the above information and received answers to my questions."
+    },
+    "instructions_screen": {
+        "title": "Instructions",
+        "text": "**Welcome to the Experiment!**\n\nIn this experiment you will taste a number of liquid samples, one at a time.\n\nFor each sample:\n\n1. The robot will prepare your sample.\n2. Take the cup, and **place a clean cup** under the spout.\n3. Rinse your mouth with water and **stir lightly** with the provided wooden stirrer.\n4. Rate the **sweetness intensity** on the scale provided.\n5. Rinse your mouth thoroughly with water before the next sample.",
+        "callout": "**Important:**\n- Please rinse your mouth with water **before and after** every tasting.\n- Place a **clean cup** under the spout before each new sample.\n- There are no right or wrong answers — we are only interested in your perception.",
+        "confirm_label": "I have read and understand the instructions.",
+        "button_label": "Begin Experiment"
+    },
+    "sample_selection_schedule": [
+        {
+            "cycle_range": {
+                "start": 1,
+                "end": 6
+            },
+            "mode": "predetermined_randomized",
+            "sample_bank": {
+                "samples": [
+                    {
+                        "id": "A",
+                        "concentrations": {
+                            "Sugar": 0.0
+                        },
+                        "label": "No Sugar"
+                    },
+                    {
+                        "id": "B",
+                        "concentrations": {
+                            "Sugar": 20.0
+                        },
+                        "label": "Very Low Sugar"
+                    },
+                    {
+                        "id": "C",
+                        "concentrations": {
+                            "Sugar": 40.0
+                        },
+                        "label": "Low Sugar"
+                    },
+                    {
+                        "id": "D",
+                        "concentrations": {
+                            "Sugar": 60.0
+                        },
+                        "label": "Medium Sugar"
+                    },
+                    {
+                        "id": "E",
+                        "concentrations": {
+                            "Sugar": 80.0
+                        },
+                        "label": "High Sugar"
+                    },
+                    {
+                        "id": "F",
+                        "concentrations": {
+                            "Sugar": 100.0
+                        },
+                        "label": "Very High Sugar"
+                    }
+                ],
+                "design_type": "latin_square",
+                "constraints": {
+                    "prevent_consecutive_repeats": true,
+                    "ensure_all_used_before_repeat": true
+                }
+            }
+        }
+    ],
+    "questionnaire": {
+        "name": "Sweetness Intensity Scale",
+        "description": "Continuous 9-point intensity scale for measuring perceived sweetness.",
+        "version": "1.0",
+        "questions": [
+            {
+                "id": "sweetness_intensity",
+                "type": "slider",
+                "label": "How sweet was the sample you just tasted?",
+                "help_text": "Rate the sweetness intensity from 1 (Not Sweet at All) to 9 (Intense Sweetness).",
+                "scale_labels": {
+                    "1": "Not Sweet at All",
+                    "3": "Light Sweetness",
+                    "5": "Medium Sweetness",
+                    "7": "High Sweetness",
+                    "9": "Intense Sweetness"
+                },
+                "min": 1.0,
+                "max": 9.0,
+                "default": 5.0,
+                "step": 0.01,
+                "required": true,
+                "display_type": "slider_continuous"
+            }
+        ],
+        "bayesian_target": {
+            "variable": "sweetness_intensity",
+            "transform": "identity",
+            "higher_is_better": true,
+            "description": "Measure sweetness intensity.",
+            "expected_range": [1.0, 9.0],
+            "optimal_threshold": 5.0
+        }
+    },
+    "bayesian_optimization": {
+        "enabled": false
+    },
+    "phase_sequence": {
+        "phases": [
+            {
+                "phase_id": "consent",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "instructions",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "experiment_loop",
+                "phase_type": "loop",
+                "required": true
+            },
+            {
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "completion",
+                "phase_type": "builtin",
+                "required": true
+            }
+        ]
+    },
+    "stopping_criteria": {
+        "max_cycles": 6,
+        "min_cycles": 6
+    },
+    "loading_screen": {
+        "message": "Please rinse your mouth with water before and after every tasting.\n\nOnce the robot is done preparing your sample, take the cup and stir the sample lightly with the provided wooden stirrer and *place a clean cup under the spout*.",
+        "duration_seconds": 12,
+        "use_dynamic_duration": true,
+        "show_progress": true,
+        "show_cycle_info": true,
+        "message_size": "large"
+    },
+    "data_collection": {
+        "track_trajectory": false,
+        "track_interaction_times": false,
+        "collect_demographics": true,
+        "custom_metadata": {}
+    }
+}

@@ -2643,14 +2643,21 @@ def render_protocol_selection():
                     ingredient = pump["ingredient"]
                     max_capacity_ul = pump.get("syringe_max_capacity_ul", 60000)
                     alert_threshold = pump.get("alert_threshold_ul", 2000.0)
+                    is_dual = pump.get("dual_syringe", False)
+
+                    # Dual syringe: double effective capacity
+                    effective_capacity_ul = max_capacity_ul * 2 if is_dual else max_capacity_ul
 
                     # Convert to mL for user input
-                    max_capacity_ml = max_capacity_ul / 1000.0
+                    max_capacity_ml = effective_capacity_ul / 1000.0
 
                     col1, col2 = st.columns([3, 1])
                     with col1:
+                        label = f"{ingredient} - Initial Volume (mL)"
+                        if is_dual:
+                            label += " [Dual Syringe]"
                         initial_vol_ml = st.number_input(
-                            f"{ingredient} - Initial Volume (mL)",
+                            label,
                             min_value=0.0,
                             max_value=float(max_capacity_ml),
                             value=float(max_capacity_ml * 0.8),  # Default 80%
@@ -2662,7 +2669,7 @@ def render_protocol_selection():
 
                     # Convert input back to µL for storage
                     ingredient_volumes[ingredient] = {
-                        "max_capacity_ul": max_capacity_ul,
+                        "max_capacity_ul": effective_capacity_ul,
                         "initial_volume_ul": initial_vol_ml * 1000.0,
                         "alert_threshold_ul": alert_threshold,
                     }

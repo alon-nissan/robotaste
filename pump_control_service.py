@@ -217,10 +217,12 @@ def _build_burst_configs(
         volume_ul = recipe.get(ingredient, 0)
         if volume_ul < 0.001:
             continue
+        # Dual syringe: halve commanded volume (both syringes dispense equally)
+        commanded_volume = volume_ul / 2 if pump_cfg.get('dual_syringe', False) else volume_ul
         configs.append(PumpBurstConfig(
             address=address,
             rate_ul_min=dispensing_rate,
-            volume_ul=volume_ul,
+            volume_ul=commanded_volume,
             diameter_mm=pump_cfg.get('syringe_diameter_mm', 26.7),
             volume_unit=pump_cfg.get('volume_unit', 'ML'),
             direction="INF"
@@ -483,13 +485,18 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                         f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                     )
 
+                # Dual syringe: halve commanded volume (both syringes dispense equally)
+                is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+                commanded_volume = volume_ul / 2 if is_dual else volume_ul
+
                 pump.dispense_volume(
-                    volume_ul=volume_ul,
+                    volume_ul=commanded_volume,
                     rate_ul_min=dispensing_rate,
                     wait=False,  # Don't wait, start next pump
                     volume_unit=volume_unit,
                 )
-                logger.debug(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL")
+                logger.debug(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL"
+                             f"{' (dual syringe, commanded ' + f'{commanded_volume:.3f}µL)' if is_dual else ''}")
 
             except (PumpCommandError, PumpTimeoutError) as e:
                 error_msg = f"Failed to start pump for {ingredient}: {str(e)}"
@@ -506,10 +513,12 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
             error_summary = "; ".join(errors)
             raise Exception(f"Failed to start pumps: {error_summary}")
 
-        # Calculate max wait time
+        # Calculate max wait time (use commanded volume for time estimate)
         max_time = 0
         for ingredient, pump, volume_ul in pump_info:
-            time_needed = (volume_ul / dispensing_rate) * 60 * 1.1  # 10% buffer
+            is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+            commanded_volume = volume_ul / 2 if is_dual else volume_ul
+            time_needed = (commanded_volume / dispensing_rate) * 60 * 1.1  # 10% buffer
             max_time = max(max_time, time_needed)
 
         logger.info(f"Waiting {max_time:.2f}s for all pumps to complete")
@@ -558,9 +567,13 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                         f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                     )
 
+                # Dual syringe: halve commanded volume (both syringes dispense equally)
+                is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+                commanded_volume = volume_ul / 2 if is_dual else volume_ul
+
                 # Dispense volume (this will block until complete)
                 pump.dispense_volume(
-                    volume_ul=volume_ul,
+                    volume_ul=commanded_volume,
                     rate_ul_min=dispensing_rate,
                     wait=True,
                     volume_unit=volume_unit,

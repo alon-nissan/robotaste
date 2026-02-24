@@ -41,6 +41,33 @@ protocol JSON under `pump_config`.
 - `volume_unit`: Volume unit for the pump. Must be `ML` or `UL`.
   - `ML` uses milliliters for `VOL` commands.
   - `UL` uses microliters for `VOL` commands (max 9999).
+- `dual_syringe`: *(optional, default `false`)* When `true`, indicates that two
+  identical syringes are loaded on the same pump body. The system halves the
+  commanded volume (both syringes dispense the same amount) and doubles the
+  effective capacity for volume tracking.
+
+## Dual Syringe Mode
+
+The NE-4000 pump can hold two syringes that operate simultaneously with
+identical parameters. When you set `VOL 5.000` and `RUN`, **both** syringes
+dispense 5 mL each, delivering 10 mL total.
+
+To enable dual syringe for a specific pump, add `"dual_syringe": true`:
+
+```json
+{
+  "address": 0,
+  "ingredient": "Sugar",
+  "syringe_diameter_mm": 29.0,
+  "dual_syringe": true
+}
+```
+
+**Behavior when enabled:**
+- Commanded volume is halved: to dispense 10 mL total, the pump receives `VOL 5.000`.
+- Volume tracking capacity is doubled: a 50 mL syringe tracks as 100 mL capacity.
+- Syringe diameter stays the same (both syringes are identical).
+- The setting is per-pump: some pumps can use dual while others use single.
 
 ## Notes
 
