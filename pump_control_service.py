@@ -367,8 +367,10 @@ def dispense_burst_mode(
             for pump_cfg in pump_config.get('pumps', []):
                 if pump_cfg.get('address') == c.address:
                     ingredient = pump_cfg.get('ingredient', f'Pump{c.address}')
-                    actual_volumes[ingredient] = c.volume_ul
-                    logger.debug(f"  ✅ {ingredient} complete: {c.volume_ul:.1f}µL")
+                    # Use original recipe volume (not halved commanded volume)
+                    # so volume tracking accounts for both syringes in dual mode
+                    actual_volumes[ingredient] = recipe.get(ingredient, c.volume_ul)
+                    logger.debug(f"  ✅ {ingredient} complete: {actual_volumes[ingredient]:.1f}µL")
                     break
 
     logger.info(f"✅ Burst dispensing complete: {actual_volumes}")
