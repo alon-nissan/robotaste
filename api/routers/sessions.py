@@ -241,9 +241,40 @@ def start_session(session_id: str, request: StartSessionRequest):
 
     logger.info(f"Starting session {session_id} with protocol '{protocol.get('name', '?')}' (id={request.protocol_id})")
 
+    # Step 2.5: Cross-session volume carryover
+    # If pump volumes were not provided by the moderator, carry over from global state
+    pump_volumes = request.pump_volumes
+    pump_config = protocol.get("pump_config", {})
+    if pump_config.get("enabled", False):
+        try:
+            from robotaste.core.pump_volume_manager import (
+                get_or_create_global_state,
+                set_global_volume,
+            )
+            from robotaste.data.database import DB_PATH
+
+            global_state = get_or_create_global_state(DB_PATH, request.protocol_id, protocol)
+
+            if pump_volumes:
+                # Moderator provided volumes: update global state to match
+                for pump_def in pump_config.get("pumps", []):
+                    ingredient = pump_def.get("ingredient", "")
+                    address = pump_def.get("address")
+                    if ingredient in pump_volumes and address is not None:
+                        vol_ul = pump_volumes[ingredient] * 1000.0  # mL → µL
+                        set_global_volume(DB_PATH, request.protocol_id, address, vol_ul)
+            elif global_state:
+                # No volumes provided: carry over from global state
+                pump_volumes = {}
+                for ingredient, info in global_state.items():
+                    pump_volumes[ingredient] = info["current_ul"] / 1000.0  # µL → mL
+                logger.info(f"Carried over pump volumes from global state: {pump_volumes}")
+        except Exception as e:
+            logger.warning(f"Global volume carryover failed (non-fatal): {e}")
+
     # Step 3: Build experiment config from protocol
     # This mirrors what start_session_with_protocol() does in moderator.py
-    experiment_config = _build_experiment_config(protocol, request.pump_volumes)
+    experiment_config = _build_experiment_config(protocol, pump_volumes)
 
     # Step 4: Save config to session
     # update_session_with_config() requires these individual positional args

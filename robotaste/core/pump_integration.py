@@ -766,7 +766,35 @@ def execute_pumps_synchronously(
             )
         except Exception as e:
             logger.warning(f"Volume tracking update failed: {e}")
-            # Don't fail the whole operation if volume tracking fails
+
+        # 7. Update global (cross-session) volume tracking
+        try:
+            from robotaste.core.pump_volume_manager import update_global_volume_after_dispense
+            from robotaste.data.database import DB_PATH, get_database_connection
+
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT protocol_id FROM sessions WHERE session_id = ?",
+                    (session_id,)
+                )
+                row = cursor.fetchone()
+
+            if row and row[0]:
+                proto_id = row[0]
+                for pump_cfg in pump_configs:
+                    ing_name = pump_cfg.get("ingredient")
+                    addr = pump_cfg.get("address")
+                    if ing_name and addr is not None and ing_name in stock_volumes:
+                        update_global_volume_after_dispense(
+                            db_path=DB_PATH,
+                            protocol_id=proto_id,
+                            pump_address=addr,
+                            volume_dispensed_ul=stock_volumes[ing_name],
+                            session_id=session_id,
+                        )
+        except Exception as e:
+            logger.warning(f"Global volume tracking update failed: {e}")
 
         ui_log(f"🎉 All pumps completed successfully in {result['duration']:.1f}s", "success")
 

@@ -10,15 +10,15 @@
  * │ Moderator Dashboard                          │
  * │                                              │
  * │ ┌───────────────────┐  ┌───────────────────┐ │
- * │ │ Select Protocol   │  │ Import / Upload    │ │
- * │ │ [dropdown ▼]      │  │ [drag-drop zone]   │ │
- * │ │ [summary card]    │  │ [Documentation]    │ │
+ * │ │ Select Protocol   │  │ Pump Status        │ │
+ * │ │ [dropdown ▼]      │  │ Sol I  [████░░] XX%│ │
+ * │ │ [summary card]    │  │ Sol II [██████] XX%│ │
  * │ └───────────────────┘  └───────────────────┘ │
  * │                                              │
  * │ ┌───────────────────┐  ┌───────────────────┐ │
- * │ │ Pump Setup        │  │                    │ │
- * │ │ Sol I [XX.XX mL]  │  │   [Start Button]  │ │
- * │ │ Sol II [XX.XX mL] │  │                    │ │
+ * │ │ Import / Upload   │  │                    │ │
+ * │ │ [drag-drop zone]  │  │   [Start Button]  │ │
+ * │ │ [Documentation]   │  │                    │ │
  * │ └───────────────────┘  └───────────────────┘ │
  * └──────────────────────────────────────────────┘
  *
@@ -40,10 +40,10 @@
  * Like st.rerun() but navigates to a different URL.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Protocol } from '../types';
+import type { Protocol, PumpGlobalStatus } from '../types';
 
 // Import our child components
 import PageLayout from '../components/PageLayout';
@@ -51,6 +51,7 @@ import ProtocolSelector from '../components/ProtocolSelector';
 import ProtocolUpload from '../components/ProtocolUpload';
 import DocumentationLinks from '../components/DocumentationLinks';
 import PumpSetup from '../components/PumpSetup';
+import RefillWizard from '../components/RefillWizard';
 
 export default function ModeratorSetupPage() {
   // ─── STATE ─────────────────────────────────────────────────────────────
@@ -75,8 +76,38 @@ export default function ModeratorSetupPage() {
   // Counter to force ProtocolSelector to re-fetch after upload
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Global pump status (cross-session volume tracking)
+  const [globalPumpStatus, setGlobalPumpStatus] = useState<PumpGlobalStatus | null>(null);
+
+  // Refill wizard state
+  const [refillTarget, setRefillTarget] = useState<{
+    ingredient: string;
+    pumpAddress: number;
+  } | null>(null);
+
   // React Router's navigation hook — lets us redirect to the monitoring page
   const navigate = useNavigate();
+
+  // Fetch global pump status when protocol changes
+  useEffect(() => {
+    if (!selectedProtocol?.pump_config?.enabled || !selectedProtocol.protocol_id) {
+      setGlobalPumpStatus(null);
+      return;
+    }
+
+    async function fetchGlobalStatus() {
+      try {
+        const { data } = await api.get<PumpGlobalStatus>(
+          `/pump/global-status/${selectedProtocol!.protocol_id}`
+        );
+        setGlobalPumpStatus(data);
+      } catch {
+        setGlobalPumpStatus(null);
+      }
+    }
+
+    fetchGlobalStatus();
+  }, [selectedProtocol?.protocol_id, selectedProtocol?.pump_config?.enabled]);
 
 
   // ─── HANDLERS ──────────────────────────────────────────────────────────
@@ -155,9 +186,7 @@ export default function ModeratorSetupPage() {
         Moderator Dashboard
       </h1>
 
-      {/* ═══ TOP ROW: Protocol Selection + Import (2-column grid) ═══ */}
-      {/* grid grid-cols-2: Creates a 2-column grid layout */}
-      {/* gap-6: 24px spacing between columns */}
+      {/* ═══ TOP ROW: Protocol Selection + Pump Status (2-column grid) ═══ */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
 
         {/* LEFT COLUMN: Protocol Selector */}
@@ -170,24 +199,61 @@ export default function ModeratorSetupPage() {
           />
         </div>
 
-        {/* RIGHT COLUMN: Import + Documentation */}
-        <div className="p-6 bg-surface rounded-xl border border-border">
-          <ProtocolUpload onUploadSuccess={handleUploadSuccess} />
-          <DocumentationLinks />
-        </div>
-      </div>
-
-      {/* ═══ BOTTOM ROW: Pump Setup + Start Button (2-column grid) ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* LEFT COLUMN: Pump Setup (only shows when pumps are enabled) */}
+        {/* RIGHT COLUMN: Pump Status (only shows when pumps are enabled) */}
         <div className="p-6 bg-surface rounded-xl border border-border">
           {selectedProtocol?.pump_config?.enabled ? (
-            <PumpSetup
-              protocol={selectedProtocol}
-              volumes={pumpVolumes}
-              onVolumesChange={setPumpVolumes}
-            />
+            <div className="space-y-6">
+              {/* Global pump status (cross-session volumes) — shown when state exists */}
+              {globalPumpStatus?.pump_enabled && Object.keys(globalPumpStatus.ingredients).length > 0 ? (
+                <div>
+                  <h3 className="text-lg font-semibold text-text-primary mb-3">
+                    Pump Volume Status
+                  </h3>
+                  <div className="space-y-3">
+                    {Object.entries(globalPumpStatus.ingredients).map(([name, ingStatus]) => (
+                      <div key={name}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium text-text-primary">
+                            {ingStatus.alert_active && '⚠️ '}{name}
+                          </span>
+                          <span className="text-sm text-text-secondary">
+                            {ingStatus.percent_remaining.toFixed(0)}%
+                          </span>
+                        </div>
+
+                        <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              ingStatus.alert_active ? 'bg-red-500' : 'bg-primary'
+                            }`}
+                            style={{ width: `${Math.min(100, ingStatus.percent_remaining)}%` }}
+                          />
+                        </div>
+
+                        <div className="flex justify-between items-center mt-1">
+                          <span className="text-xs text-text-secondary">
+                            {(ingStatus.current_ul / 1000).toFixed(1)} / {(ingStatus.max_capacity_ul / 1000).toFixed(1)} mL
+                          </span>
+                          <button
+                            onClick={() => setRefillTarget({ ingredient: name, pumpAddress: ingStatus.pump_address })}
+                            className="text-xs text-primary hover:text-primary-light underline"
+                          >
+                            Refill
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* No global state yet — show initial volume inputs */
+                <PumpSetup
+                  protocol={selectedProtocol}
+                  volumes={pumpVolumes}
+                  onVolumesChange={setPumpVolumes}
+                />
+              )}
+            </div>
           ) : (
             <div className="text-base text-text-secondary">
               {selectedProtocol
@@ -195,6 +261,16 @@ export default function ModeratorSetupPage() {
                 : 'Select a protocol to see pump configuration'}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ═══ BOTTOM ROW: Import/Docs + Start Button (2-column grid) ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        {/* LEFT COLUMN: Import + Documentation */}
+        <div className="p-6 bg-surface rounded-xl border border-border">
+          <ProtocolUpload onUploadSuccess={handleUploadSuccess} />
+          <DocumentationLinks />
         </div>
 
         {/* RIGHT COLUMN: Start Button */}
@@ -231,6 +307,25 @@ export default function ModeratorSetupPage() {
           )}
         </div>
       </div>
+
+      {/* Refill Wizard Modal */}
+      {refillTarget && selectedProtocol && (
+        <RefillWizard
+          protocolId={selectedProtocol.protocol_id}
+          pumpAddress={refillTarget.pumpAddress}
+          ingredient={refillTarget.ingredient}
+          onComplete={() => {
+            setRefillTarget(null);
+            // Refresh global pump status
+            if (selectedProtocol?.protocol_id) {
+              api.get<PumpGlobalStatus>(`/pump/global-status/${selectedProtocol.protocol_id}`)
+                .then(({ data }) => setGlobalPumpStatus(data))
+                .catch(() => {});
+            }
+          }}
+          onCancel={() => setRefillTarget(null)}
+        />
+      )}
     </PageLayout>
   );
 }

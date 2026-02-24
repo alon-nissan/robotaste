@@ -45,6 +45,8 @@
                 "max_rate_ul_min": 90000,
                 "stock_concentration_mM": 0.0,
                 "dual_syringe": true,
+                "tube_volume_ul": 1500.0,
+                "purge_volume_ul": 1500.0,
                 "description": "BD 50mL dual syringes with plain water for dilution"
             },
             {
@@ -54,6 +56,8 @@
                 "max_rate_ul_min": 90000,
                 "stock_concentration_mM": 200.0,
                 "dual_syringe": true,
+                "tube_volume_ul": 1500.0,
+                "purge_volume_ul": 1500.0,
                 "description": "BD 50mL dual syringes with sugar stock solution (200 mM)"
             }
         ],

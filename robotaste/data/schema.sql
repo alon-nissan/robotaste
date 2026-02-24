@@ -212,7 +212,45 @@ CREATE TABLE IF NOT EXISTS pump_volume_history (
 
 CREATE INDEX IF NOT EXISTS idx_pump_volume_history_session ON pump_volume_history(session_id);
 
--- Table 11: Session Sample Bank State (Track randomized sample order per session)
+-- Table 11: Pump Global State (Cross-Session Volume Tracking)
+CREATE TABLE IF NOT EXISTS pump_global_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    protocol_id TEXT NOT NULL,
+    pump_address INTEGER NOT NULL,
+    ingredient_name TEXT NOT NULL,
+    current_volume_ul REAL NOT NULL DEFAULT 0,
+    max_capacity_ul REAL NOT NULL,
+    total_dispensed_ul REAL DEFAULT 0,
+    alert_threshold_ul REAL DEFAULT 2000.0,
+    last_session_id TEXT,
+    last_dispensed_at TIMESTAMP,
+    last_refilled_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(protocol_id, pump_address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pump_global_state_protocol ON pump_global_state(protocol_id);
+
+-- Table 12: Pump Refill Operations (Withdraw/Purge Queue)
+CREATE TABLE IF NOT EXISTS pump_refill_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    protocol_id TEXT NOT NULL,
+    pump_address INTEGER NOT NULL,
+    ingredient_name TEXT NOT NULL,
+    operation_type TEXT NOT NULL,  -- "withdraw" or "purge"
+    volume_ul REAL NOT NULL,
+    direction TEXT NOT NULL,       -- "WDR" for withdraw, "INF" for purge
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pump_refill_ops_status ON pump_refill_operations(status, created_at);
+
+-- Table 13: Session Sample Bank State (Track randomized sample order per session)
 CREATE TABLE IF NOT EXISTS session_sample_bank_state (
     session_id TEXT NOT NULL,
     protocol_schedule_index INTEGER NOT NULL,
