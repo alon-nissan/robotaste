@@ -324,7 +324,7 @@ export default function QuestionnairePage() {
         });
         const pumpEnabled = selRes.data.pump_enabled;
         navigate(pumpEnabled
-          ? `/subject/${sessionId}/preparing`
+          ? `/subject/${sessionId}/cup-ready`
           : `/subject/${sessionId}/questionnaire`
         );
       } else {

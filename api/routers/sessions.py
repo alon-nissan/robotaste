@@ -583,34 +583,77 @@ def submit_selection(session_id: str, request: SelectionRequest):
         )
         conn.commit()
 
-    # Advance phase: selection → robot_preparing (pump) or loading (no pump)
+    # Advance phase: selection → cup_ready (pump) or loading (no pump)
     pump_config = config.get("pump_config", {})
     pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
-    next_phase = "robot_preparing" if pump_enabled else "loading"
+    next_phase = "cup_ready" if pump_enabled else "loading"
     update_current_phase(session_id, next_phase)
 
-    if pump_enabled:
-        # Create a pump operation so the pump_control_service can pick it up
-        try:
-            from robotaste.core.pump_integration import create_pump_operation_for_cycle
-            op_id = create_pump_operation_for_cycle(
-                session_id, cycle_number,
-                concentrations=request.concentrations,
-            )
-            if op_id:
-                logger.info(f"Pump operation created: op_id={op_id}, session={session_id}, cycle={cycle_number}")
-            else:
-                logger.warning(f"Pump operation creation returned None for session {session_id}, cycle {cycle_number}")
-        except Exception as e:
-            logger.error(f"Failed to create pump operation for session {session_id}, cycle {cycle_number}: {e}")
-    else:
+    if not pump_enabled:
         logger.info(f"Selection saved for session {session_id} → phase=loading, cycle={cycle_number}")
+    else:
+        logger.info(f"Selection saved for session {session_id} → phase=cup_ready, cycle={cycle_number}")
 
     return {
         "message": "Selection saved",
         "cycle": cycle_number,
         "next_phase": next_phase,
         "pump_enabled": pump_enabled,
+    }
+
+
+# ─── CONFIRM CUP READY ────────────────────────────────────────────────────
+@router.post("/{session_id}/confirm-cup-ready")
+def confirm_cup_ready(session_id: str):
+    """
+    Subject confirms cup is placed under spout.
+    Transitions cup_ready → robot_preparing and creates the pump operation.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    current_phase = session.get("current_phase", "")
+    if current_phase != "cup_ready":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Expected phase cup_ready, got {current_phase}",
+        )
+
+    cycle_number = get_current_cycle(session_id)
+
+    # Retrieve persisted concentrations
+    config = session.get("experiment_config", {})
+    pending = config.get("_pending_concentrations", {}).get(str(cycle_number))
+    if not pending:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No pending concentrations for cycle {cycle_number}",
+        )
+
+    concentrations = pending["concentrations"]
+
+    # Transition to robot_preparing
+    update_current_phase(session_id, "robot_preparing")
+
+    # Create pump operation
+    try:
+        from robotaste.core.pump_integration import create_pump_operation_for_cycle
+        op_id = create_pump_operation_for_cycle(
+            session_id, cycle_number,
+            concentrations=concentrations,
+        )
+        if op_id:
+            logger.info(f"Pump operation created: op_id={op_id}, session={session_id}, cycle={cycle_number}")
+        else:
+            logger.warning(f"Pump operation creation returned None for session {session_id}, cycle {cycle_number}")
+    except Exception as e:
+        logger.error(f"Failed to create pump operation for session {session_id}, cycle {cycle_number}: {e}")
+
+    return {
+        "message": "Cup ready confirmed, dispensing started",
+        "cycle": cycle_number,
+        "next_phase": "robot_preparing",
     }
 
 

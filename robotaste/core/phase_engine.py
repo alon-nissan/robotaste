@@ -205,7 +205,7 @@ class PhaseEngine:
         Returns:
             True if phase is part of loop
         """
-        return phase_id in ["loading", "questionnaire", "selection", "robot_preparing"]
+        return phase_id in ["loading", "questionnaire", "selection", "robot_preparing", "cup_ready"]
 
     def _should_stop_experiment(self, current_cycle: int) -> bool:
         """Determine if experiment should stop based on stopping criteria.
@@ -263,6 +263,8 @@ class PhaseEngine:
         # Standard loop progression
         if current_phase == "selection":
             return "loading"
+        elif current_phase == "cup_ready":
+            return "robot_preparing"
         elif current_phase == "loading" or current_phase == "robot_preparing":
             return "questionnaire"
         elif current_phase == "questionnaire":
