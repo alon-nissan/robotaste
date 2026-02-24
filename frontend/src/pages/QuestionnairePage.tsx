@@ -342,7 +342,7 @@ export default function QuestionnairePage() {
 
   return (
     <PageLayout showLogo={false}>
-      <div className="max-w-2xl mx-auto mt-8">
+      <div className="max-w-4xl mx-auto mt-8">
         <div className="p-6 bg-surface rounded-xl border border-border">
           <h2 className="text-xl font-semibold text-text-primary mb-6">
             {title}
