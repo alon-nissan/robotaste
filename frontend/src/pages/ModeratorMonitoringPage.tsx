@@ -43,10 +43,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { SessionStatus, PumpStatus, ModeInfo, Sample } from '../types';
+import type { SessionStatus, PumpGlobalStatus, ModeInfo, Sample } from '../types';
 
 import PageLayout from '../components/PageLayout';
 import SubjectConnectionCard from '../components/SubjectConnectionCard';
+import RefillWizard from '../components/RefillWizard';
 
 export default function ModeratorMonitoringPage() {
   // ─── URL PARAMS ────────────────────────────────────────────────────────
@@ -58,12 +59,18 @@ export default function ModeratorMonitoringPage() {
 
   // ─── STATE ─────────────────────────────────────────────────────────────
   const [status, setStatus] = useState<SessionStatus | null>(null);
-  const [pumpStatus, setPumpStatus] = useState<PumpStatus | null>(null);
+  const [globalPumpStatus, setGlobalPumpStatus] = useState<PumpGlobalStatus | null>(null);
   const [modeInfo, setModeInfo] = useState<ModeInfo | null>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+
+  // Refill wizard state
+  const [refillTarget, setRefillTarget] = useState<{
+    ingredient: string;
+    pumpAddress: number;
+  } | null>(null);
 
   // ─── FETCH DATA ────────────────────────────────────────────────────────
   // This function fetches all monitoring data from the API.
@@ -73,18 +80,28 @@ export default function ModeratorMonitoringPage() {
 
     try {
       // Fetch all data in parallel using Promise.all
-      // This sends all 4 requests simultaneously (much faster than sequential)
-      const [statusRes, pumpRes, modeRes, samplesRes] = await Promise.all([
+      // This sends all 3 requests simultaneously (much faster than sequential)
+      const [statusRes, modeRes, samplesRes] = await Promise.all([
         api.get(`/sessions/${sessionId}/status`),
-        api.get(`/pump/status/${sessionId}`),
         api.get(`/sessions/${sessionId}/mode-info`),
         api.get(`/sessions/${sessionId}/samples`),
       ]);
 
       setStatus(statusRes.data);
-      setPumpStatus(pumpRes.data);
       setModeInfo(modeRes.data);
       setSamples(samplesRes.data.samples || []);
+
+      // Fetch global pump status using protocol_id from experiment_config
+      const protocolId = statusRes.data?.experiment_config?.protocol_id;
+      if (protocolId) {
+        try {
+          const pumpRes = await api.get<PumpGlobalStatus>(`/pump/global-status/${protocolId}`);
+          setGlobalPumpStatus(pumpRes.data);
+        } catch {
+          setGlobalPumpStatus(null);
+        }
+      }
+
       setError(null);
 
     } catch (err) {
@@ -142,35 +159,15 @@ export default function ModeratorMonitoringPage() {
   }
 
 
-  // ─── HANDLE REFILL ────────────────────────────────────────────────────
-  async function handleRefill(ingredient: string) {
-    if (!sessionId) return;
-
-    // For now, we prompt for the volume. A proper UI would use a modal.
-    const volumeStr = window.prompt(
-      `Enter refill volume for ${ingredient} (µL):`,
-      '50000'
-    );
-    if (!volumeStr) return;
-
-    const volumeUl = parseFloat(volumeStr);
-    if (isNaN(volumeUl) || volumeUl <= 0) {
-      alert('Please enter a valid positive number');
-      return;
+  // ─── REFRESH PUMP STATUS ─────────────────────────────────────────────
+  const refreshPumpStatus = useCallback(() => {
+    const protocolId = (status?.experiment_config as Record<string, unknown>)?.protocol_id as string;
+    if (protocolId) {
+      api.get<PumpGlobalStatus>(`/pump/global-status/${protocolId}`)
+        .then(({ data }) => setGlobalPumpStatus(data))
+        .catch(() => {});
     }
-
-    try {
-      await api.post('/pump/refill', {
-        session_id: sessionId,
-        ingredient,
-        volume_ul: volumeUl,
-      });
-      // Refresh data after refill
-      fetchData();
-    } catch (err) {
-      setError(`Failed to record refill for ${ingredient}`);
-    }
-  }
+  }, [status?.experiment_config]);
 
 
   // ─── LOADING STATE ────────────────────────────────────────────────────
@@ -321,17 +318,16 @@ export default function ModeratorMonitoringPage() {
           </div>
         </div>
 
-        {/* RIGHT: Pump Status */}
+        {/* MIDDLE: Pump Status (global cross-session volumes) */}
         <div className="bg-surface rounded-xl border border-border p-6">
           <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
             Pump Status
           </h3>
 
-          {pumpStatus?.pump_enabled ? (
+          {globalPumpStatus?.pump_enabled ? (
             <div className="space-y-4">
-              {Object.entries(pumpStatus.ingredients).map(([name, ingStatus]) => (
+              {Object.entries(globalPumpStatus.ingredients).map(([name, ingStatus]) => (
                 <div key={name}>
-                  {/* Ingredient label + percentage */}
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-sm font-medium text-text-primary">
                       {ingStatus.alert_active && '⚠️ '}{name}
@@ -341,7 +337,6 @@ export default function ModeratorMonitoringPage() {
                     </span>
                   </div>
 
-                  {/* Progress bar */}
                   <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
@@ -351,13 +346,12 @@ export default function ModeratorMonitoringPage() {
                     />
                   </div>
 
-                  {/* Volume info + refill button */}
                   <div className="flex justify-between items-center mt-1">
                     <span className="text-xs text-text-secondary">
-                      {ingStatus.current_ul.toLocaleString()} / {ingStatus.max_capacity_ul.toLocaleString()} µL
+                      {(ingStatus.current_ul / 1000).toFixed(1)} / {(ingStatus.max_capacity_ul / 1000).toFixed(1)} mL
                     </span>
                     <button
-                      onClick={() => handleRefill(name)}
+                      onClick={() => setRefillTarget({ ingredient: name, pumpAddress: ingStatus.pump_address })}
                       className="text-xs text-primary hover:text-primary-light underline"
                     >
                       Refill
@@ -389,6 +383,20 @@ export default function ModeratorMonitoringPage() {
           {ending ? 'Ending...' : '🛑 End Session'}
         </button>
       </div>
+
+      {/* Refill Wizard Modal */}
+      {refillTarget && status?.experiment_config && (
+        <RefillWizard
+          protocolId={(status.experiment_config as Record<string, unknown>).protocol_id as string}
+          pumpAddress={refillTarget.pumpAddress}
+          ingredient={refillTarget.ingredient}
+          onComplete={() => {
+            setRefillTarget(null);
+            refreshPumpStatus();
+          }}
+          onCancel={() => setRefillTarget(null)}
+        />
+      )}
     </PageLayout>
   );
 }

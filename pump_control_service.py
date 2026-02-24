@@ -43,12 +43,12 @@ from robotaste.utils.pump_db import (
     get_operation_by_id,
     mark_operation_in_progress,
     mark_operation_completed,
-    mark_operation_failed
+    mark_operation_failed,
+    get_pending_refill_operations,
+    update_refill_operation_status,
 )
 from robotaste.data.protocol_repo import get_protocol_by_id
 from robotaste.data.database import get_database_connection
-from robotaste.core.pump_volume_manager import update_volume_after_dispense
-
 # Global state
 pumps: Dict[int, NE4000Pump] = {}  # address -> pump instance
 burst_init_sessions: Dict[str, bool] = {}  # session_id -> True if DIA/RAT/DIR/VOL-unit set
@@ -217,10 +217,12 @@ def _build_burst_configs(
         volume_ul = recipe.get(ingredient, 0)
         if volume_ul < 0.001:
             continue
+        # Dual syringe: halve commanded volume (both syringes dispense equally)
+        commanded_volume = volume_ul / 2 if pump_cfg.get('dual_syringe', False) else volume_ul
         configs.append(PumpBurstConfig(
             address=address,
             rate_ul_min=dispensing_rate,
-            volume_ul=volume_ul,
+            volume_ul=commanded_volume,
             diameter_mm=pump_cfg.get('syringe_diameter_mm', 26.7),
             volume_unit=pump_cfg.get('volume_unit', 'ML'),
             direction="INF"
@@ -365,8 +367,10 @@ def dispense_burst_mode(
             for pump_cfg in pump_config.get('pumps', []):
                 if pump_cfg.get('address') == c.address:
                     ingredient = pump_cfg.get('ingredient', f'Pump{c.address}')
-                    actual_volumes[ingredient] = c.volume_ul
-                    logger.debug(f"  ✅ {ingredient} complete: {c.volume_ul:.1f}µL")
+                    # Use original recipe volume (not halved commanded volume)
+                    # so volume tracking accounts for both syringes in dual mode
+                    actual_volumes[ingredient] = recipe.get(ingredient, c.volume_ul)
+                    logger.debug(f"  ✅ {ingredient} complete: {actual_volumes[ingredient]:.1f}µL")
                     break
 
     logger.info(f"✅ Burst dispensing complete: {actual_volumes}")
@@ -483,13 +487,18 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                         f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                     )
 
+                # Dual syringe: halve commanded volume (both syringes dispense equally)
+                is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+                commanded_volume = volume_ul / 2 if is_dual else volume_ul
+
                 pump.dispense_volume(
-                    volume_ul=volume_ul,
+                    volume_ul=commanded_volume,
                     rate_ul_min=dispensing_rate,
                     wait=False,  # Don't wait, start next pump
                     volume_unit=volume_unit,
                 )
-                logger.debug(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL")
+                logger.debug(f"Started pump {pump.address} ({ingredient}): {volume_ul:.3f}µL"
+                             f"{' (dual syringe, commanded ' + f'{commanded_volume:.3f}µL)' if is_dual else ''}")
 
             except (PumpCommandError, PumpTimeoutError) as e:
                 error_msg = f"Failed to start pump for {ingredient}: {str(e)}"
@@ -506,10 +515,12 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
             error_summary = "; ".join(errors)
             raise Exception(f"Failed to start pumps: {error_summary}")
 
-        # Calculate max wait time
+        # Calculate max wait time (use commanded volume for time estimate)
         max_time = 0
         for ingredient, pump, volume_ul in pump_info:
-            time_needed = (volume_ul / dispensing_rate) * 60 * 1.1  # 10% buffer
+            is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+            commanded_volume = volume_ul / 2 if is_dual else volume_ul
+            time_needed = (commanded_volume / dispensing_rate) * 60 * 1.1  # 10% buffer
             max_time = max(max_time, time_needed)
 
         logger.info(f"Waiting {max_time:.2f}s for all pumps to complete")
@@ -558,9 +569,13 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
                         f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                     )
 
+                # Dual syringe: halve commanded volume (both syringes dispense equally)
+                is_dual = pump_config_by_ingredient.get(ingredient, {}).get('dual_syringe', False)
+                commanded_volume = volume_ul / 2 if is_dual else volume_ul
+
                 # Dispense volume (this will block until complete)
                 pump.dispense_volume(
-                    volume_ul=volume_ul,
+                    volume_ul=commanded_volume,
                     rate_ul_min=dispensing_rate,
                     wait=True,
                     volume_unit=volume_unit,
@@ -591,16 +606,39 @@ def dispense_sample(operation: Dict, protocol: Dict, db_path: str) -> None:
         mark_operation_completed(operation_id, actual_volumes, db_path)
         logger.info(f"Operation {operation_id} completed successfully")
 
-        # Update volume tracking so moderator dashboard stays in sync
+        # Update global (cross-session) volume tracking
         try:
-            update_volume_after_dispense(
-                db_path=db_path,
-                session_id=operation['session_id'],
-                actual_volumes=actual_volumes,
-                cycle_number=operation['cycle_number'],
-            )
+            from robotaste.core.pump_volume_manager import update_global_volume_after_dispense
+
+            session_id = operation['session_id']
+            protocol_obj = get_protocol_for_session(session_id, db_path)
+            if protocol_obj:
+                proto_id = None
+                with get_database_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT protocol_id FROM sessions WHERE session_id = ?",
+                        (session_id,)
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        proto_id = row[0]
+
+                if proto_id:
+                    pc = protocol_obj.get('pump_config', {})
+                    for pcfg in pc.get('pumps', []):
+                        ing = pcfg.get('ingredient')
+                        addr = pcfg.get('address')
+                        if ing and addr is not None and ing in actual_volumes:
+                            update_global_volume_after_dispense(
+                                db_path=db_path,
+                                protocol_id=proto_id,
+                                pump_address=addr,
+                                volume_dispensed_ul=actual_volumes[ing],
+                                session_id=session_id,
+                            )
         except Exception as e:
-            logger.warning(f"Volume tracking update failed (non-fatal): {e}")
+            logger.warning(f"Global volume tracking update failed (non-fatal): {e}")
 
 
 def cleanup_pumps():
@@ -620,6 +658,114 @@ def cleanup_pumps():
     pumps.clear()
 
 
+def execute_refill_operation(operation: Dict, db_path: str) -> None:
+    """
+    Execute a refill operation (withdraw or purge) for a single pump.
+
+    Args:
+        operation: Refill operation dict from pump_refill_operations table
+        db_path: Database path
+
+    Raises:
+        Exception on any error
+    """
+    op_id = operation['id']
+    protocol_id = operation['protocol_id']
+    pump_address = operation['pump_address']
+    op_type = operation['operation_type']
+    volume_ul = operation['volume_ul']
+    direction = operation['direction']
+    ingredient = operation['ingredient_name']
+
+    logger.info(
+        f"🔧 Refill {op_type}: pump {pump_address} ({ingredient}), "
+        f"{volume_ul:.1f}µL, direction={direction}"
+    )
+
+    # Mark in progress
+    update_refill_operation_status(
+        op_id, 'in_progress',
+        started_at=datetime.now().isoformat(),
+        db_path=db_path
+    )
+
+    # Load protocol to get pump config
+    protocol = get_protocol_by_id(protocol_id)
+    if not protocol:
+        raise ValueError(f"Could not load protocol {protocol_id}")
+
+    pump_config = protocol.get('pump_config', {})
+    if not pump_config.get('enabled', False):
+        raise ValueError("Pump config not enabled in protocol")
+
+    # Ensure pumps are initialized
+    if not pumps:
+        initialize_pumps(pump_config, db_path)
+
+    pump = pumps.get(pump_address)
+    if not pump:
+        # Try to initialize just this pump
+        initialize_pumps(pump_config, db_path)
+        pump = pumps.get(pump_address)
+
+    if not pump or not pump.is_connected():
+        raise PumpConnectionError(
+            f"Pump {pump_address} ({ingredient}) not connected"
+        )
+
+    # Find pump config for this address
+    pump_cfg = None
+    for cfg in pump_config.get('pumps', []):
+        if cfg.get('address') == pump_address:
+            pump_cfg = cfg
+            break
+
+    if not pump_cfg:
+        raise ValueError(f"No pump config found for address {pump_address}")
+
+    dispensing_rate = pump_config.get('dispensing_rate_ul_min', 2000)
+    volume_unit = pump_cfg.get('volume_unit', 'ML')
+    diameter = pump_cfg.get('syringe_diameter_mm', 26.7)
+
+    # Set diameter and rate (may have changed since last use)
+    pump.set_diameter(diameter)
+
+    # Convert volume for pump command
+    if volume_unit == 'ML':
+        volume_for_pump = volume_ul / 1000.0
+    else:
+        volume_for_pump = volume_ul
+
+    # Execute the operation
+    if direction == 'WDR':
+        logger.info(f"  ⬅️ Withdrawing {volume_ul:.1f}µL from {ingredient}...")
+        pump.dispense_volume(
+            volume_ul=volume_ul,
+            rate_ul_min=dispensing_rate,
+            wait=True,
+            volume_unit=volume_unit,
+            direction='WDR'
+        )
+    else:
+        logger.info(f"  ➡️ Purging {volume_ul:.1f}µL through {ingredient}...")
+        pump.dispense_volume(
+            volume_ul=volume_ul,
+            rate_ul_min=dispensing_rate,
+            wait=True,
+            volume_unit=volume_unit,
+        )
+
+    pump.stop()
+
+    # Mark completed
+    update_refill_operation_status(
+        op_id, 'completed',
+        completed_at=datetime.now().isoformat(),
+        db_path=db_path
+    )
+    logger.info(f"✅ Refill {op_type} completed for {ingredient}")
+
+
 def main_loop(db_path: str, poll_interval: float):
     """
     Main service loop.
@@ -636,7 +782,7 @@ def main_loop(db_path: str, poll_interval: float):
 
     while running:
         try:
-            # Poll for pending operations
+            # Poll for pending dispense operations
             pending = get_pending_operations(limit=1, db_path=db_path)
 
             if pending:
@@ -662,6 +808,30 @@ def main_loop(db_path: str, poll_interval: float):
                     error_msg = f"Dispensing failed: {str(e)}"
                     logger.error(error_msg)
                     mark_operation_failed(operation_id, error_msg, db_path)
+
+            # Poll for pending refill operations (withdraw/purge)
+            pending_refills = get_pending_refill_operations(limit=1, db_path=db_path)
+
+            if pending_refills:
+                refill_op = pending_refills[0]
+                refill_id = refill_op['id']
+
+                logger.info(
+                    f"Found pending refill operation {refill_id}: "
+                    f"{refill_op['operation_type']} for {refill_op['ingredient_name']}"
+                )
+
+                try:
+                    execute_refill_operation(refill_op, db_path)
+                except Exception as e:
+                    error_msg = f"Refill operation failed: {str(e)}"
+                    logger.error(error_msg)
+                    update_refill_operation_status(
+                        refill_id, 'failed',
+                        completed_at=datetime.now().isoformat(),
+                        error_message=error_msg,
+                        db_path=db_path
+                    )
 
             # Sleep before next poll
             time.sleep(poll_interval)

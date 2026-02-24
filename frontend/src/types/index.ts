@@ -136,6 +136,47 @@ export interface PumpStatus {
 }
 
 
+// ─── PUMP GLOBAL STATUS ───────────────────────────────────────────────────
+// Cross-session volume tracking (persists between sessions)
+
+export interface PumpGlobalIngredientStatus {
+  pump_address: number;
+  current_ul: number;
+  max_capacity_ul: number;
+  percent_remaining: number;
+  alert_active: boolean;
+  alert_threshold_ul: number;
+  total_dispensed_ul: number;
+  last_session_id: string | null;
+  last_dispensed_at: string | null;
+  last_refilled_at: string | null;
+}
+
+export interface PumpGlobalStatus {
+  pump_enabled: boolean;
+  protocol_id?: string;
+  ingredients: Record<string, PumpGlobalIngredientStatus>;
+  error?: string;
+}
+
+
+// ─── REFILL OPERATION ─────────────────────────────────────────────────────
+// Status of a refill withdraw/purge operation
+
+export interface RefillOperationStatus {
+  operation_id: number;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  operation_type: 'withdraw' | 'purge';
+  ingredient: string;
+  volume_ul: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+}
+
+export type RefillStep = 'idle' | 'withdrawing' | 'swap_syringe' | 'purging' | 'enter_volume' | 'done';
+
+
 // ─── SAMPLE ────────────────────────────────────────────────────────────────
 // A single taste trial sample
 

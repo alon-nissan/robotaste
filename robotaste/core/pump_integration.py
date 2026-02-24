@@ -353,21 +353,33 @@ def calculate_total_pump_time(
     dispensing_rate = pump_config.get("dispensing_rate_ul_min", 2000)
     simultaneous = pump_config.get("simultaneous_dispensing", True)
 
+    # Build ingredient→pump_cfg lookup for dual syringe
+    pump_cfg_by_ingredient = {
+        cfg.get("ingredient"): cfg
+        for cfg in pump_config.get("pumps", [])
+        if cfg.get("ingredient")
+    }
+
+    def commanded_volume(ingredient: str, volume_ul: float) -> float:
+        """Get actual pump command volume (halved for dual syringe)."""
+        cfg = pump_cfg_by_ingredient.get(ingredient, {})
+        return volume_ul / 2 if cfg.get("dual_syringe", False) else volume_ul
+
     if simultaneous:
         # All pumps run in parallel - use max time
         max_time = 0
-        for volume_ul in recipe_volumes.values():
+        for ingredient, volume_ul in recipe_volumes.items():
             if volume_ul > 0:
-                time_seconds = (volume_ul / dispensing_rate) * 60
+                time_seconds = (commanded_volume(ingredient, volume_ul) / dispensing_rate) * 60
                 max_time = max(max_time, time_seconds)
 
         total_time = max_time
     else:
         # Sequential dispensing - sum all times
         total_time = 0
-        for volume_ul in recipe_volumes.values():
+        for ingredient, volume_ul in recipe_volumes.items():
             if volume_ul > 0:
-                time_seconds = (volume_ul / dispensing_rate) * 60
+                time_seconds = (commanded_volume(ingredient, volume_ul) / dispensing_rate) * 60
                 total_time += time_seconds
 
     # Add buffer
@@ -625,7 +637,7 @@ def execute_pumps_synchronously(
                         burst_configs.append(PumpBurstConfig(
                             address=pump.address,
                             rate_ul_min=dispensing_rate,
-                            volume_ul=volume_ul,
+                            volume_ul=volume_ul / 2 if pump_cfg.get("dual_syringe", False) else volume_ul,
                             diameter_mm=diameter_mm,
                             volume_unit=volume_unit,
                             direction="INF"
@@ -677,27 +689,31 @@ def execute_pumps_synchronously(
                 for ingredient, volume_ul in stock_volumes.items():
                     if ingredient in pumps:
                         pump = pumps[ingredient]
-                        volume_unit = pump_config_by_ingredient.get(
-                            ingredient, {}
-                        ).get("volume_unit", "ML")
+                        pump_cfg = pump_config_by_ingredient.get(ingredient, {})
+                        volume_unit = pump_cfg.get("volume_unit", "ML")
                         if volume_unit not in ["ML", "UL"]:
                             raise ValueError(
                                 f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                             )
+                        # Dual syringe: halve commanded volume
+                        is_dual = pump_cfg.get("dual_syringe", False)
+                        commanded_volume = volume_ul / 2 if is_dual else volume_ul
                         ui_log(f"  Starting {ingredient}: {volume_ul:.1f} µL...")
                         pump.dispense_volume(
-                            volume_ul,
+                            commanded_volume,
                             dispensing_rate,
                             wait=False,
                             volume_unit=volume_unit,
                         )
 
-                # Calculate max time (only for non-zero volumes)
-                non_zero_volumes = [vol for vol in stock_volumes.values() if vol > 0.001]
-                if non_zero_volumes:
-                    max_time = max((vol / dispensing_rate) * 60 * 1.1 for vol in non_zero_volumes)
-                else:
-                    max_time = 0  # All volumes are ~0
+                # Calculate max time (use commanded volumes for time estimate)
+                max_time = 0
+                for ingredient, vol in stock_volumes.items():
+                    if vol > 0.001:
+                        pump_cfg = pump_config_by_ingredient.get(ingredient, {})
+                        cmd_vol = vol / 2 if pump_cfg.get("dual_syringe", False) else vol
+                        t = (cmd_vol / dispensing_rate) * 60 * 1.1
+                        max_time = max(max_time, t)
 
                 ui_log(f"⏳ Dispensing in progress... ({max_time:.1f}s)")
 
@@ -715,16 +731,18 @@ def execute_pumps_synchronously(
             for ingredient, volume_ul in stock_volumes.items():
                 if ingredient in pumps:
                     pump = pumps[ingredient]
-                    volume_unit = pump_config_by_ingredient.get(
-                        ingredient, {}
-                    ).get("volume_unit", "ML")
+                    pump_cfg = pump_config_by_ingredient.get(ingredient, {})
+                    volume_unit = pump_cfg.get("volume_unit", "ML")
                     if volume_unit not in ["ML", "UL"]:
                         raise ValueError(
                             f"Invalid volume_unit '{volume_unit}' for pump '{ingredient}'"
                         )
+                    # Dual syringe: halve commanded volume
+                    is_dual = pump_cfg.get("dual_syringe", False)
+                    commanded_volume = volume_ul / 2 if is_dual else volume_ul
                     ui_log(f"  Dispensing {ingredient}: {volume_ul:.1f} µL...")
                     pump.dispense_volume(
-                        volume_ul,
+                        commanded_volume,
                         dispensing_rate,
                         wait=True,
                         volume_unit=volume_unit,
@@ -735,20 +753,34 @@ def execute_pumps_synchronously(
         result["success"] = True
         result["duration"] = time.time() - start_time
 
-        # 6. Update volume tracking
+        # 6. Update global (cross-session) volume tracking
         try:
-            from robotaste.core.pump_volume_manager import update_volume_after_dispense
-            from robotaste.data.database import DB_PATH
+            from robotaste.core.pump_volume_manager import update_global_volume_after_dispense
+            from robotaste.data.database import DB_PATH, get_database_connection
 
-            update_volume_after_dispense(
-                db_path=DB_PATH,
-                session_id=session_id,
-                actual_volumes=stock_volumes,  # Dict[str, float] in µL
-                cycle_number=cycle_number
-            )
+            with get_database_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT protocol_id FROM sessions WHERE session_id = ?",
+                    (session_id,)
+                )
+                row = cursor.fetchone()
+
+            if row and row[0]:
+                proto_id = row[0]
+                for pump_cfg in pump_configs:
+                    ing_name = pump_cfg.get("ingredient")
+                    addr = pump_cfg.get("address")
+                    if ing_name and addr is not None and ing_name in stock_volumes:
+                        update_global_volume_after_dispense(
+                            db_path=DB_PATH,
+                            protocol_id=proto_id,
+                            pump_address=addr,
+                            volume_dispensed_ul=stock_volumes[ing_name],
+                            session_id=session_id,
+                        )
         except Exception as e:
-            logger.warning(f"Volume tracking update failed: {e}")
-            # Don't fail the whole operation if volume tracking fails
+            logger.warning(f"Global volume tracking update failed: {e}")
 
         ui_log(f"🎉 All pumps completed successfully in {result['duration']:.1f}s", "success")
 

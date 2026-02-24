@@ -1118,6 +1118,7 @@ class NE4000Pump:
         rate_ul_min: Optional[float] = None,
         wait: bool = True,
         volume_unit: Literal["ML", "UL"] = "ML",
+        direction: Optional[str] = None,
     ) -> None:
         """
         Dispense a specific volume (high-level convenience method).
@@ -1131,6 +1132,7 @@ class NE4000Pump:
             rate_ul_min: Pumping rate in µL/min (optional, uses current rate if None)
             wait: If True, block until dispensing completes
             volume_unit: "ML" or "UL" for pump volume units
+            direction: "INF" (infuse) or "WDR" (withdraw). Defaults to INF.
 
         Raises:
             ValueError: If rate is not specified and no current rate is set
@@ -1146,8 +1148,9 @@ class NE4000Pump:
             )
             return
 
-        # Set direction to infuse
-        self.set_direction(self.DIR_INFUSE)
+        # Set direction (default to infuse)
+        pump_dir = direction if direction in (self.DIR_INFUSE, self.DIR_WITHDRAW) else self.DIR_INFUSE
+        self.set_direction(pump_dir)
 
         # Set rate if specified
         if rate_ul_min is not None:

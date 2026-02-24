@@ -524,3 +524,158 @@ def delete_old_operations(
     conn.close()
 
     return deleted_count
+
+
+# ─── REFILL OPERATIONS ──────────────────────────────────────────────────────
+
+
+def create_refill_operation(
+    protocol_id: str,
+    pump_address: int,
+    ingredient_name: str,
+    operation_type: str,
+    volume_ul: float,
+    direction: str,
+    db_path: Optional[str] = None
+) -> int:
+    """
+    Create a refill operation (withdraw or purge).
+
+    Args:
+        protocol_id: Protocol identifier
+        pump_address: Pump network address
+        ingredient_name: Ingredient name
+        operation_type: "withdraw" or "purge"
+        volume_ul: Volume to withdraw/purge (µL)
+        direction: "WDR" for withdraw, "INF" for purge
+        db_path: Database path (optional)
+
+    Returns:
+        Operation ID
+    """
+    conn = get_db_connection(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO pump_refill_operations (
+            protocol_id, pump_address, ingredient_name,
+            operation_type, volume_ul, direction, status
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    """, (protocol_id, pump_address, ingredient_name,
+          operation_type, volume_ul, direction))
+
+    operation_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return operation_id
+
+
+def get_pending_refill_operations(
+    limit: int = 1,
+    db_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get pending refill operations ordered by creation time.
+
+    Args:
+        limit: Maximum number of operations to return
+        db_path: Database path (optional)
+
+    Returns:
+        List of operation dictionaries
+    """
+    conn = get_db_connection(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM pump_refill_operations
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [dict(row) for row in rows]
+
+
+def get_refill_operation_by_id(
+    operation_id: int,
+    db_path: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a refill operation by ID.
+
+    Args:
+        operation_id: Operation ID
+        db_path: Database path (optional)
+
+    Returns:
+        Operation dictionary or None
+    """
+    conn = get_db_connection(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM pump_refill_operations
+        WHERE id = ?
+    """, (operation_id,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def update_refill_operation_status(
+    operation_id: int,
+    status: str,
+    started_at: Optional[str] = None,
+    completed_at: Optional[str] = None,
+    error_message: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> None:
+    """
+    Update refill operation status.
+
+    Args:
+        operation_id: Operation ID
+        status: New status ('pending', 'in_progress', 'completed', 'failed')
+        started_at: Start timestamp (ISO format)
+        completed_at: Completion timestamp (ISO format)
+        error_message: Error message if failed
+        db_path: Database path (optional)
+    """
+    conn = get_db_connection(db_path)
+    cursor = conn.cursor()
+
+    updates = ["status = ?"]
+    params: list = [status]
+
+    if started_at is not None:
+        updates.append("started_at = ?")
+        params.append(started_at)
+
+    if completed_at is not None:
+        updates.append("completed_at = ?")
+        params.append(completed_at)
+
+    if error_message is not None:
+        updates.append("error_message = ?")
+        params.append(error_message)
+
+    params.append(operation_id)
+
+    query = f"""
+        UPDATE pump_refill_operations
+        SET {', '.join(updates)}
+        WHERE id = ?
+    """
+
+    cursor.execute(query, params)
+    conn.commit()
+    conn.close()

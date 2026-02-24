@@ -505,11 +505,14 @@ def send_volume_and_run(
         volume_ul = volumes.get(ingredient, 0)
         if volume_ul < 0.001:  # Skip ~0 volumes
             continue
+
+        # Dual syringe: halve commanded volume (both syringes dispense equally)
+        commanded_volume = volume_ul / 2 if pump_cfg.get("dual_syringe", False) else volume_ul
             
         configs.append(PumpBurstConfig(
             address=address,
             rate_ul_min=dispensing_rate,
-            volume_ul=volume_ul,
+            volume_ul=commanded_volume,
             diameter_mm=pump_cfg.get("syringe_diameter_mm", 26.7),
             volume_unit=pump_cfg.get("volume_unit", "ML"),
             direction="INF"
