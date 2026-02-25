@@ -29,7 +29,6 @@ export default function RefillWizard({
   onCancel,
 }: Props) {
   const [step, setStep] = useState<RefillStep>('idle');
-  const [, setOperationId] = useState<number | null>(null);
   const [operationStatus, setOperationStatus] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [newVolumeMl, setNewVolumeMl] = useState<string>('');
@@ -86,7 +85,6 @@ export default function RefillWizard({
         pump_address: pumpAddress,
         ingredient,
       });
-      setOperationId(data.operation_id);
       pollStatus(data.operation_id, 'swap_syringe');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start withdraw';
@@ -106,7 +104,6 @@ export default function RefillWizard({
         pump_address: pumpAddress,
         ingredient,
       });
-      setOperationId(data.operation_id);
       pollStatus(data.operation_id, 'enter_volume');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start purge';
