@@ -3,19 +3,19 @@ FastAPI Application Entry Point for RoboTaste
 
 === WHAT IS THIS FILE? ===
 This is the main entry point for the FastAPI backend server.
-Think of it as the equivalent of main_app.py for Streamlit, but for the REST API.
+It serves the REST API and, in production mode, the compiled React frontend.
 
 === KEY CONCEPTS ===
 - FastAPI: A Python web framework that lets you create HTTP API endpoints.
-  The React frontend will call these endpoints to get/send data.
+  The React frontend calls these endpoints to get/send data.
 - CORS (Cross-Origin Resource Sharing): A security feature in browsers.
   In development, React runs on port 5173 and FastAPI on port 8000 (different
   origins), so CORS is needed. In production, both are served from the same
   port so CORS is not required.
 - Router: A way to organize endpoints into groups (like protocols, sessions, etc.)
   instead of putting everything in one giant file.
-- Uvicorn: The server that actually runs FastAPI (like how Streamlit has its own server).
-- Static Serving: In production (--build mode), FastAPI serves the compiled React
+- Uvicorn: The ASGI server that runs FastAPI.
+- Static Serving: In production mode, FastAPI serves the compiled React
   frontend from frontend/dist/ on the same port as the API.
 
 === HOW TO RUN ===
@@ -24,7 +24,7 @@ Development (separate servers):
     cd frontend && npm run dev
 
 Production (single server, multi-device):
-    python start_new_ui.py --build
+    python start_new_ui.py
     # Serves API + frontend on http://0.0.0.0:8000
 
 The interactive API docs are at http://localhost:8000/docs (auto-generated!).
@@ -37,7 +37,7 @@ from pathlib import Path
 
 # FastAPI is the framework; we create an "app" instance from it
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 # CORSMiddleware allows the React frontend (different port) to talk to this API
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,13 +48,13 @@ from fastapi.staticfiles import StaticFiles
 # Import our router modules — each one handles a group of related endpoints
 from api.routers import protocols, sessions, pump, documentation
 
-# Initialize the database on startup (same function Streamlit uses)
+# Initialize the database on startup
 from robotaste.data.database import init_database
 
 
 # ─── LOGGING SETUP ──────────────────────────────────────────────────────────
 # Use the centralized logging_manager for consistent log format, daily rotation,
-# and pump-module DEBUG tracing — same infrastructure the Streamlit app uses.
+# and pump-module DEBUG tracing.
 from robotaste.utils.logging_manager import setup_logging
 
 setup_logging(component="api")
@@ -196,7 +196,6 @@ def server_info_qr(url: str):
         buf = io.BytesIO()
         qr.save(buf, kind="svg", scale=5, border=2)
         svg_data = buf.getvalue()
-        from fastapi.responses import Response
         return Response(content=svg_data, media_type="image/svg+xml")
     except ImportError:
         return JSONResponse(
@@ -228,8 +227,10 @@ if FRONTEND_DIST.is_dir():
     async def serve_spa(full_path: str):
         """Serve React SPA — all non-API routes return index.html."""
         # If a specific file exists in dist/, serve it directly
-        file_path = FRONTEND_DIST / full_path
-        if full_path and file_path.is_file():
+        # Resolve to absolute path and verify it's within FRONTEND_DIST
+        # to prevent path traversal attacks (e.g., ../../etc/passwd)
+        file_path = (FRONTEND_DIST / full_path).resolve()
+        if full_path and str(file_path).startswith(str(FRONTEND_DIST.resolve())) and file_path.is_file():
             return FileResponse(str(file_path))
         # Otherwise, return index.html for client-side routing
         return FileResponse(str(FRONTEND_DIST / "index.html"))

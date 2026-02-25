@@ -459,15 +459,13 @@ def get_pump_operation_duration(
 def execute_pumps_synchronously(
     session_id: str,
     cycle_number: int,
-    streamlit_container=None
 ) -> Dict[str, Any]:
     """
-    Execute pump dispensing synchronously with live UI updates.
+    Execute pump dispensing synchronously with logging.
 
     Args:
         session_id: Session identifier
         cycle_number: Current cycle number
-        streamlit_container: Streamlit container for UI updates (optional)
 
     Returns:
         Dict with:
@@ -486,9 +484,9 @@ def execute_pumps_synchronously(
         "error": None
     }
 
-    # Helper for UI logging
+    # Helper for logging
     def ui_log(message, level="info"):
-        """Log to file only (Streamlit UI logging disabled)."""
+        """Log pump operation progress."""
         if level == "info":
             logger.info(message)
         elif level == "success":

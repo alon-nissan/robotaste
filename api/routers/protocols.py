@@ -28,15 +28,14 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 import json
 import logging
 
-# Import the EXISTING protocol repository functions from your codebase.
-# These are the same functions that Streamlit's protocol_manager.py uses.
+# Import the protocol repository functions from the data layer.
 from robotaste.data.protocol_repo import (
     list_protocols,       # Returns list of all protocols from the database
     get_protocol_by_id,   # Returns a single protocol by its UUID
     create_protocol_in_db,  # Saves a new protocol to the database
 )
 
-# Import protocol validation (same validation Streamlit uses)
+# Import protocol validation
 from robotaste.config.protocols import validate_protocol
 
 
@@ -107,8 +106,8 @@ async def upload_protocol(file: UploadFile = File(...)):
     Flow:
     1. Frontend sends a JSON file via HTTP POST
     2. We read and parse the JSON
-    3. We validate it using the same validation as Streamlit
-    4. We save it to the database using the same function as Streamlit
+    3. We validate it using the same validation as the protocol system
+    4. We save it to the database
     5. We return the saved protocol data
     """
     # Step 1: Validate file type
@@ -138,10 +137,10 @@ async def upload_protocol(file: UploadFile = File(...)):
 
     # Step 4: Generate metadata and save to database
     import uuid
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     protocol_data["protocol_id"] = str(uuid.uuid4())
-    protocol_data["created_at"] = datetime.utcnow().isoformat()
+    protocol_data["created_at"] = datetime.now(timezone.utc).isoformat()
     protocol_data["updated_at"] = protocol_data["created_at"]
     protocol_data["is_archived"] = False
 
