@@ -32,32 +32,6 @@ def sanitize_html(text: str) -> str:
     return html.escape(str(text))
 
 
-def safe_markdown(st_module, text: str, **kwargs) -> None:
-    """
-    Safely render markdown with HTML escaping.
-    
-    This is a safer alternative to st.markdown with unsafe_allow_html=True.
-    Use this function for any user-provided content.
-    
-    Args:
-        st_module: The streamlit module or instance
-        text: Markdown text to render (will be HTML-escaped)
-        **kwargs: Additional arguments passed to st.markdown (except unsafe_allow_html)
-        
-    Example:
-        >>> import streamlit as st
-        >>> safe_markdown(st, user_input)
-    """
-    # Remove unsafe_allow_html if it was passed
-    kwargs.pop('unsafe_allow_html', None)
-    
-    # Escape HTML in the text
-    escaped_text = sanitize_html(text)
-    
-    # Render with escaped content
-    st_module.markdown(escaped_text, **kwargs)
-
-
 def sanitize_for_display(text: Optional[str], max_length: Optional[int] = None) -> str:
     """
     Sanitize text for safe display in UI.

@@ -11,7 +11,7 @@ Created: 2026-01-01
 
 from typing import Dict, List, Any, Optional, Literal
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 
@@ -674,7 +674,7 @@ def get_empty_protocol_template() -> Dict[str, Any]:
         "version": "1.0",
         "schema_version": "1.0",
         "created_by": "",
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat() + "Z",
         "tags": [],
         "ingredients": [],
         "sample_selection_schedule": [],

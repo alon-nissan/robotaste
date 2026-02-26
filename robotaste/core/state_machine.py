@@ -14,7 +14,7 @@ Version: 3.0 (Refactored Architecture - Pure Python)
 
 from enum import Enum
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -555,7 +555,7 @@ def create_phase_transition_log(
         'waiting -> loading'
     """
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "transition": f"{current_phase.value} -> {new_phase.value}",
         "from_phase": current_phase.value,
         "to_phase": new_phase.value,

@@ -85,7 +85,6 @@ def _get_lan_ip() -> str:
 
 def _get_tailscale_ip() -> str | None:
     """Detect the machine's Tailscale IP, if Tailscale is running."""
-    import subprocess
     try:
         # Try common Tailscale binary locations
         for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:

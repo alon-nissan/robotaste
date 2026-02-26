@@ -14,7 +14,7 @@ import sqlite3
 import json
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Correctly import the database connection context manager
 from robotaste.data.database import get_database_connection
@@ -77,7 +77,7 @@ def create_protocol_in_db(protocol: Dict[str, Any]) -> Optional[str]:
                 """, (
                     protocol_id, name, description, protocol_json,
                     protocol_hash, version, created_by, tags,
-                    datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), 0
+                    datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat(), 0
                 ))
                 conn.commit()
             except Exception:
@@ -253,7 +253,7 @@ def update_protocol(protocol: Dict[str, Any]) -> bool:
                 """, (
                     name, description, protocol_json,
                     protocol_hash, version, tags,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     protocol_id
                 ))
                 rows_affected = cursor.rowcount
@@ -302,7 +302,7 @@ def delete_protocol(protocol_id: str, hard_delete: bool = False) -> bool:
                         UPDATE protocol_library
                         SET deleted_at = ?
                         WHERE protocol_id = ? AND deleted_at IS NULL
-                    """, (datetime.utcnow().isoformat(), protocol_id))
+                    """, (datetime.now(timezone.utc).isoformat(), protocol_id))
 
                 rows_affected = cursor.rowcount
                 conn.commit()
@@ -341,7 +341,7 @@ def archive_protocol(protocol_id: str, archived: bool = True) -> bool:
                 UPDATE protocol_library
                 SET is_archived = ?, updated_at = ?
                 WHERE protocol_id = ? AND deleted_at IS NULL
-            """, (1 if archived else 0, datetime.utcnow().isoformat(), protocol_id))
+            """, (1 if archived else 0, datetime.now(timezone.utc).isoformat(), protocol_id))
             rows_affected = cursor.rowcount
             conn.commit()
 

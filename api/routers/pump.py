@@ -128,7 +128,7 @@ def get_pump_operation(session_id: str):
         return {"status": "none", "progress": 0}
     except Exception as e:
         logger.error(f"❌ Error checking pump operation for session {session_id}: {e}")
-        return {"status": "none", "progress": 0, "error": str(e)}
+        return {"status": "none", "progress": 0}
 
 
 # ─── GLOBAL (CROSS-SESSION) VOLUME STATUS ──────────────────────────────────
@@ -169,7 +169,7 @@ def get_global_pump_status(protocol_id: str):
         raise
     except Exception as e:
         logger.error(f"❌ Error getting global pump status: {e}")
-        return {"pump_enabled": False, "ingredients": {}, "error": str(e)}
+        return {"pump_enabled": False, "ingredients": {}}
 
 
 # ─── REFILL WORKFLOW: STEP 1 — WITHDRAW ────────────────────────────────────

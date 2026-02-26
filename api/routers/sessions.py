@@ -35,11 +35,10 @@ from fastapi import APIRouter, HTTPException
 # Pydantic is FastAPI's data validation library.
 # BaseModel: Define a class that describes what JSON data looks like.
 # Optional: A field that can be None (not required).
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 
-# Import EXISTING database and session functions from your codebase.
-# These are the exact same functions Streamlit uses.
+# Import database and session functions from the data layer.
 from robotaste.data.database import (
     create_session,          # Creates a new session row in SQLite
     get_session,             # Gets full session data by session_id
@@ -122,9 +121,9 @@ class ConsentRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     """Expected JSON body for saving participant demographics."""
-    name: str
-    age: int
-    gender: str
+    name: str = Field(..., min_length=1, max_length=200)
+    age: int = Field(..., ge=0, le=150)
+    gender: str = Field(..., min_length=1, max_length=50)
 
 
 class PhaseRequest(BaseModel):
@@ -156,7 +155,6 @@ def create_new_session(request: CreateSessionRequest):
     """
     Create a new experiment session.
 
-    This is the equivalent of clicking "Create New Session" in the Streamlit UI.
     Returns the session_id (UUID) and session_code (6-character human-readable code).
     """
     # Call existing function — it creates a row in the 'sessions' SQLite table
@@ -218,14 +216,11 @@ def start_session(session_id: str, request: StartSessionRequest):
     """
     Start a trial by applying a protocol to the session.
 
-    This is the equivalent of clicking "Start Trial" in the Streamlit moderator UI.
     It:
     1. Loads the protocol from the database
     2. Builds the experiment_config from the protocol
     3. Saves it to the session
     4. Transitions the phase from WAITING to the first active phase
-
-    This replicates the logic in moderator.py's start_session_with_protocol().
     """
     # Step 1: Load the protocol
     protocol = get_protocol_by_id(request.protocol_id)
@@ -273,7 +268,6 @@ def start_session(session_id: str, request: StartSessionRequest):
             logger.warning(f"Global volume carryover failed (non-fatal): {e}")
 
     # Step 3: Build experiment config from protocol
-    # This mirrors what start_session_with_protocol() does in moderator.py
     experiment_config = _build_experiment_config(protocol, pump_volumes)
 
     # Step 4: Save config to session
@@ -311,7 +305,7 @@ def start_session(session_id: str, request: StartSessionRequest):
         logger.error(f"Failed to save config for session {session_id}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to save config: {str(e)}"
+            detail="Failed to save session configuration"
         )
 
     # Step 5: Transition to first active phase from protocol
@@ -334,7 +328,7 @@ def start_session(session_id: str, request: StartSessionRequest):
         logger.error(f"Failed to start session {session_id}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start session: {str(e)}"
+            detail="Failed to start session"
         )
 
     return {
@@ -448,8 +442,8 @@ def get_cycle_info(session_id: str):
     """
     Get cycle preparation info including selection mode and predetermined concentrations.
 
-    This wraps prepare_cycle_sample() — the same function the Streamlit UI uses
-    to decide whether to show a selection UI or auto-advance.
+    This wraps prepare_cycle_sample() to decide whether to show a selection
+    UI or auto-advance.
 
     Returns:
         {
@@ -555,7 +549,7 @@ def submit_selection(session_id: str, request: SelectionRequest):
     Also advances the phase to loading/robot_preparing based on pump config.
 
     NOTE: Does NOT save to samples table — that happens once at response time
-    (matching the Streamlit flow which calls save_sample_cycle only once per cycle).
+    (save_sample_cycle is called only once per cycle).
     """
     session = get_session(session_id)
     if not session:
@@ -634,8 +628,8 @@ def get_bo_suggestion(session_id: str):
 def submit_response(session_id: str, request: ResponseRequest):
     """
     Submit questionnaire response for the current cycle.
-    Saves the complete cycle data (concentrations + answers) in one row,
-    matching the Streamlit flow which calls save_sample_cycle once per cycle.
+    Saves the complete cycle data (concentrations + answers) in one row
+    (save_sample_cycle is called once per cycle).
     """
     session = get_session(session_id)
     if not session:
@@ -769,7 +763,6 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     """
     Build experiment_config dict from a protocol.
 
-    This mirrors the logic in moderator.py's start_session_with_protocol().
     The experiment_config is stored in the session and used by both
     the subject UI and the monitoring dashboard.
 

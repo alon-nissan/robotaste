@@ -58,7 +58,7 @@ Use the examples in comments as guidance.
 - **Cycles:** 1-6
 - **Mode:** predetermined_randomized
 
--**Sample Bank**
+- **Sample Bank**
 | Sample ID | Label       | Ingredient1 | Ingredient2 |
 |-----------|-------------|-------------|-------------|
 | A         | No Sugar       |             |      0.0    |
@@ -121,7 +121,7 @@ Use the examples in comments as guidance.
 
 <!-- Skip if not using bo_selected mode -->
 
-- **Enabled:** / no
+- **Enabled:** yes / no
 - **Acquisition Function:** 
 - **Kernel:** rbf
 - **Kappa:** <!-- for UCB, default 2.5 -->
@@ -138,7 +138,7 @@ Use the examples in comments as guidance.
 
 ## 8. Loading Screen
 
-- **Message:** Please rinse your mouth with water before and after every tasting./r/nOnce the robot is done preparing your sample, take the cup and stirr the sample lighly with the provided wooden stirrer and *place a clean cup under the spout*.
+- **Message:** Please rinse your mouth with water before and after every tasting.\nOnce the robot is done preparing your sample, take the cup and stirr the sample lighly with the provided wooden stirrer and *place a clean cup under the spout*.
 - **Duration (seconds):** 12
 - **Show Progress Bar:** yes
 - **Show Cycle Info:** yes
@@ -151,7 +151,7 @@ Use the examples in comments as guidance.
 <!-- Choose one or customize -->
 
 - [ ] **Default:** registration → instructions → experiment loop → completion
-- [V] **With consent:** consent → registration → instructions → experiment loop → completion
+- [x] **With consent:** consent → registration → instructions → experiment loop → completion
 - [ ] **Custom** (describe below):
 
 ---

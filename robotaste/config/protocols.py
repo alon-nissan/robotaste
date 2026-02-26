@@ -14,7 +14,7 @@ import json
 import hashlib
 import logging
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from robotaste.config.protocol_schema import (
@@ -64,7 +64,7 @@ def create_protocol(
     protocol["description"] = description
     protocol["created_by"] = created_by
     protocol["tags"] = tags or []
-    protocol["created_at"] = datetime.utcnow().isoformat() + "Z"
+    protocol["created_at"] = datetime.now(timezone.utc).isoformat() + "Z"
     protocol["schema_version"] = "1.0"
     protocol["version"] = "1.0"
 
@@ -92,7 +92,7 @@ def clone_protocol(source_protocol: Dict[str, Any], new_name: str) -> Dict[str, 
     # Generate new identity
     cloned["protocol_id"] = f"proto_{uuid.uuid4().hex[:12]}"
     cloned["name"] = new_name
-    cloned["created_at"] = datetime.utcnow().isoformat() + "Z"
+    cloned["created_at"] = datetime.now(timezone.utc).isoformat() + "Z"
     cloned["version"] = "1.0"  # Reset version for clone
 
     logger.info(f"Cloned protocol '{source_protocol['name']}' to '{new_name}'")
@@ -1029,7 +1029,7 @@ def import_protocol_from_file(file_path: str) -> Optional[Dict[str, Any]]:
 
         # Generate new ID and timestamp for imported protocol
         protocol["protocol_id"] = f"proto_{uuid.uuid4().hex[:12]}"
-        protocol["created_at"] = datetime.utcnow().isoformat() + "Z"
+        protocol["created_at"] = datetime.now(timezone.utc).isoformat() + "Z"
 
         logger.info(f"Imported protocol '{protocol['name']}' from {file_path}")
         return protocol
@@ -1183,7 +1183,6 @@ def increment_protocol_version(protocol: Dict[str, Any], major_increment: bool =
     """
     import copy
     import uuid
-    from datetime import datetime
 
     new_protocol = copy.deepcopy(protocol)
 
@@ -1209,7 +1208,7 @@ def increment_protocol_version(protocol: Dict[str, Any], major_increment: bool =
     new_protocol['protocol_hash'] = compute_protocol_hash(new_protocol)
 
     # Update metadata
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     new_protocol['created_at'] = now
     new_protocol['updated_at'] = now
 
