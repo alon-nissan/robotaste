@@ -212,7 +212,7 @@ class ReactLauncher:
                 cwd=str(self.frontend_dir),
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
             )
             if result.returncode == 0:
                 print(f"{Colors.GREEN}✓ Frontend built successfully{Colors.END}")

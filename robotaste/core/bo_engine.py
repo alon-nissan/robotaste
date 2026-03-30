@@ -15,11 +15,13 @@ Author: RoboTaste Team
 Version: 3.0 (Refactored Architecture - SQL-free)
 """
 
+import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, ConstantKernel as C
+from sklearn.exceptions import ConvergenceWarning
 from typing import Tuple, List, Dict, Optional, Any
 import logging
 
@@ -274,7 +276,9 @@ class RoboTasteBO:
 
         # Normalize and train
         X_norm = self._normalize_features(X)
-        self.gp.fit(X_norm, y)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+            self.gp.fit(X_norm, y)
         self.is_fitted = True
         self.best_observed_value = np.max(y)
 
