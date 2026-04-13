@@ -128,8 +128,9 @@ Keep this window open while the experiment is running.
 
 You can also run `RoboTaste.bat` by double-clicking it. It:
 1. checks git updates and prompts before pulling when safe
-2. starts RoboTaste in `--with-pump` mode
-3. looks for Python in:
+2. opens Google Chrome automatically to `http://localhost:8000/` when the server is ready
+3. starts RoboTaste in `--with-pump` mode
+4. looks for Python in:
    - `.venv\Scripts\python.exe`
    - `venv\Scripts\python.exe`
    - system `python`
@@ -165,6 +166,12 @@ This usually means `RoboTaste.bat` was copied outside the project folder.
 Fix:
 1. Move/copy `RoboTaste.bat` back into the RoboTaste project root.
 2. Create a **Desktop shortcut** to `RoboTaste.bat` (do not copy the file itself).
+
+### Chrome did not open automatically
+
+- Make sure Google Chrome is installed.
+- If Chrome is not installed, launcher opens your default browser instead.
+- You can always open manually: `http://localhost:8000/`
 
 ### PowerShell blocks `Activate.ps1`
 

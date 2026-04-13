@@ -103,5 +103,24 @@ echo Using Python: %PYTHON%
 echo Project: %~dp0
 echo.
 
+:: Open Chrome automatically once localhost server responds
+set TARGET_URL=http://localhost:8000/
+set CHROME_EXE=
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+    set CHROME_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe
+) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
+    set CHROME_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe
+) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
+    set CHROME_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe
+)
+
+if defined CHROME_EXE (
+    echo [Launcher] Chrome will open automatically at %TARGET_URL%
+    start "" powershell -NoProfile -ExecutionPolicy Bypass -Command "$url='%TARGET_URL%'; $chrome='%CHROME_EXE%'; for($i=0;$i -lt 120;$i++){ try { $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -ge 200){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url; exit 0 } } catch {}; Start-Sleep -Milliseconds 500 }; Start-Process -FilePath $chrome -ArgumentList '--new-window', $url"
+) else (
+    echo [Launcher] Chrome not found. Opening default browser at %TARGET_URL%.
+    start "" "%TARGET_URL%"
+)
+
 %PYTHON% start_new_ui.py --with-pump
 pause
