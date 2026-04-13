@@ -27,6 +27,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 
 import json
 import logging
+from typing import Tuple, List
 
 # Import the protocol repository functions from the data layer.
 from robotaste.data.protocol_repo import (
@@ -45,7 +46,7 @@ router = APIRouter()
 logger = logging.getLogger("robotaste.api.protocols")
 
 
-def _safe_validate_protocol(protocol_data: dict, context: str) -> tuple[bool, list[str]]:
+def _safe_validate_protocol(protocol_data: dict, context: str) -> Tuple[bool, List[str]]:
     """
     Run protocol validation and convert validator crashes into explicit errors.
 
