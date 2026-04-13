@@ -4,6 +4,10 @@ This guide walks you through everything you need to set up and run a multi-devic
 taste experiment. The **moderator** uses a computer, and the **subject** uses a
 tablet (or phone). No technical experience is required.
 
+If you are provisioning a **new Windows computer from scratch**, start with
+**[WINDOWS_SETUP.md](WINDOWS_SETUP.md)**, then come back here for full multi-device
+workflow details.
+
 ---
 
 ## Table of Contents

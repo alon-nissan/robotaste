@@ -13,7 +13,7 @@ Multi-device taste experiment platform with Bayesian Optimization and hardware p
 # Create and activate a Python virtual environment (recommended)
 python -m venv .venv
 source .venv/bin/activate        # macOS / Linux
-# .venv\Scripts\activate         # Windows
+# .\.venv\Scripts\Activate.ps1   # Windows PowerShell
 
 # Python dependencies
 pip install -r requirements.txt
@@ -61,6 +61,9 @@ python pump_control_service.py --db-path robotaste.db --poll-interval 0.5
 Both devices need [Tailscale](https://tailscale.com/) (free) installed and signed into
 the same account. In production mode, the server auto-detects Tailscale and shows the
 correct subject URL.
+
+For a brand-new Windows machine, start with
+**[docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md)**.
 
 See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for complete
 step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPad.
@@ -124,6 +127,7 @@ SQLite Database (robotaste.db)
 - 2D grid interface (binary mixtures) or 1D sliders (single ingredient)
 
 ## Documentation
+- **Windows setup (new machine)**: `docs/WINDOWS_SETUP.md` — runtime setup from clean Windows install to first experiment
 - **Running Experiments**: `docs/MULTI_DEVICE_SETUP.md` — step-by-step guide for moderator + tablet setup
 - **Getting Started (dev)**: `docs/WORKFLOW_GUIDE.md`
 - **For AI Agents**: `CLAUDE.md`, `AGENTS.md`
