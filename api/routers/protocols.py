@@ -34,6 +34,7 @@ from robotaste.data.protocol_repo import (
     list_protocols,       # Returns list of all protocols from the database
     get_protocol_by_id,   # Returns a single protocol by its UUID
     create_protocol_in_db,  # Saves a new protocol to the database
+    update_protocol,      # Updates an existing protocol in the database
 )
 
 # Import protocol validation
@@ -214,6 +215,34 @@ async def create_protocol(protocol_data: dict):
         "protocol_id": protocol_data["protocol_id"],
         "name": protocol_data.get("name", "Unnamed"),
     }
+
+
+# ─── UPDATE PROTOCOL ─────────────────────────────────────────────────────
+@router.put("/{protocol_id}")
+async def update_protocol_endpoint(protocol_id: str, protocol_data: dict):
+    """
+    Update an existing protocol by ID (used by the wizard edit flow).
+    """
+    from datetime import datetime
+
+    existing = get_protocol_by_id(protocol_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+
+    is_valid, errors = _safe_validate_protocol(protocol_data, "update")
+    if not is_valid:
+        logger.warning(f"Protocol update validation failed for {protocol_id}: {errors}")
+        raise HTTPException(status_code=400, detail=f"Protocol validation failed: {errors}")
+
+    protocol_data["protocol_id"] = protocol_id
+    protocol_data["updated_at"] = datetime.utcnow().isoformat()
+
+    success = update_protocol(protocol_data)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update protocol")
+
+    logger.info(f"Protocol updated: '{protocol_data.get('name', '?')}' (id={protocol_id})")
+    return {"message": "Protocol updated successfully", "protocol_id": protocol_id}
 
 
 # ─── VALIDATE PROTOCOL (NO SAVE) ─────────────────────────────────────────

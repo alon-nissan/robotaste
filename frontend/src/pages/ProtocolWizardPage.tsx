@@ -9,9 +9,10 @@
  *   /protocols/:id/edit    — edit an existing protocol (future)
  */
 
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import type { ProtocolDraft } from '../types';
 import { WizardProvider, useWizard, WIZARD_STEPS } from '../context/WizardContext';
 import WizardShell from '../components/wizard/WizardShell';
 import Step1Overview from '../components/wizard/steps/Step1Overview';
@@ -28,7 +29,7 @@ interface ProtocolValidationResponse {
   errors: string[];
 }
 
-function WizardContent() {
+function WizardContent({ isEdit, protocolId }: { isEdit: boolean; protocolId?: string }) {
   const { state } = useWizard();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
@@ -45,7 +46,11 @@ function WizardContent() {
         setError(validation.data.errors.join(' | '));
         return;
       }
-      await api.post('/protocols', protocol);
+      if (isEdit && protocolId) {
+        await api.put(`/protocols/${protocolId}`, protocol);
+      } else {
+        await api.post('/protocols', protocol);
+      }
       navigate('/protocols');
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
@@ -59,7 +64,7 @@ function WizardContent() {
     } finally {
       setSaving(false);
     }
-  }, [state.protocol, navigate]);
+  }, [state.protocol, navigate, isEdit, protocolId]);
 
   const stepId = WIZARD_STEPS[state.currentStep]?.id;
 
@@ -83,9 +88,25 @@ function WizardContent() {
 }
 
 export default function ProtocolWizardPage() {
+  const { id } = useParams<{ id: string }>();
+  const [initialProtocol, setInitialProtocol] = useState<ProtocolDraft | undefined>(undefined);
+  const [loadingProtocol, setLoadingProtocol] = useState(!!id);
+
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/protocols/${id}`)
+      .then((res) => setInitialProtocol(res.data as ProtocolDraft))
+      .catch(() => { /* proceed with empty draft on error */ })
+      .finally(() => setLoadingProtocol(false));
+  }, [id]);
+
+  if (loadingProtocol) {
+    return <div className="flex items-center justify-center h-screen text-text-secondary">Loading protocol…</div>;
+  }
+
   return (
-    <WizardProvider>
-      <WizardContent />
+    <WizardProvider initialProtocol={initialProtocol}>
+      <WizardContent isEdit={!!id} protocolId={id} />
     </WizardProvider>
   );
 }

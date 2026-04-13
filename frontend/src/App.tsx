@@ -51,6 +51,7 @@ function App() {
         <Route path="/moderator/monitoring" element={<ModeratorMonitoringPage />} />
         <Route path="/protocols" element={<ProtocolManagerPage />} />
         <Route path="/protocols/new" element={<ProtocolWizardPage />} />
+        <Route path="/protocols/:id/edit" element={<ProtocolWizardPage />} />
         <Route path="/analysis/dose-response" element={<DoseResponseDashboardPage />} />
 
         {/* Subject routes */}

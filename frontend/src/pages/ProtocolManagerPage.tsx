@@ -65,6 +65,17 @@ export default function ProtocolManagerPage() {
     e.target.value = '';
   };
 
+  const handleDownload = (protocol: Protocol) => {
+    const json = JSON.stringify(protocol, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${protocol.name.replace(/\s+/g, '_').toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDelete = async (protocol: Protocol) => {
     if (!confirm(`Delete "${protocol.name}"? This action cannot be undone.`)) return;
     try {
@@ -273,16 +284,16 @@ export default function ProtocolManagerPage() {
               </dl>
               <div className="flex items-center gap-2 mt-6 pt-4 border-t border-border">
                 <button
-                  onClick={() => alert('Editing coming soon')}
+                  onClick={() => navigate(`/protocols/${selectedProtocol.protocol_id}/edit`)}
                   className="px-4 py-2 text-sm bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors"
                 >
                   Edit
                 </button>
                 <button
-                  onClick={() => alert('Duplication coming soon')}
+                  onClick={() => handleDownload(selectedProtocol)}
                   className="px-4 py-2 text-sm bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors"
                 >
-                  Duplicate
+                  Download JSON
                 </button>
                 <button
                   onClick={() => handleDelete(selectedProtocol)}
