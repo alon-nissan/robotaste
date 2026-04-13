@@ -198,7 +198,7 @@ export default function SelectionPage() {
           });
           const pumpEnabled = selRes.data.pump_enabled;
           navigate(pumpEnabled
-            ? `/subject/${sessionId}/preparing`
+            ? `/subject/${sessionId}/cup-ready`
             : `/subject/${sessionId}/questionnaire`
           );
         }
@@ -225,7 +225,7 @@ export default function SelectionPage() {
 
       const pumpEnabled = res.data.pump_enabled;
       if (pumpEnabled) {
-        navigate(`/subject/${sessionId}/preparing`);
+        navigate(`/subject/${sessionId}/cup-ready`);
       } else {
         navigate(`/subject/${sessionId}/questionnaire`);
       }

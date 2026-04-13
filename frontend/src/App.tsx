@@ -30,10 +30,13 @@ import RegistrationPage from './pages/RegistrationPage';
 import InstructionsPage from './pages/InstructionsPage';
 import SelectionPage from './pages/SelectionPage';
 import QuestionnairePage from './pages/QuestionnairePage';
+import CupReadyPage from './pages/CupReadyPage';
 import RobotPreparingPage from './pages/RobotPreparingPage';
 import CompletionPage from './pages/CompletionPage';
 import CustomPhasePage from './pages/CustomPhasePage';
 import ProtocolManagerPage from './pages/ProtocolManagerPage';
+import ProtocolWizardPage from './pages/ProtocolWizardPage';
+import DoseResponseDashboardPage from './pages/DoseResponseDashboardPage';
 import SubjectAutoJoinPage from './pages/SubjectAutoJoinPage';
 
 function App() {
@@ -47,6 +50,8 @@ function App() {
         <Route path="/moderator/setup" element={<ModeratorSetupPage />} />
         <Route path="/moderator/monitoring" element={<ModeratorMonitoringPage />} />
         <Route path="/protocols" element={<ProtocolManagerPage />} />
+        <Route path="/protocols/new" element={<ProtocolWizardPage />} />
+        <Route path="/analysis/dose-response" element={<DoseResponseDashboardPage />} />
 
         {/* Subject routes */}
         <Route path="/subject" element={<SubjectAutoJoinPage />} />
@@ -55,6 +60,7 @@ function App() {
         <Route path="/subject/:sessionId/instructions" element={<InstructionsPage />} />
         <Route path="/subject/:sessionId/select" element={<SelectionPage />} />
         <Route path="/subject/:sessionId/questionnaire" element={<QuestionnairePage />} />
+        <Route path="/subject/:sessionId/cup-ready" element={<CupReadyPage />} />
         <Route path="/subject/:sessionId/preparing" element={<RobotPreparingPage />} />
         <Route path="/subject/:sessionId/complete" element={<CompletionPage />} />
         <Route path="/subject/:sessionId/phase/:phaseId" element={<CustomPhasePage />} />

@@ -55,6 +55,7 @@ class ExperimentPhase(Enum):
     REGISTRATION = "registration"
     INSTRUCTIONS = "instructions"
     ROBOT_PREPARING = "robot_preparing"
+    CUP_READY = "cup_ready"
     LOADING = "loading"
     QUESTIONNAIRE = "questionnaire"
     SELECTION = "selection"
@@ -133,6 +134,10 @@ class ExperimentStateMachine:
             ExperimentPhase.LOADING,  # Old flow
             ExperimentPhase.COMPLETE,
         ],
+        ExperimentPhase.CUP_READY: [
+            ExperimentPhase.ROBOT_PREPARING,  # Subject confirmed cup placement
+            ExperimentPhase.COMPLETE,  # Moderator can force-end
+        ],
         ExperimentPhase.ROBOT_PREPARING: [
             ExperimentPhase.QUESTIONNAIRE,  # Robot finished
             ExperimentPhase.COMPLETE,  # Moderator can force-end
@@ -147,7 +152,8 @@ class ExperimentStateMachine:
             ExperimentPhase.COMPLETE,  # Moderator can force-end
         ],
         ExperimentPhase.SELECTION: [
-            ExperimentPhase.ROBOT_PREPARING,  # Pump-controlled experiments
+            ExperimentPhase.CUP_READY,  # Pump-controlled: confirm cup placement
+            ExperimentPhase.ROBOT_PREPARING,  # Pump-controlled (backward compat)
             ExperimentPhase.LOADING,  # Non-pump experiments go to loading screen
             ExperimentPhase.COMPLETE,  # Subject/moderator chooses to finish
         ],
@@ -262,6 +268,7 @@ class ExperimentStateMachine:
             ExperimentPhase.CONSENT: "Informed Consent",
             ExperimentPhase.REGISTRATION: "User Registration",
             ExperimentPhase.INSTRUCTIONS: "Showing Instructions",
+            ExperimentPhase.CUP_READY: "Cup Ready Confirmation",
             ExperimentPhase.ROBOT_PREPARING: "Robot Preparing Solution",
             ExperimentPhase.LOADING: "Preparing Sample",
             ExperimentPhase.QUESTIONNAIRE: "Answering Questionnaire",
@@ -289,6 +296,7 @@ class ExperimentStateMachine:
             ExperimentPhase.WAITING: "gray",
             ExperimentPhase.REGISTRATION: "orange",
             ExperimentPhase.INSTRUCTIONS: "orange",
+            ExperimentPhase.CUP_READY: "blue",
             ExperimentPhase.ROBOT_PREPARING: "blue",
             ExperimentPhase.LOADING: "blue",
             ExperimentPhase.QUESTIONNAIRE: "purple",
@@ -318,6 +326,7 @@ class ExperimentStateMachine:
             ExperimentPhase.CONSENT,
             ExperimentPhase.REGISTRATION,
             ExperimentPhase.INSTRUCTIONS,
+            ExperimentPhase.CUP_READY,
             ExperimentPhase.ROBOT_PREPARING,
             ExperimentPhase.LOADING,
             ExperimentPhase.QUESTIONNAIRE,

@@ -100,7 +100,7 @@ export default function InstructionsPage() {
         });
         const pumpEnabled = selRes.data.pump_enabled;
         if (pumpEnabled) {
-          navigate(`/subject/${sessionId}/preparing`);
+          navigate(`/subject/${sessionId}/cup-ready`);
         } else {
           navigate(`/subject/${sessionId}/questionnaire`);
         }

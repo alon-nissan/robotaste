@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Protocol } from '../types';
 import PageLayout from '../components/PageLayout';
@@ -10,6 +11,7 @@ export default function ProtocolManagerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   const fetchProtocols = useCallback(async () => {
     try {
@@ -85,12 +87,20 @@ export default function ProtocolManagerPage() {
         <h1 className="text-2xl font-light text-text-primary tracking-wide">
           Protocol Manager
         </h1>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="py-4 px-8 rounded-xl text-lg font-semibold bg-primary text-white hover:bg-primary-light active:bg-primary-dark shadow-md transition-all duration-200"
-        >
-          + New Protocol
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/protocols/new')}
+            className="py-4 px-8 rounded-xl text-lg font-semibold bg-primary text-white hover:bg-primary-light active:bg-primary-dark shadow-md transition-all duration-200"
+          >
+            + Create Protocol
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="py-4 px-6 rounded-xl text-lg font-semibold border-2 border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-700 transition-all duration-200"
+          >
+            Upload JSON
+          </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"

@@ -158,3 +158,56 @@ async def upload_protocol(file: UploadFile = File(...)):
         "protocol_id": protocol_data["protocol_id"],
         "name": protocol_data.get("name", "Unnamed"),
     }
+
+
+# ─── CREATE PROTOCOL (JSON BODY) ─────────────────────────────────────────
+@router.post("")
+async def create_protocol(protocol_data: dict):
+    """
+    Create a protocol from a JSON request body (used by the wizard UI).
+
+    Unlike the /upload endpoint which accepts a file, this accepts the
+    protocol JSON directly in the request body.
+    """
+    import uuid
+    from datetime import datetime
+
+    # Validate
+    is_valid, errors = validate_protocol(protocol_data)
+    if not is_valid:
+        logger.warning(f"Protocol creation validation failed: {errors}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Protocol validation failed: {errors}"
+        )
+
+    # Assign metadata
+    if not protocol_data.get("protocol_id"):
+        protocol_data["protocol_id"] = str(uuid.uuid4())
+    protocol_data["created_at"] = datetime.utcnow().isoformat()
+    protocol_data["updated_at"] = protocol_data["created_at"]
+    protocol_data["is_archived"] = False
+
+    # Save
+    success = create_protocol_in_db(protocol_data)
+    if not success:
+        logger.error(f"Failed to save protocol '{protocol_data.get('name', '?')}' to database")
+        raise HTTPException(status_code=500, detail="Failed to save protocol")
+
+    logger.info(f"Protocol created: '{protocol_data.get('name', '?')}' (id={protocol_data['protocol_id']})")
+    return {
+        "message": "Protocol created successfully",
+        "protocol_id": protocol_data["protocol_id"],
+        "name": protocol_data.get("name", "Unnamed"),
+    }
+
+
+# ─── VALIDATE PROTOCOL (NO SAVE) ─────────────────────────────────────────
+@router.post("/validate")
+async def validate_protocol_endpoint(protocol_data: dict):
+    """
+    Validate a protocol without saving it.
+    Used by the wizard to check validity before final save.
+    """
+    is_valid, errors = validate_protocol(protocol_data)
+    return {"valid": is_valid, "errors": errors}

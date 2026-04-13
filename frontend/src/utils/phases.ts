@@ -5,6 +5,7 @@ const PHASE_URL_MAP: Record<string, string> = {
   selection: 'select',
   questionnaire: 'questionnaire',
   loading: 'questionnaire',
+  cup_ready: 'cup-ready',
   robot_preparing: 'preparing',
   complete: 'complete',
   completion: 'complete',

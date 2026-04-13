@@ -37,7 +37,7 @@ DEFAULT_BO_CONFIG = {
     # Gaussian Process kernel parameters
     "kernel_nu": 2.5,  # Matern smoothness: 0.5, 1.5, 2.5, or inf
     "length_scale_initial": 1.0,
-    "length_scale_bounds": [0.1, 10.0],
+    "length_scale_bounds": [0.01, 10.0],
     "constant_kernel_bounds": [1e-3, 1e3],
     # GP training parameters
     "alpha": 1e-3,  # Noise/regularization (changed from 1e-6 to 1e-3 for human data)
@@ -142,12 +142,12 @@ def validate_bo_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # Validate length scale bounds
     if len(validated.get("length_scale_bounds", [])) != 2:
-        validated["length_scale_bounds"] = [0.1, 10.0]
+        validated["length_scale_bounds"] = [0.01, 10.0]
     else:
         bounds = validated["length_scale_bounds"]
         if bounds[0] >= bounds[1]:
-            logger.warning("Invalid length_scale_bounds, using defaults [0.1, 10.0]")
-            validated["length_scale_bounds"] = [0.1, 10.0]
+            logger.warning("Invalid length_scale_bounds, using defaults [0.01, 10.0]")
+            validated["length_scale_bounds"] = [0.01, 10.0]
 
     return validated
 
