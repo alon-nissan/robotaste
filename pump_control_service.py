@@ -890,7 +890,8 @@ def main():
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    if sys.platform != "win32":  # SIGTERM not available on Windows
+        signal.signal(signal.SIGTERM, signal_handler)
 
     # Run main loop
     try:
