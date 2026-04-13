@@ -169,6 +169,42 @@ def _resolve_npm_command() -> str:
     return candidates[0]
 
 
+def _resolve_project_python(project_root: Path) -> str:
+    """Prefer project-local virtualenv Python over the launcher interpreter."""
+    if sys.platform == "win32":
+        candidates = [
+            project_root / ".venv" / "Scripts" / "python.exe",
+            project_root / "venv" / "Scripts" / "python.exe",
+            project_root / "env" / "Scripts" / "python.exe",
+        ]
+    else:
+        candidates = [
+            project_root / ".venv" / "bin" / "python",
+            project_root / "venv" / "bin" / "python",
+            project_root / "env" / "bin" / "python",
+        ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return sys.executable
+
+
+def _python_has_module(python_executable: str, module_name: str) -> bool:
+    """Check whether a Python interpreter can import a module."""
+    try:
+        result = subprocess.run(
+            [python_executable, "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 class ReactLauncher:
     """Manages FastAPI, Vite, and pump service processes."""
 
@@ -181,6 +217,7 @@ class ReactLauncher:
         self.port = port
         self.npm_cmd = _resolve_npm_command()
         self.project_root = Path(__file__).parent
+        self.python_executable = _resolve_project_python(self.project_root)
         self.frontend_dir = self.project_root / "frontend"
         self.dist_dir = self.frontend_dir / "dist"
 
@@ -189,6 +226,11 @@ class ReactLauncher:
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{f'RoboTaste — {mode_label}':^70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}\n")
+        if self.python_executable != sys.executable:
+            print(f"{Colors.DIM}Launcher Python: {sys.executable}{Colors.END}")
+            print(f"{Colors.DIM}Service Python:  {self.python_executable}{Colors.END}\n")
+        else:
+            print(f"{Colors.DIM}Python: {self.python_executable}{Colors.END}\n")
 
     def check_ports(self) -> bool:
         """Check that required ports are free."""
@@ -266,10 +308,17 @@ class ReactLauncher:
         step = 1
         bind_host = "127.0.0.1" if self.dev_mode else "0.0.0.0"
         print(f"{Colors.BLUE}[{step}] Starting FastAPI backend ({bind_host}:{self.port})...{Colors.END}")
+        if not _python_has_module(self.python_executable, "uvicorn"):
+            print(f"{Colors.RED}✗ uvicorn is missing in: {self.python_executable}{Colors.END}")
+            print(
+                f"{Colors.YELLOW}  Install dependencies with:{Colors.END} "
+                f"\"{self.python_executable}\" -m pip install -r requirements.txt"
+            )
+            return False
         try:
             log = self._open_log("fastapi_process")
             cmd = [
-                sys.executable, "-m", "uvicorn",
+                self.python_executable, "-m", "uvicorn",
                 "api.main:app",
                 "--host", bind_host,
                 "--port", str(self.port),
@@ -339,7 +388,7 @@ class ReactLauncher:
             log = self._open_log("pump_service_process")
             self.pump_process = subprocess.Popen(
                 [
-                    sys.executable,
+                    self.python_executable,
                     "pump_control_service.py",
                     "--db-path", "robotaste.db",
                     "--poll-interval", "0.5"

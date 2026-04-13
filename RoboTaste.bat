@@ -90,11 +90,13 @@ echo [Update] Resolve with git status / git pull --rebase (or merge) manually.
 :after_update_check
 echo.
 
-:: Find Python: .venv > venv > system python
+:: Find Python: .venv > venv > env > system python
 if exist ".venv\Scripts\python.exe" (
     set PYTHON=.venv\Scripts\python.exe
 ) else if exist "venv\Scripts\python.exe" (
     set PYTHON=venv\Scripts\python.exe
+) else if exist "env\Scripts\python.exe" (
+    set PYTHON=env\Scripts\python.exe
 ) else (
     set PYTHON=python
 )
@@ -102,6 +104,32 @@ if exist ".venv\Scripts\python.exe" (
 echo Using Python: %PYTHON%
 echo Project: %~dp0
 echo.
+
+"%PYTHON%" -c "import uvicorn" >nul 2>&1
+if errorlevel 1 (
+    echo [Launcher] uvicorn is missing in the selected Python environment.
+    echo [Launcher] Trying to install dependencies from requirements.txt...
+    if exist "requirements.txt" (
+        "%PYTHON%" -m pip install -r requirements.txt
+        if errorlevel 1 (
+            echo [Launcher] Automatic dependency install failed.
+            echo [Launcher] Run manually: "%PYTHON%" -m pip install -r requirements.txt
+            pause
+            exit /b 1
+        )
+        "%PYTHON%" -c "import uvicorn" >nul 2>&1
+        if errorlevel 1 (
+            echo [Launcher] uvicorn is still missing after install.
+            echo [Launcher] Run manually: "%PYTHON%" -m pip install uvicorn
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo [Launcher] requirements.txt not found. Install uvicorn in this env and retry.
+        pause
+        exit /b 1
+    )
+)
 
 :: Open browser automatically once localhost server responds
 set TARGET_URL=http://localhost:8000/
@@ -128,14 +156,14 @@ if errorlevel 1 (
 )
 
 echo [Launcher] Starting RoboTaste with pump service...
-%PYTHON% start_new_ui.py --with-pump
+"%PYTHON%" start_new_ui.py --with-pump
 set RUN_STATUS=%ERRORLEVEL%
 
 if not "%RUN_STATUS%"=="0" (
     echo.
     echo [Launcher] Startup with pump failed ^(exit code %RUN_STATUS%^).
     echo [Launcher] Retrying without pump service...
-    %PYTHON% start_new_ui.py
+    "%PYTHON%" start_new_ui.py
     set RUN_STATUS=%ERRORLEVEL%
 )
 
