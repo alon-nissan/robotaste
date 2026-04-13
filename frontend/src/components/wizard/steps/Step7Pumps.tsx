@@ -353,7 +353,7 @@ export default function Step7Pumps() {
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={pump.use_burst_mode ?? false}
+                  checked={pump.use_burst_mode ?? true}
                   onChange={(e) =>
                     setPump({ ...pump, use_burst_mode: e.target.checked })
                   }

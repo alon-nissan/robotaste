@@ -46,7 +46,7 @@ const DEFAULT_PROTOCOL: ProtocolDraft = {
   tags: [],
   ingredients: [],
   sample_selection_schedule: [],
-  pump_config: { enabled: false },
+  pump_config: { enabled: false, use_burst_mode: true },
   questionnaire: {
     name: '',
     description: '',

@@ -317,6 +317,9 @@ function PredeterminedEditor({
       <label className="block text-xs font-medium text-gray-600 mb-2">
         Samples ({cycleCount} cycles)
       </label>
+      <p className="text-xs text-gray-500 mb-2">
+        Enter ingredient concentrations (not percentages). Units are shown in each column header.
+      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -409,6 +412,10 @@ function SampleBankEditor({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Sample values are ingredient concentrations (not percentages). Use the unit shown per column.
+      </p>
+
       {/* Design type */}
       <div className="flex gap-4">
         <label className="flex items-center gap-2 text-sm">
@@ -470,7 +477,7 @@ function SampleBankEditor({
               <th className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">Label</th>
               {ingredients.map((ing) => (
                 <th key={ing.name} className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">
-                  {ing.name}
+                  {ing.name} ({ing.unit ?? 'mM'})
                 </th>
               ))}
               <th className="w-8"></th>
