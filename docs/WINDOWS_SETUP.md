@@ -108,8 +108,8 @@ Keep this window open while the experiment is running.
 3. Choose the serial port:
    - Typical Windows format: `COM3`, `COM4`, ...
    - Protocol wizard (Create Protocol → Pump step) can auto-detect ports
-   - For manual JSON protocols, open **Moderator Dashboard** and use the
-     **Serial Port Detector** panel in the pump section (shows recommended + detected ports)
+   - For manual JSON protocols, use the **Serial Port Detector** on the
+     **Landing Page** (Moderator panel) for a quick recommended value and detected list
 4. Keep pump service running for the full experiment
 
 ---
@@ -178,5 +178,5 @@ Verify:
 ### Serial port not visible
 
 - Reconnect USB-serial adapter
-- Click refresh in the Moderator Dashboard **Serial Port Detector** (or in wizard pump step)
+- Click refresh in the Landing Page **Serial Port Detector** (or in wizard pump step)
 - If still missing, check Windows Device Manager for COM assignment

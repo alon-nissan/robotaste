@@ -6,12 +6,18 @@
  * - Right: Participant panel (join session by code)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Session } from '../types';
 
 import PageLayout from '../components/PageLayout';
+
+interface SerialPortInfo {
+  device: string;
+  description: string;
+  hwid: string;
+}
 
 export default function LandingPage() {
   // ─── STATE ─────────────────────────────────────────────────────────────
@@ -21,8 +27,30 @@ export default function LandingPage() {
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availablePorts, setAvailablePorts] = useState<SerialPortInfo[]>([]);
+  const [recommendedPort, setRecommendedPort] = useState<string | null>(null);
+  const [portsLoading, setPortsLoading] = useState(false);
+  const [portsError, setPortsError] = useState<string | null>(null);
 
   const navigate = useNavigate();
+
+  const fetchSerialPorts = useCallback(async () => {
+    setPortsLoading(true);
+    setPortsError(null);
+    try {
+      const { data } = await api.get<{ ports: SerialPortInfo[]; recommended: string | null }>(
+        '/pump/ports'
+      );
+      setAvailablePorts(data.ports ?? []);
+      setRecommendedPort(data.recommended ?? null);
+    } catch {
+      setAvailablePorts([]);
+      setRecommendedPort(null);
+      setPortsError('Could not detect serial ports right now.');
+    } finally {
+      setPortsLoading(false);
+    }
+  }, []);
 
   // ─── FETCH ACTIVE SESSIONS ON MOUNT ────────────────────────────────────
   useEffect(() => {
@@ -36,7 +64,8 @@ export default function LandingPage() {
       }
     }
     fetchSessions();
-  }, []);
+    fetchSerialPorts();
+  }, [fetchSerialPorts]);
 
   // ─── HANDLERS ──────────────────────────────────────────────────────────
 
@@ -137,6 +166,49 @@ export default function LandingPage() {
           >
             Dose-Response Dashboard
           </button>
+
+          <div className="mb-6 p-4 rounded-lg border border-border bg-surface">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-text-primary">Serial Port Detector</h3>
+              <button
+                onClick={fetchSerialPorts}
+                disabled={portsLoading}
+                className="text-xs text-primary hover:text-primary-light disabled:text-text-secondary"
+              >
+                {portsLoading ? 'Scanning…' : 'Refresh'}
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary mb-2">
+              For manual protocol JSON, copy this into <code className="font-mono">pump_config.serial_port</code>.
+            </p>
+
+            <p className="text-sm text-text-primary mb-2">
+              Recommended:{' '}
+              <span className="font-mono font-medium">{recommendedPort ?? 'Not detected'}</span>
+            </p>
+
+            {portsError ? (
+              <p className="text-xs text-red-600">{portsError}</p>
+            ) : availablePorts.length > 0 ? (
+              <ul className="space-y-1 text-xs">
+                {availablePorts.map((port) => (
+                  <li key={port.device} className="font-mono text-text-primary">
+                    {port.device}
+                    {port.description && port.description !== 'n/a' ? (
+                      <span className="font-sans text-text-secondary"> — {port.description}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              !portsLoading && (
+                <p className="text-xs text-text-secondary">
+                  No ports detected. Connect USB-serial adapter and refresh.
+                </p>
+              )
+            )}
+          </div>
 
           {/* Divider */}
           <div className="flex items-center gap-3 mb-6">
