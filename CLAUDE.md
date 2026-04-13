@@ -37,6 +37,8 @@ Map common tasks to exact file paths (use these before exploring):
 - **Session API endpoints** → `api/routers/sessions.py`
 - **Protocol API endpoints** → `api/routers/protocols.py`
 - **Pump API endpoints** → `api/routers/pump.py`
+- **Analysis API endpoints** → `api/routers/analysis.py`
+- **Dose-response dashboard** → `frontend/src/pages/DoseResponseDashboardPage.tsx`
 - **Design guidelines** → `frontend/DESIGN_GUIDELINES.md`
 - **Workflow guide** → `docs/WORKFLOW_GUIDE.md`
 

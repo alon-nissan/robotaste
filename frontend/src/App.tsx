@@ -36,6 +36,7 @@ import CompletionPage from './pages/CompletionPage';
 import CustomPhasePage from './pages/CustomPhasePage';
 import ProtocolManagerPage from './pages/ProtocolManagerPage';
 import ProtocolWizardPage from './pages/ProtocolWizardPage';
+import DoseResponseDashboardPage from './pages/DoseResponseDashboardPage';
 import SubjectAutoJoinPage from './pages/SubjectAutoJoinPage';
 
 function App() {
@@ -50,6 +51,7 @@ function App() {
         <Route path="/moderator/monitoring" element={<ModeratorMonitoringPage />} />
         <Route path="/protocols" element={<ProtocolManagerPage />} />
         <Route path="/protocols/new" element={<ProtocolWizardPage />} />
+        <Route path="/analysis/dose-response" element={<DoseResponseDashboardPage />} />
 
         {/* Subject routes */}
         <Route path="/subject" element={<SubjectAutoJoinPage />} />

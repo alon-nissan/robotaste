@@ -46,7 +46,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 # Import our router modules — each one handles a group of related endpoints
-from api.routers import protocols, sessions, pump, documentation
+from api.routers import protocols, sessions, pump, documentation, analysis
 
 # Initialize the database on startup (same function Streamlit uses)
 from robotaste.data.database import init_database
@@ -96,6 +96,7 @@ app.include_router(protocols.router, prefix="/api/protocols", tags=["Protocols"]
 app.include_router(sessions.router,  prefix="/api/sessions",  tags=["Sessions"])
 app.include_router(pump.router,      prefix="/api/pump",      tags=["Pump"])
 app.include_router(documentation.router, prefix="/api/docs",  tags=["Documentation"])
+app.include_router(analysis.router,      prefix="/api/analysis", tags=["Analysis"])
 
 
 # ─── REQUEST LOGGING MIDDLEWARE ─────────────────────────────────────────────

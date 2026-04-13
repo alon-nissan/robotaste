@@ -126,9 +126,16 @@ export default function LandingPage() {
           {/* Manage Protocols */}
           <button
             onClick={() => navigate('/protocols')}
-            className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer mb-6"
+            className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer mb-3"
           >
             Manage Protocols
+          </button>
+
+          <button
+            onClick={() => navigate('/analysis/dose-response')}
+            className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer mb-6"
+          >
+            Dose-Response Dashboard
           </button>
 
           {/* Divider */}
