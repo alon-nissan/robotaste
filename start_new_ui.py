@@ -42,6 +42,11 @@ class Colors:
     END = '\033[0m'
 
 
+# Enable ANSI escape code processing on Windows 10+
+if sys.platform == "win32":
+    os.system("")
+
+
 def _port_in_use(port: int) -> bool:
     """Check if a port is already in use (IPv4 or IPv6)."""
     for family in (socket.AF_INET, socket.AF_INET6):
@@ -57,6 +62,10 @@ def _port_in_use(port: int) -> bool:
 
 def _kill_port_occupant(port: int) -> bool:
     """Kill whatever process is holding *port*. Returns True if cleared."""
+    if sys.platform == "win32":
+        # lsof is not available on Windows; ask the user to close the conflicting process
+        print(f"  Port {port} is in use. Please close the application using that port and retry.")
+        return False
     try:
         result = subprocess.run(
             ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
@@ -87,7 +96,11 @@ def _get_tailscale_ip() -> str | None:
     """Detect the machine's Tailscale IP, if Tailscale is running."""
     try:
         # Try common Tailscale binary locations
-        for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:
+        for cmd in [
+            "tailscale",
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale",  # macOS
+            r"C:\Program Files\Tailscale\tailscale.exe",              # Windows
+        ]:
             try:
                 result = subprocess.run(
                     [cmd, "ip", "-4"],
@@ -99,28 +112,24 @@ def _get_tailscale_ip() -> str | None:
                 continue
     except Exception:
         pass
-    # Fallback: check for Tailscale interface by scanning interfaces
-    try:
-        import netifaces  # type: ignore
-    except ImportError:
-        pass
-    # Check for 100.x.y.z addresses on any interface
-    try:
-        import fcntl
-        import struct
-        for iface_name in socket.if_nameindex():
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                ip = socket.inet_ntoa(fcntl.ioctl(
-                    s.fileno(), 0x8915,  # SIOCGIFADDR
-                    struct.pack('256s', iface_name[1].encode())
-                )[20:24])
-                if ip.startswith("100."):
-                    return ip
-            except Exception:
-                continue
-    except Exception:
-        pass
+    # Fallback: check for 100.x.y.z addresses on any interface (Unix only)
+    if sys.platform != "win32":
+        try:
+            import fcntl
+            import struct
+            for iface_name in socket.if_nameindex():
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    ip = socket.inet_ntoa(fcntl.ioctl(
+                        s.fileno(), 0x8915,  # SIOCGIFADDR
+                        struct.pack('256s', iface_name[1].encode())
+                    )[20:24])
+                    if ip.startswith("100."):
+                        return ip
+                except Exception:
+                    continue
+        except Exception:
+            pass
     return None
 
 
@@ -135,6 +144,13 @@ def _generate_qr_text(url: str) -> str:
         return buf.getvalue()
     except ImportError:
         return ""
+
+
+def _new_session_kwargs() -> dict:
+    """Return platform-appropriate kwargs to isolate a child process group."""
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 class ReactLauncher:
@@ -247,7 +263,7 @@ class ReactLauncher:
                 cwd=str(self.project_root),
                 stdout=log,
                 stderr=log,
-                start_new_session=True,
+                **_new_session_kwargs(),
             )
             # Wait for uvicorn to bind
             for _ in range(20):
@@ -276,7 +292,7 @@ class ReactLauncher:
                 cwd=str(self.frontend_dir),
                 stdout=log,
                 stderr=log,
-                start_new_session=True,
+                **_new_session_kwargs(),
             )
             for _ in range(20):
                 time.sleep(0.5)
@@ -309,7 +325,7 @@ class ReactLauncher:
                 cwd=str(self.project_root),
                 stdout=log,
                 stderr=log,
-                start_new_session=True,
+                **_new_session_kwargs(),
             )
             time.sleep(1)
             if self.pump_process.poll() is None:
@@ -403,15 +419,21 @@ class ReactLauncher:
             if proc and proc.poll() is None:
                 print(f"  Stopping {name}...")
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except ProcessLookupError:
+                    if sys.platform == "win32":
+                        proc.terminate()
+                    else:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
                     pass
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except ProcessLookupError:
+                        if sys.platform == "win32":
+                            proc.kill()
+                        else:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
                         pass
 
         print(f"{Colors.GREEN}All services stopped.{Colors.END}\n")
