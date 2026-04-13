@@ -45,6 +45,19 @@ router = APIRouter()
 logger = logging.getLogger("robotaste.api.protocols")
 
 
+def _safe_validate_protocol(protocol_data: dict, context: str) -> tuple[bool, list[str]]:
+    """
+    Run protocol validation and convert validator crashes into explicit errors.
+
+    This prevents unhandled validator exceptions from surfacing as generic 500s.
+    """
+    try:
+        return validate_protocol(protocol_data)
+    except Exception as exc:
+        logger.exception(f"Protocol validation crashed during {context}: {exc}")
+        return False, [f"Validator crashed during {context}: {exc}"]
+
+
 # ─── GET ALL PROTOCOLS ──────────────────────────────────────────────────────
 @router.get("")
 def get_protocols():
@@ -127,7 +140,7 @@ async def upload_protocol(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # Step 3: Validate using existing validation function
-    is_valid, errors = validate_protocol(protocol_data)
+    is_valid, errors = _safe_validate_protocol(protocol_data, "upload")
     if not is_valid:
         logger.warning(f"Protocol upload validation failed for '{file.filename}': {errors}")
         raise HTTPException(
@@ -173,7 +186,7 @@ async def create_protocol(protocol_data: dict):
     from datetime import datetime
 
     # Validate
-    is_valid, errors = validate_protocol(protocol_data)
+    is_valid, errors = _safe_validate_protocol(protocol_data, "create")
     if not is_valid:
         logger.warning(f"Protocol creation validation failed: {errors}")
         raise HTTPException(
@@ -209,5 +222,5 @@ async def validate_protocol_endpoint(protocol_data: dict):
     Validate a protocol without saving it.
     Used by the wizard to check validity before final save.
     """
-    is_valid, errors = validate_protocol(protocol_data)
+    is_valid, errors = _safe_validate_protocol(protocol_data, "validate_endpoint")
     return {"valid": is_valid, "errors": errors}

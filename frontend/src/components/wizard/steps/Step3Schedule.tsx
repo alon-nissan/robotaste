@@ -43,6 +43,7 @@ export default function Step3Schedule() {
   const schedule = state.protocol.sample_selection_schedule ?? [];
   const stopping = state.protocol.stopping_criteria ?? { max_cycles: 6, min_cycles: 1 };
   const ingredients = state.protocol.ingredients ?? [];
+  const tunableIngredients = ingredients.filter((ing) => !(ing.is_diluent ?? false));
 
   function updateStopping(updates: Partial<StoppingCriteria>) {
     dispatch({ type: 'SET_STOPPING_CRITERIA', payload: { ...stopping, ...updates } });
@@ -139,7 +140,7 @@ export default function Step3Schedule() {
               key={index}
               block={block}
               index={index}
-              ingredients={ingredients}
+              ingredients={tunableIngredients}
               canRemove={schedule.length > 1}
               onChange={(updates) => updateBlock(index, updates)}
               onRemove={() => removeBlock(index)}
@@ -281,6 +282,14 @@ function PredeterminedEditor({
   const samples = block.predetermined_samples ?? [];
   const cycleCount = block.cycle_range.end - block.cycle_range.start + 1;
 
+  if (ingredients.length === 0) {
+    return (
+      <p className="text-xs text-gray-500">
+        No tunable ingredients available for concentration editing.
+      </p>
+    );
+  }
+
   function ensureSamples(): PredeterminedSample[] {
     const result: PredeterminedSample[] = [];
     for (let c = block.cycle_range.start; c <= block.cycle_range.end; c++) {
@@ -356,6 +365,14 @@ function SampleBankEditor({
   ingredients: Ingredient[];
   onChange: (updates: Partial<ScheduleBlock>) => void;
 }) {
+  if (ingredients.length === 0) {
+    return (
+      <p className="text-xs text-gray-500">
+        No tunable ingredients available for sample bank concentrations.
+      </p>
+    );
+  }
+
   const bank = block.sample_bank ?? {
     samples: [],
     design_type: 'latin_square' as const,

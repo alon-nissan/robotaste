@@ -296,6 +296,12 @@ def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
         start = cycle_range["start"]
         end = cycle_range["end"]
 
+        if not isinstance(start, int) or not isinstance(end, int):
+            errors.append(
+                f"Schedule entry {i+1}: cycle_range start/end must be integers"
+            )
+            continue
+
         if start < 1:
             errors.append(f"Schedule entry {i+1}: cycle start must be >= 1")
 
@@ -389,8 +395,9 @@ def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
                     bank_size = len(bank["samples"])
                     cycle_count = end - start + 1
                     if bank_size != cycle_count:
-                        warnings.append(
-                            f"Schedule entry {i+1}: sample_bank size ({bank_size}) doesn't match cycle count ({cycle_count})"
+                        logger.warning(
+                            f"Schedule entry {i+1}: sample_bank size ({bank_size}) "
+                            f"doesn't match cycle count ({cycle_count})"
                         )
 
     # Check for gaps in cycle coverage (warn only)
@@ -411,6 +418,7 @@ def _validate_ingredients(protocol: Dict[str, Any]) -> List[str]:
     errors = []
 
     ingredients = protocol.get("ingredients", [])
+    has_non_diluent = False
 
     for i, ingredient in enumerate(ingredients):
         if "name" not in ingredient:
@@ -426,13 +434,36 @@ def _validate_ingredients(protocol: Dict[str, Any]) -> List[str]:
         min_conc = ingredient["min_concentration"]
         max_conc = ingredient["max_concentration"]
 
+        if not isinstance(min_conc, (int, float)) or not isinstance(max_conc, (int, float)):
+            errors.append(f"Ingredient {i+1}: concentration bounds must be numeric")
+            continue
+
+        is_diluent = bool(ingredient.get("is_diluent", False))
+
         if min_conc < 0:
             errors.append(f"Ingredient {i+1}: min_concentration cannot be negative")
 
+        if is_diluent:
+            if min_conc != 0 or max_conc != 0:
+                errors.append(
+                    f"Ingredient {i+1}: diluent must have min_concentration=0 and max_concentration=0"
+                )
+
+            stock_conc = ingredient.get("stock_concentration_mM")
+            if stock_conc is not None and stock_conc != 0:
+                errors.append(
+                    f"Ingredient {i+1}: diluent must have stock_concentration_mM=0"
+                )
+            continue
+
+        has_non_diluent = True
         if max_conc <= min_conc:
             errors.append(
                 f"Ingredient {i+1}: max_concentration must be > min_concentration"
             )
+
+    if ingredients and not has_non_diluent:
+        errors.append("Protocol must include at least one non-diluent ingredient")
 
     return errors
 

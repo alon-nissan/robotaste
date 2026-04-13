@@ -98,6 +98,10 @@ PROTOCOL_JSON_SCHEMA = {
                     "unit": {"type": "string", "default": "mM"},
                     "molecular_weight": {"type": "number"},
                     "stock_concentration_mM": {"type": "number"},
+                    "is_diluent": {
+                        "type": "boolean",
+                        "description": "Marks this ingredient as fixed diluent/non-tunable",
+                    },
                 },
             },
         },
@@ -892,4 +896,3 @@ def normalize_selection_mode(mode: str) -> SelectionMode:
     if mode == "predetermined":
         return "predetermined_absolute"
     return mode
-

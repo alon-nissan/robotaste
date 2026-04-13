@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useWizard } from '../../../context/WizardContext';
 
 export default function ReviewStep() {
-  const { state, needsBO, needsPumps } = useWizard();
+  const { state, needsBO } = useWizard();
   const p = state.protocol;
 
   const errors = validate(p, needsBO);
@@ -125,16 +125,15 @@ export default function ReviewStep() {
           />
         </Section>
 
-        {needsPumps && (
-          <Section title="Pump Hardware" status={p.pump_config?.enabled ? 'ok' : 'warn'}>
-            <Row label="Serial Port" value={p.pump_config?.serial_port ?? '(not set)'} />
-            <Row label="Pumps" value={`${(p.pump_config?.pumps ?? []).length} pump(s)`} />
-            <Row
-              label="Volume"
-              value={`${p.pump_config?.total_volume_ml ?? 10} mL at ${p.pump_config?.dispensing_rate_ul_min ?? '?'} uL/min`}
-            />
-          </Section>
-        )}
+        <Section title="Pump Hardware" status="ok">
+          <Row label="Enabled" value={p.pump_config?.enabled ? 'Yes' : 'No'} />
+          <Row label="Serial Port" value={p.pump_config?.serial_port ?? '(not set)'} />
+          <Row label="Pumps" value={`${(p.pump_config?.pumps ?? []).length} pump(s)`} />
+          <Row
+            label="Volume"
+            value={`${p.pump_config?.total_volume_ml ?? 10} mL at ${p.pump_config?.dispensing_rate_ul_min ?? '?'} uL/min`}
+          />
+        </Section>
       </div>
 
       {/* Download button */}

@@ -818,8 +818,12 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     """
     # Extract ingredients and convert to the format expected by the experiment
     ingredients = protocol.get("ingredients", [])
+    tunable_ingredients = [
+        ing for ing in ingredients
+        if not ing.get("is_diluent", False)
+    ]
     experiment_ingredients = []
-    for ing in ingredients:
+    for ing in tunable_ingredients:
         experiment_ingredients.append({
             "name": ing.get("name"),
             "min_concentration_mM": ing.get("min_concentration", 0),

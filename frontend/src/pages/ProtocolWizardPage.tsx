@@ -23,6 +23,11 @@ import Step6Experience from '../components/wizard/steps/Step6Experience';
 import Step7Pumps from '../components/wizard/steps/Step7Pumps';
 import ReviewStep from '../components/wizard/steps/ReviewStep';
 
+interface ProtocolValidationResponse {
+  valid: boolean;
+  errors: string[];
+}
+
 function WizardContent() {
   const { state } = useWizard();
   const navigate = useNavigate();
@@ -33,14 +38,23 @@ function WizardContent() {
     setSaving(true);
     setError(null);
     try {
-      const protocol = {
-        ...state.protocol,
-        created_at: new Date().toISOString(),
-      };
+      // Strip undefined values before server-side validation/persist.
+      const protocol = JSON.parse(JSON.stringify(state.protocol));
+      const validation = await api.post<ProtocolValidationResponse>('/protocols/validate', protocol);
+      if (!validation.data.valid) {
+        setError(validation.data.errors.join(' | '));
+        return;
+      }
       await api.post('/protocols', protocol);
       navigate('/protocols');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to save protocol';
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : err instanceof Error
+          ? err.message
+          : 'Failed to save protocol';
       setError(msg);
     } finally {
       setSaving(false);

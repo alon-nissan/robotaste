@@ -282,6 +282,6 @@ export const WIZARD_STEPS: { id: WizardStepId; label: string; description: strin
   { id: 'questionnaire', label: 'Questionnaire', description: 'What subjects will rate' },
   { id: 'optimization', label: 'Optimization', description: 'Algorithm settings', conditional: true },
   { id: 'experience', label: 'Experience', description: 'Consent, instructions, loading' },
-  { id: 'pumps', label: 'Pumps', description: 'Hardware configuration', conditional: true },
+  { id: 'pumps', label: 'Pumps', description: 'Hardware configuration' },
   { id: 'review', label: 'Review', description: 'Review and save' },
 ];
