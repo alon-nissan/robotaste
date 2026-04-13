@@ -90,13 +90,11 @@ echo [Update] Resolve with git status / git pull --rebase (or merge) manually.
 :after_update_check
 echo.
 
-:: Find Python: .venv > venv > env > system python
+:: Find Python: .venv > venv > system python
 if exist ".venv\Scripts\python.exe" (
     set PYTHON=.venv\Scripts\python.exe
 ) else if exist "venv\Scripts\python.exe" (
     set PYTHON=venv\Scripts\python.exe
-) else if exist "env\Scripts\python.exe" (
-    set PYTHON=env\Scripts\python.exe
 ) else (
     set PYTHON=python
 )
@@ -105,77 +103,5 @@ echo Using Python: %PYTHON%
 echo Project: %~dp0
 echo.
 
-"%PYTHON%" -c "import uvicorn" >nul 2>&1
-if errorlevel 1 (
-    echo [Launcher] uvicorn is missing in the selected Python environment.
-    echo [Launcher] Trying to install dependencies from requirements.txt...
-    if exist "requirements.txt" (
-        "%PYTHON%" -m pip install -r requirements.txt
-        if errorlevel 1 (
-            echo [Launcher] Automatic dependency install failed.
-            echo [Launcher] Run manually: "%PYTHON%" -m pip install -r requirements.txt
-            pause
-            exit /b 1
-        )
-        "%PYTHON%" -c "import uvicorn" >nul 2>&1
-        if errorlevel 1 (
-            echo [Launcher] uvicorn is still missing after install.
-            echo [Launcher] Run manually: "%PYTHON%" -m pip install uvicorn
-            pause
-            exit /b 1
-        )
-    ) else (
-        echo [Launcher] requirements.txt not found. Install uvicorn in this env and retry.
-        pause
-        exit /b 1
-    )
-)
-
-:: Open browser automatically once localhost server responds
-set TARGET_URL=http://localhost:8000/
-set CHROME_EXE=
-if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    set CHROME_EXE=%ProgramFiles%\Google\Chrome\Application\chrome.exe
-) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
-    set CHROME_EXE=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe
-) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
-    set CHROME_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe
-)
-
-where powershell >nul 2>&1
-if errorlevel 1 goto :open_default_browser
-
-if defined CHROME_EXE (
-    echo [Launcher] Chrome will open automatically at %TARGET_URL%
-) else (
-    echo [Launcher] Chrome not found. Default browser will open at %TARGET_URL%
-)
-
-set "BROWSER_WAIT_CMD=$url='%TARGET_URL%'; $chrome='%CHROME_EXE%'; for($i=0;$i -lt 240;$i++){ try { $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -ge 200){ if($chrome -and (Test-Path $chrome)){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url } else { Start-Process $url }; exit 0 } } catch {}; Start-Sleep -Milliseconds 500 }; if($chrome -and (Test-Path $chrome)){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url } else { Start-Process $url }"
-start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "%BROWSER_WAIT_CMD%"
-goto :after_browser_launch
-
-:open_default_browser
-echo [Launcher] PowerShell not found. Opening default browser now.
-start "" "%TARGET_URL%"
-
-:after_browser_launch
-
-echo [Launcher] Starting RoboTaste with pump service...
-"%PYTHON%" start_new_ui.py --with-pump
-set RUN_STATUS=%ERRORLEVEL%
-
-if not "%RUN_STATUS%"=="0" (
-    echo.
-    echo [Launcher] Startup with pump failed ^(exit code %RUN_STATUS%^).
-    echo [Launcher] Retrying without pump service...
-    "%PYTHON%" start_new_ui.py
-    set RUN_STATUS=%ERRORLEVEL%
-)
-
-if not "%RUN_STATUS%"=="0" (
-    echo [Launcher] RoboTaste exited with code %RUN_STATUS%.
-)
-
+%PYTHON% start_new_ui.py --with-pump
 pause
-exit /b %RUN_STATUS%
