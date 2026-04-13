@@ -53,6 +53,12 @@ import DocumentationLinks from '../components/DocumentationLinks';
 import PumpSetup from '../components/PumpSetup';
 import RefillWizard from '../components/RefillWizard';
 
+interface SerialPortInfo {
+  device: string;
+  description: string;
+  hwid: string;
+}
+
 export default function ModeratorSetupPage() {
   // ─── STATE ─────────────────────────────────────────────────────────────
   // This page owns all the state that child components need
@@ -78,6 +84,12 @@ export default function ModeratorSetupPage() {
 
   // Global pump status (cross-session volume tracking)
   const [globalPumpStatus, setGlobalPumpStatus] = useState<PumpGlobalStatus | null>(null);
+
+  // Serial port detection (for manual protocol editing workflows)
+  const [availablePorts, setAvailablePorts] = useState<SerialPortInfo[]>([]);
+  const [recommendedPort, setRecommendedPort] = useState<string | null>(null);
+  const [portsLoading, setPortsLoading] = useState(false);
+  const [portsError, setPortsError] = useState<string | null>(null);
 
   // Refill wizard state
   const [refillTarget, setRefillTarget] = useState<{
@@ -119,6 +131,36 @@ export default function ModeratorSetupPage() {
 
     fetchGlobalStatus();
   }, [selectedProtocol?.protocol_id, selectedProtocol?.pump_config?.enabled]);
+
+  const fetchSerialPorts = useCallback(async () => {
+    setPortsLoading(true);
+    setPortsError(null);
+
+    try {
+      const { data } = await api.get<{ ports: SerialPortInfo[]; recommended: string | null }>(
+        '/pump/ports'
+      );
+      setAvailablePorts(data.ports ?? []);
+      setRecommendedPort(data.recommended ?? null);
+    } catch {
+      setAvailablePorts([]);
+      setRecommendedPort(null);
+      setPortsError('Could not detect serial ports right now.');
+    } finally {
+      setPortsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedProtocol?.pump_config?.enabled) {
+      setAvailablePorts([]);
+      setRecommendedPort(null);
+      setPortsError(null);
+      return;
+    }
+
+    fetchSerialPorts();
+  }, [selectedProtocol?.protocol_id, selectedProtocol?.pump_config?.enabled, fetchSerialPorts]);
 
 
   // ─── HANDLERS ──────────────────────────────────────────────────────────
@@ -221,6 +263,65 @@ export default function ModeratorSetupPage() {
         <div className="p-6 bg-surface rounded-xl border border-border">
           {selectedProtocol?.pump_config?.enabled ? (
             <div className="space-y-6">
+              <div className="p-4 bg-surface rounded-lg border border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-lg font-semibold text-text-primary">
+                    Serial Port Detector
+                  </h3>
+                  <button
+                    onClick={fetchSerialPorts}
+                    disabled={portsLoading}
+                    className="text-sm text-primary hover:text-primary-light disabled:text-text-secondary"
+                  >
+                    {portsLoading ? 'Scanning…' : 'Refresh'}
+                  </button>
+                </div>
+
+                <p className="text-sm text-text-secondary mb-2">
+                  Use this value as <code className="font-mono">pump_config.serial_port</code> in
+                  manual protocol JSON.
+                </p>
+
+                <p className="text-sm text-text-primary">
+                  Recommended port:{' '}
+                  <span className="font-mono font-medium">
+                    {recommendedPort ?? 'Not detected'}
+                  </span>
+                </p>
+
+                {selectedProtocol?.pump_config?.serial_port && (
+                  <p className="text-sm text-text-secondary mt-1">
+                    Protocol currently uses:{' '}
+                    <span className="font-mono">{selectedProtocol?.pump_config?.serial_port}</span>
+                  </p>
+                )}
+
+                {portsError ? (
+                  <p className="text-sm text-red-600 mt-2">{portsError}</p>
+                ) : (
+                  <div className="mt-3">
+                    {availablePorts.length > 0 ? (
+                      <ul className="space-y-1 text-sm">
+                        {availablePorts.map((port) => (
+                          <li key={port.device} className="font-mono text-text-primary">
+                            {port.device}
+                            {port.description && port.description !== 'n/a' ? (
+                              <span className="font-sans text-text-secondary"> — {port.description}</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      !portsLoading && (
+                        <p className="text-sm text-text-secondary">
+                          No serial ports detected. Connect the adapter and click Refresh.
+                        </p>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Global pump status (cross-session volumes) — shown when state exists */}
               {globalPumpStatus?.pump_enabled && Object.keys(globalPumpStatus.ingredients).length > 0 ? (
                 <div>

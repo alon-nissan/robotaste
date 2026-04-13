@@ -105,9 +105,11 @@ Keep this window open while the experiment is running.
    ```powershell
    python start_new_ui.py --with-pump
    ```
-3. In protocol setup/wizard, choose the serial port:
+3. Choose the serial port:
    - Typical Windows format: `COM3`, `COM4`, ...
-   - The wizard can auto-detect available ports and suggest one
+   - Protocol wizard (Create Protocol → Pump step) can auto-detect ports
+   - For manual JSON protocols, open **Moderator Dashboard** and use the
+     **Serial Port Detector** panel in the pump section (shows recommended + detected ports)
 4. Keep pump service running for the full experiment
 
 ---
@@ -124,11 +126,13 @@ Keep this window open while the experiment is running.
 
 ## 9. Optional one-click launcher
 
-You can also run `RoboTaste.bat` by double-clicking it. It starts RoboTaste in
-`--with-pump` mode and looks for Python in:
-1. `.venv\Scripts\python.exe`
-2. `venv\Scripts\python.exe`
-3. system `python`
+You can also run `RoboTaste.bat` by double-clicking it. It:
+1. checks git updates and prompts before pulling when safe
+2. starts RoboTaste in `--with-pump` mode
+3. looks for Python in:
+   - `.venv\Scripts\python.exe`
+   - `venv\Scripts\python.exe`
+   - system `python`
 
 Use this after dependencies are installed.
 
@@ -174,5 +178,5 @@ Verify:
 ### Serial port not visible
 
 - Reconnect USB-serial adapter
-- Click refresh in the protocol wizard port picker
+- Click refresh in the Moderator Dashboard **Serial Port Detector** (or in wizard pump step)
 - If still missing, check Windows Device Manager for COM assignment
