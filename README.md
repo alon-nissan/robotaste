@@ -10,6 +10,11 @@ Multi-device taste experiment platform with Bayesian Optimization and hardware p
 
 ### Installation
 ```bash
+# Create and activate a Python virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
 # Python dependencies
 pip install -r requirements.txt
 

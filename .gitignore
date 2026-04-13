@@ -40,6 +40,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# Environment variable files
+.env
+.env.local
+.env.*.local
+
 # Streamlit
 .streamlit/secrets.toml
 

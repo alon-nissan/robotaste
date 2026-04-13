@@ -20,9 +20,14 @@ from contextlib import contextmanager
 from typing import Optional, Tuple, Dict, Any, List
 import logging
 import os
+from pathlib import Path
 
-# Configuration
-DB_PATH = "robotaste.db"
+# Configuration — resolved relative to the project root so it works regardless
+# of the current working directory. Override with ROBOTASTE_DB_PATH env var.
+DB_PATH = os.environ.get(
+    "ROBOTASTE_DB_PATH",
+    str(Path(__file__).parent.parent.parent / "robotaste.db"),
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
