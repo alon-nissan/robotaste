@@ -134,6 +134,14 @@ You can also run `RoboTaste.bat` by double-clicking it. It:
    - `venv\Scripts\python.exe`
    - system `python`
 
+**Important:** keep `RoboTaste.bat` in the RoboTaste project folder.
+Do **not** copy the file to Desktop.
+
+To launch from Desktop, create a shortcut:
+1. In File Explorer, open the RoboTaste project folder.
+2. Right-click `RoboTaste.bat` → **Show more options** → **Send to** → **Desktop (create shortcut)**.
+3. Use that Desktop shortcut to launch RoboTaste.
+
 Use this after dependencies are installed.
 
 ---
@@ -149,6 +157,14 @@ py start_new_ui.py
 ```
 
 If needed, reinstall Python and enable PATH integration.
+
+### Launcher says `start_new_ui.py was not found`
+
+This usually means `RoboTaste.bat` was copied outside the project folder.
+
+Fix:
+1. Move/copy `RoboTaste.bat` back into the RoboTaste project root.
+2. Create a **Desktop shortcut** to `RoboTaste.bat` (do not copy the file itself).
 
 ### PowerShell blocks `Activate.ps1`
 

@@ -4,6 +4,14 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 cd /d "%~dp0"
 
+if not exist "start_new_ui.py" (
+    echo [Launcher] start_new_ui.py was not found in: %~dp0
+    echo [Launcher] RoboTaste.bat must stay inside the RoboTaste project folder.
+    echo [Launcher] To launch from Desktop, create a shortcut to this file instead of copying it.
+    pause
+    exit /b 1
+)
+
 :: ─── Optional update check (safe mode: prompt before pull) ──────────────────
 where git >nul 2>&1
 if errorlevel 1 (
@@ -51,7 +59,9 @@ if "!AHEAD!"=="0" if "!BEHIND!"=="0" (
 if "!AHEAD!"=="0" if not "!BEHIND!"=="0" (
     if "!DIRTY!"=="0" (
         echo [Update] New remote changes available.
-        choice /M "Pull latest changes now"
+        echo [Update]   [1] Update now ^(git pull --ff-only^)
+        echo [Update]   [2] Continue without updating
+        choice /C 12 /N /M "Select option [1-2]: "
         if errorlevel 2 (
             echo [Update] Skipped pull.
         ) else (
