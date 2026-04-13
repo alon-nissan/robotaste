@@ -26,6 +26,7 @@ import signal
 import argparse
 import os
 import socket
+import shutil
 from pathlib import Path
 
 
@@ -153,6 +154,21 @@ def _new_session_kwargs() -> dict:
     return {"start_new_session": True}
 
 
+def _resolve_npm_command() -> str:
+    """Return a callable npm command path/name for subprocess execution."""
+    if sys.platform == "win32":
+        candidates = ["npm.cmd", "npm", r"C:\Program Files\nodejs\npm.cmd"]
+    else:
+        candidates = ["npm"]
+
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    return candidates[0]
+
+
 class ReactLauncher:
     """Manages FastAPI, Vite, and pump service processes."""
 
@@ -163,6 +179,7 @@ class ReactLauncher:
         self.with_pump = with_pump
         self.dev_mode = dev_mode
         self.port = port
+        self.npm_cmd = _resolve_npm_command()
         self.project_root = Path(__file__).parent
         self.frontend_dir = self.project_root / "frontend"
         self.dist_dir = self.frontend_dir / "dist"
@@ -223,7 +240,7 @@ class ReactLauncher:
 
         try:
             result = subprocess.run(
-                ["npm", "run", "build"],
+                [self.npm_cmd, "run", "build"],
                 cwd=str(self.frontend_dir),
                 capture_output=True,
                 text=True,
@@ -240,7 +257,8 @@ class ReactLauncher:
             print(f"{Colors.RED}✗ Frontend build timed out{Colors.END}")
             return False
         except FileNotFoundError:
-            print(f"{Colors.RED}✗ npm not found. Run: cd frontend && npm install{Colors.END}")
+            print(f"{Colors.RED}✗ npm not found (tried: {self.npm_cmd}){Colors.END}")
+            print(f"{Colors.YELLOW}  Install Node.js 18+ and reopen the terminal.{Colors.END}")
             return False
 
     def start_api(self) -> bool:
@@ -288,7 +306,7 @@ class ReactLauncher:
         try:
             log = self._open_log("vite_process")
             self.vite_process = subprocess.Popen(
-                ["npm", "run", "dev"],
+                [self.npm_cmd, "run", "dev"],
                 cwd=str(self.frontend_dir),
                 stdout=log,
                 stderr=log,
@@ -303,6 +321,10 @@ class ReactLauncher:
                     break
 
             print(f"{Colors.RED}✗ Vite failed to start{Colors.END}")
+            return False
+        except FileNotFoundError:
+            print(f"{Colors.RED}✗ npm not found (tried: {self.npm_cmd}){Colors.END}")
+            print(f"{Colors.YELLOW}  Install Node.js 18+ and reopen the terminal.{Colors.END}")
             return False
         except Exception as e:
             print(f"{Colors.RED}✗ Error starting Vite: {e}{Colors.END}")
