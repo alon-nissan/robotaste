@@ -155,7 +155,11 @@ def _get_tailscale_ip() -> str | None:
     """Detect the machine's Tailscale IP, if Tailscale is running."""
     import subprocess
     try:
-        for cmd in ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]:
+        for cmd in [
+            "tailscale",
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale",  # macOS
+            r"C:\Program Files\Tailscale\tailscale.exe",              # Windows
+        ]:
             try:
                 result = subprocess.run(
                     [cmd, "ip", "-4"],
@@ -171,12 +175,12 @@ def _get_tailscale_ip() -> str | None:
 
 
 @app.get("/api/server-info")
-def server_info():
+def server_info(request: Request):
     """Return LAN/Tailscale connection info for multi-device setup."""
     lan_ip = _get_lan_ip()
     tailscale_ip = _get_tailscale_ip()
     preferred_ip = tailscale_ip or lan_ip
-    port = 8000
+    port = request.url.port or 8000
     return {
         "lan_ip": lan_ip,
         "tailscale_ip": tailscale_ip,
