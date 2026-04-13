@@ -48,6 +48,33 @@ class RefillCompleteRequest(BaseModel):
     new_volume_ml: float
 
 
+# ─── LIST AVAILABLE SERIAL PORTS ───────────────────────────────────────────
+@router.get("/ports")
+def list_serial_ports():
+    """
+    List available serial ports for pump connection.
+
+    Used by the protocol wizard so users can select their port from a
+    dropdown instead of typing a platform-specific path manually.
+
+    Returns:
+        ports: List of {device, description, hwid}
+        recommended: Best-guess port for a pump (or null if none found)
+    """
+    try:
+        from robotaste.utils.serial_utils import list_available_ports, recommend_port
+        return {
+            "ports": list_available_ports(),
+            "recommended": recommend_port(),
+        }
+    except ImportError:
+        logger.warning("serial_utils not available — pyserial may not be installed")
+        return {"ports": [], "recommended": None}
+    except Exception as e:
+        logger.error(f"Error listing serial ports: {e}")
+        return {"ports": [], "recommended": None}
+
+
 # ─── GET PUMP OPERATION STATUS ─────────────────────────────────────────────
 @router.get("/operation/{session_id}")
 def get_pump_operation(session_id: str):

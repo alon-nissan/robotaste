@@ -3,7 +3,9 @@
  * Serial port, pump-to-ingredient mapping, dispensing settings.
  */
 
+import { useState, useEffect } from 'react';
 import { useWizard } from '../../../context/WizardContext';
+import { api } from '../../../api/client';
 import type { PumpConfig, PumpMapping } from '../../../types';
 
 const SYRINGE_PRESETS = [
@@ -17,14 +19,46 @@ const SYRINGE_PRESETS = [
   { label: '60 mL BD (29.0 mm)', diameter: 29.0 },
 ];
 
+interface SerialPort {
+  device: string;
+  description: string;
+  hwid: string;
+}
+
 export default function Step7Pumps() {
   const { state, dispatch } = useWizard();
   const pump = state.protocol.pump_config ?? { enabled: false };
   const ingredients = state.protocol.ingredients ?? [];
 
+  const [availablePorts, setAvailablePorts] = useState<SerialPort[]>([]);
+  const [portsLoading, setPortsLoading] = useState(false);
+  const [manualEntry, setManualEntry] = useState(false);
+
   function setPump(config: PumpConfig) {
     dispatch({ type: 'SET_PUMP_CONFIG', payload: config });
   }
+
+  async function fetchPorts(applyRecommended = false) {
+    setPortsLoading(true);
+    try {
+      const res = await api.get<{ ports: SerialPort[]; recommended: string | null }>('/pump/ports');
+      setAvailablePorts(res.data.ports);
+      if (applyRecommended && res.data.recommended && !pump.serial_port) {
+        setPump({ ...pump, serial_port: res.data.recommended });
+      }
+    } catch {
+      setAvailablePorts([]);
+    } finally {
+      setPortsLoading(false);
+    }
+  }
+
+  // Fetch available ports when pumps are enabled
+  useEffect(() => {
+    if (pump.enabled) {
+      fetchPorts(true);
+    }
+  }, [pump.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleEnabled(enabled: boolean) {
     if (enabled) {
@@ -39,7 +73,7 @@ export default function Step7Pumps() {
       setPump({
         ...pump,
         enabled: true,
-        serial_port: pump.serial_port || '/dev/cu.PL2303G-USBtoUART120',
+        serial_port: pump.serial_port || '',
         baud_rate: pump.baud_rate || 19200,
         pumps,
         total_volume_ml: pump.total_volume_ml || 10,
@@ -59,6 +93,12 @@ export default function Step7Pumps() {
 
   const hasBurstWarning =
     pump.use_burst_mode && (pump.pumps ?? []).some((p) => p.address > 9);
+
+  const currentPort = pump.serial_port ?? '';
+  // Show manual entry if the user has typed a port not in the detected list,
+  // or if they explicitly requested manual entry
+  const portInList = availablePorts.some((p) => p.device === currentPort);
+  const showManual = manualEntry || (currentPort !== '' && !portInList);
 
   return (
     <div className="space-y-8">
@@ -107,14 +147,62 @@ export default function Step7Pumps() {
             <h3 className="text-sm font-medium text-gray-700 mb-3">Connection</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Serial Port</label>
-                <input
-                  type="text"
-                  value={pump.serial_port ?? ''}
-                  onChange={(e) => setPump({ ...pump, serial_port: e.target.value })}
-                  placeholder="/dev/cu.PL2303G-USBtoUART120"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-gray-600">Serial Port</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fetchPorts(false)}
+                      disabled={portsLoading}
+                      className="text-xs text-blue-600 hover:text-blue-700 disabled:text-gray-400"
+                    >
+                      {portsLoading ? 'Scanning…' : 'Refresh'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManualEntry((v) => !v)}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      {showManual ? 'Use dropdown' : 'Enter manually'}
+                    </button>
+                  </div>
+                </div>
+
+                {showManual ? (
+                  <input
+                    type="text"
+                    value={currentPort}
+                    onChange={(e) => setPump({ ...pump, serial_port: e.target.value })}
+                    placeholder="e.g. /dev/ttyUSB0  or  COM3"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                ) : (
+                  <select
+                    value={currentPort}
+                    onChange={(e) => setPump({ ...pump, serial_port: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {availablePorts.length === 0 ? (
+                      <option value="">— No serial ports detected —</option>
+                    ) : (
+                      <>
+                        <option value="">Select a port…</option>
+                        {availablePorts.map((p) => (
+                          <option key={p.device} value={p.device}>
+                            {p.device}
+                            {p.description && p.description !== 'n/a' ? ` — ${p.description}` : ''}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                )}
+
+                {availablePorts.length === 0 && !portsLoading && !showManual && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    No ports found. Make sure the pump is plugged in, then click Refresh.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Baud Rate</label>

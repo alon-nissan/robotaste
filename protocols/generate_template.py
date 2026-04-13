@@ -340,7 +340,7 @@ def build_pumps(wb: Workbook):
     r = 2
     r = write_section(ws, r, "PUMP CONTROL — skip this entire sheet if not using pumps")
     write_row(ws, r, "Enable Pumps", "no", "yes", "yes = robot dispenses samples automatically", validation=yn); r+=1
-    write_row(ws, r, "Serial Port", "", "/dev/cu.PL2303G-USBtoUART120",
+    write_row(ws, r, "Serial Port", "", "",
               "Mac/Linux: /dev/cu.XXX or /dev/ttyUSBX\nWindows: COM3"); r+=1
     write_row(ws, r, "Baud Rate", "19200", "19200", "19200 for NE-4000 pumps"); r+=1
     write_row(ws, r, "Total Sample Volume (mL)", "", "10", "mL dispensed per cycle"); r+=1
