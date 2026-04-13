@@ -1,17 +1,16 @@
 #!/bin/bash
 # RoboTaste Launcher — double-click to start all services with pump
 
-PROJECT_DIR="/Users/alonnissan/Library/Mobile Documents/com~apple~CloudDocs/University/Masters/Research/RoboTaste/Software"
+# Locate the project directory from this script's own path (works from any location)
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$PROJECT_DIR" || { echo "ERROR: Could not cd to project directory"; read -r; exit 1; }
 
-# Find Python: venv > conda base > system python3
+# Find Python: venv > system python3
 if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
     PYTHON="$PROJECT_DIR/.venv/bin/python"
 elif [ -f "$PROJECT_DIR/venv/bin/python" ]; then
     PYTHON="$PROJECT_DIR/venv/bin/python"
-elif [ -f "/Users/alonnissan/anaconda3/bin/python3" ]; then
-    PYTHON="/Users/alonnissan/anaconda3/bin/python3"
 else
     PYTHON="python3"
 fi
