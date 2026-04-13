@@ -238,6 +238,7 @@ PROTOCOL_JSON_SCHEMA = {
                         },
                     },
                 },
+                "display_mode": {"type": "string", "enum": ["all_at_once", "one_at_a_time"]},
                 "bayesian_target": {
                     "type": "object",
                     "required": ["variable", "higher_is_better"],

@@ -307,6 +307,7 @@ export interface QuestionnaireConfig {
   name: string;
   title?: string;
   questions: QuestionConfig[];
+  display_mode?: 'all_at_once' | 'one_at_a_time';
 }
 
 
@@ -401,6 +402,7 @@ export interface InlineQuestionnaire {
   citation?: string;
   questions: QuestionConfig[];
   bayesian_target?: BayesianTarget;
+  display_mode?: 'all_at_once' | 'one_at_a_time';
 }
 
 

@@ -260,6 +260,8 @@ export default function QuestionnairePage() {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [displayMode, setDisplayMode] = useState<'all_at_once' | 'one_at_a_time'>('all_at_once');
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -273,6 +275,7 @@ export default function QuestionnairePage() {
         if (qConfig?.questions?.length) {
           setQuestions(qConfig.questions);
           if (qConfig.title) setTitle(qConfig.title);
+          if (qConfig.display_mode) setDisplayMode(qConfig.display_mode);
 
           // Initialize default values
           const defaults: Record<string, unknown> = {};
@@ -289,6 +292,16 @@ export default function QuestionnairePage() {
 
   function updateAnswer(id: string, value: unknown) {
     setAnswers((prev) => ({ ...prev, [id]: value }));
+  }
+
+  function handleNext() {
+    const q = questions[currentIndex];
+    if (q.required !== false && answers[q.id] === undefined) {
+      setError('Please answer this question before continuing.');
+      return;
+    }
+    setError(null);
+    setCurrentIndex((i) => i + 1);
   }
 
   async function handleSubmit() {
@@ -340,6 +353,9 @@ export default function QuestionnairePage() {
     }
   }
 
+  const isSequential = displayMode === 'one_at_a_time';
+  const isLastQuestion = currentIndex === questions.length - 1;
+
   return (
     <PageLayout showLogo={false}>
       <div className="max-w-4xl mx-auto mt-8">
@@ -348,19 +364,49 @@ export default function QuestionnairePage() {
             {title}
           </h2>
 
-          <div className="space-y-8">
-            {questions.map((q) => (
-              <div key={q.id}>
+          {isSequential ? (
+            <>
+              <div className="flex items-center justify-between mb-6">
+                <span className="text-sm text-text-secondary">
+                  Question {currentIndex + 1} of {questions.length}
+                </span>
+                <div className="flex gap-1">
+                  {questions.map((_, i) => (
+                    <div
+                      key={i}
+                      className={`h-1.5 w-6 rounded-full transition-colors duration-200 ${
+                        i <= currentIndex ? 'bg-primary' : 'bg-border'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-text-primary mb-3">
-                  {q.label}
-                  {q.required === false ? '' : ''}
+                  {questions[currentIndex].label}
                 </label>
-                {renderQuestion(q, answers[q.id], (v) =>
-                  updateAnswer(q.id, v)
+                {renderQuestion(
+                  questions[currentIndex],
+                  answers[questions[currentIndex].id],
+                  (v) => updateAnswer(questions[currentIndex].id, v)
                 )}
               </div>
-            ))}
-          </div>
+            </>
+          ) : (
+            <div className="space-y-8">
+              {questions.map((q) => (
+                <div key={q.id}>
+                  <label className="block text-sm font-medium text-text-primary mb-3">
+                    {q.label}
+                  </label>
+                  {renderQuestion(q, answers[q.id], (v) =>
+                    updateAnswer(q.id, v)
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {error && (
             <div className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
@@ -369,20 +415,29 @@ export default function QuestionnairePage() {
           )}
 
           <div className="mt-8 flex justify-center">
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className={`
-                py-4 px-8 rounded-xl text-lg font-semibold shadow-md transition-all duration-200
-                ${
-                  submitting
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer'
-                }
-              `}
-            >
-              {submitting ? 'Submitting...' : 'Submit Response'}
-            </button>
+            {isSequential && !isLastQuestion ? (
+              <button
+                onClick={handleNext}
+                className="py-4 px-8 rounded-xl text-lg font-semibold shadow-md transition-all duration-200 bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer"
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className={`
+                  py-4 px-8 rounded-xl text-lg font-semibold shadow-md transition-all duration-200
+                  ${
+                    submitting
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer'
+                  }
+                `}
+              >
+                {submitting ? 'Submitting...' : 'Submit Response'}
+              </button>
+            )}
           </div>
         </div>
       </div>

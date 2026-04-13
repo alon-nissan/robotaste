@@ -1,0 +1,247 @@
+{
+    "protocol_id": "protocol_1776085423403_02bqlc",
+    "name": "RebM Dose Response",
+    "description": "",
+    "version": "1.0",
+    "schema_version": "1.0",
+    "tags": [],
+    "ingredients": [
+        {
+            "name": "RebM",
+            "min_concentration": 0,
+            "max_concentration": 0.0075,
+            "unit": "mM",
+            "molecular_weight": 1291.3,
+            "stock_concentration_mM": 0.01
+        },
+        {
+            "name": "Water",
+            "min_concentration": 0,
+            "max_concentration": 0,
+            "unit": "mM",
+            "is_diluent": true,
+            "stock_concentration_mM": 0
+        }
+    ],
+    "sample_selection_schedule": [
+        {
+            "cycle_range": {
+                "start": 1,
+                "end": 6
+            },
+            "mode": "predetermined_randomized",
+            "sample_bank": {
+                "samples": [
+                    {
+                        "id": "A",
+                        "concentrations": {
+                            "RebM": 0
+                        },
+                        "label": "control"
+                    },
+                    {
+                        "id": "B",
+                        "concentrations": {
+                            "RebM": 0.0003
+                        },
+                        "label": "verylow"
+                    },
+                    {
+                        "id": "C",
+                        "concentrations": {
+                            "RebM": 0.0005
+                        },
+                        "label": "low"
+                    },
+                    {
+                        "id": "D",
+                        "concentrations": {
+                            "RebM": 0.001
+                        },
+                        "label": "med"
+                    },
+                    {
+                        "id": "E",
+                        "concentrations": {
+                            "RebM": 0.005
+                        },
+                        "label": "high"
+                    },
+                    {
+                        "id": "F",
+                        "concentrations": {
+                            "RebM": 0.0075
+                        },
+                        "label": "veryhigh"
+                    }
+                ],
+                "design_type": "latin_square",
+                "constraints": {
+                    "prevent_consecutive_repeats": true,
+                    "ensure_all_used_before_repeat": true
+                }
+            }
+        }
+    ],
+    "pump_config": {
+        "enabled": true,
+        "use_burst_mode": true,
+        "serial_port": "COM3",
+        "baud_rate": 19200,
+        "pumps": [
+            {
+                "address": 1,
+                "ingredient": "RebM",
+                "syringe_diameter_mm": 29,
+                "max_rate_ul_min": 90000,
+                "stock_concentration_mM": 0.01
+            },
+            {
+                "address": 0,
+                "ingredient": "Water",
+                "syringe_diameter_mm": 29,
+                "max_rate_ul_min": 90000,
+                "stock_concentration_mM": 0
+            }
+        ],
+        "total_volume_ml": 10,
+        "dispensing_rate_ul_min": 90000,
+        "simultaneous_dispensing": true
+    },
+    "questionnaire": {
+        "display_mode": "one_at_a_time",
+        "name": "Intensity Scale (Continuous)",
+        "description": "Continuous 9-point intensity scale for measuring attribute strength.",
+        "version": "1.0",
+        "questions": [
+            {
+                "id": "intensity",
+                "type": "slider",
+                "label": "How sweet is the sample?",
+                "help_text": "Rate from 1 (Not at All) to 9 (Extremely Intense)",
+                "min": 1,
+                "max": 9,
+                "default": 5,
+                "step": 0.01,
+                "required": true,
+                "scale_labels": {
+                    "1": "Not at All",
+                    "3": "Light",
+                    "5": "Moderate",
+                    "7": "Strong",
+                    "9": "Extremely Strong "
+                }
+            },
+            {
+                "id": "how_sweet_is_the_sample",
+                "type": "slider",
+                "label": "How bitter is the sample?",
+                "min": 1,
+                "max": 9,
+                "default": 5,
+                "step": 0.01,
+                "required": true,
+                "scale_labels": {
+                    "1": "Not at All",
+                    "3": "Light",
+                    "5": "Moderate",
+                    "7": "Strong",
+                    "9": "Extremely Strong"
+                }
+            },
+            {
+                "id": "how_bitter_is_the_sample",
+                "type": "slider",
+                "label": "How salty is the sample?",
+                "min": 1,
+                "max": 9,
+                "default": 5,
+                "step": 0.01,
+                "required": true,
+                "scale_labels": {
+                    "1": "Not at All",
+                    "3": "Light",
+                    "5": "Moderate",
+                    "7": "Strong",
+                    "9": "Extremely Strong"
+                }
+            }
+        ],
+        "bayesian_target": {
+            "variable": "intensity",
+            "transform": "identity",
+            "higher_is_better": true,
+            "expected_range": [
+                1,
+                9
+            ],
+            "optimal_threshold": 5
+        }
+    },
+    "bayesian_optimization": {
+        "enabled": false
+    },
+    "consent_form": {
+        "explanation": "Dear Participant,\nWelcome to the experiment!\nParticipation will take approximately 5 minutes of your time. There are no right or wrong answers and we are only interested in your opinion.\nParticipation in the study will not entitle you to any compensation and carries no risk. Your answers are confidential, and we will not include any information that would identify you in any type of public reporting. Only researchers will have access to the study data.\nParticipation in the study is voluntary. You are free to choose not to participate in the study and to stop it at any time without providing a reason and without your rights being violated.",
+        "contact_info": "If you have any questions, please contact: Prof. Masha Niv (masha.niv@mail.huji.ac.il), Soli Aharoni (soli.aharoni@mail.huji.ac.il) or Alon Nissan (alon.nissan1@mail.huji.ac.il)",
+        "medical_disclaimers": [],
+        "consent_label": "I have read and understood the information above."
+    },
+    "instructions_screen": {
+        "title": "Instructions",
+        "text": "**Welcome to the Experiment!**\nIn this experiment you will taste a number of liquid samples, one at a time.\nFor each sample:\n1. The robot will prepare your sample.\n2. Take the cup, and **place a clean cup** under the spout.\n3. Rinse your mouth with water and **stir lightly** with the provided wooden stirrer.\n4. After tasting, answer the following 3 questions.\n5. Rinse your mouth thoroughly with water before the next sample.",
+        "confirm_label": "I have read and understand the instructions.",
+        "button_label": "Begin Experiment"
+    },
+    "loading_screen": {
+        "message": "Please rinse your mouth with water.",
+        "duration_seconds": 5,
+        "show_progress": true,
+        "show_cycle_info": true,
+        "message_size": "normal"
+    },
+    "phase_sequence": {
+        "phases": [
+            {
+                "phase_id": "consent",
+                "phase_type": "builtin",
+                "required": false
+            },
+            {
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "instructions",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "experiment_loop",
+                "phase_type": "loop",
+                "required": true
+            },
+            {
+                "phase_id": "completion",
+                "phase_type": "builtin",
+                "required": true
+            }
+        ]
+    },
+    "stopping_criteria": {
+        "max_cycles": 6,
+        "min_cycles": 1,
+        "mode": "manual_only"
+    },
+    "data_collection": {
+        "track_trajectory": true,
+        "track_interaction_times": true,
+        "collect_demographics": true,
+        "custom_metadata": {}
+    },
+    "created_at": "2026-04-13T13:13:59.884917",
+    "updated_at": "2026-04-13T13:13:59.884917",
+    "is_archived": false,
+    "protocol_hash": "5b7aa8cda2f4de711dfd827965bc1e8df617c7666fe49ab2e751c6695879307e"
+}
