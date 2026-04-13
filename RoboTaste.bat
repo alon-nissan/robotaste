@@ -103,7 +103,7 @@ echo Using Python: %PYTHON%
 echo Project: %~dp0
 echo.
 
-:: Open Chrome automatically once localhost server responds
+:: Open browser automatically once localhost server responds
 set TARGET_URL=http://localhost:8000/
 set CHROME_EXE=
 if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
@@ -114,13 +114,34 @@ if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
     set CHROME_EXE=%LocalAppData%\Google\Chrome\Application\chrome.exe
 )
 
-if defined CHROME_EXE (
-    echo [Launcher] Chrome will open automatically at %TARGET_URL%
-    start "" powershell -NoProfile -ExecutionPolicy Bypass -Command "$url='%TARGET_URL%'; $chrome='%CHROME_EXE%'; for($i=0;$i -lt 120;$i++){ try { $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -ge 200){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url; exit 0 } } catch {}; Start-Sleep -Milliseconds 500 }; Start-Process -FilePath $chrome -ArgumentList '--new-window', $url"
-) else (
-    echo [Launcher] Chrome not found. Opening default browser at %TARGET_URL%.
+where powershell >nul 2>&1
+if errorlevel 1 (
+    echo [Launcher] PowerShell not found. Opening default browser now.
     start "" "%TARGET_URL%"
+) else (
+    if defined CHROME_EXE (
+        echo [Launcher] Chrome will open automatically at %TARGET_URL%
+    ) else (
+        echo [Launcher] Chrome not found. Default browser will open at %TARGET_URL%
+    )
+    start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$url='%TARGET_URL%'; $chrome='%CHROME_EXE%'; for($i=0;$i -lt 240;$i++){ try { $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -ge 200){ if($chrome -and (Test-Path $chrome)){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url } else { Start-Process $url }; exit 0 } } catch {}; Start-Sleep -Milliseconds 500 }; if($chrome -and (Test-Path $chrome)){ Start-Process -FilePath $chrome -ArgumentList '--new-window', $url } else { Start-Process $url }"
 )
 
+echo [Launcher] Starting RoboTaste with pump service...
 %PYTHON% start_new_ui.py --with-pump
+set RUN_STATUS=%ERRORLEVEL%
+
+if not "%RUN_STATUS%"=="0" (
+    echo.
+    echo [Launcher] Startup with pump failed ^(exit code %RUN_STATUS%^).
+    echo [Launcher] Retrying without pump service...
+    %PYTHON% start_new_ui.py
+    set RUN_STATUS=%ERRORLEVEL%
+)
+
+if not "%RUN_STATUS%"=="0" (
+    echo [Launcher] RoboTaste exited with code %RUN_STATUS%.
+)
+
 pause
+exit /b %RUN_STATUS%
