@@ -3,7 +3,6 @@
  * Card-based list of 1-6 ingredients with concentrations.
  */
 
-import { useState } from 'react';
 import { useWizard } from '../../../context/WizardContext';
 import type { Ingredient } from '../../../types';
 
@@ -95,9 +94,23 @@ function IngredientCard({
   onChange: (updates: Partial<Ingredient>) => void;
   onRemove: () => void;
 }) {
-  const hasError = ingredient.name !== '' &&
-    ingredient.max_concentration <= ingredient.min_concentration;
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const isDiluent = ingredient.is_diluent ?? false;
+  const hasError = !isDiluent
+    && ingredient.name !== ''
+    && ingredient.max_concentration <= ingredient.min_concentration;
+
+  function handleDiluentToggle(checked: boolean) {
+    if (checked) {
+      onChange({
+        is_diluent: true,
+        min_concentration: 0,
+        max_concentration: 0,
+        stock_concentration_mM: 0,
+      });
+      return;
+    }
+    onChange({ is_diluent: false });
+  }
 
   return (
     <div className={`border rounded-lg p-4 ${hasError ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
@@ -133,24 +146,26 @@ function IngredientCard({
             <label className="block text-sm font-medium text-gray-700 mb-1">Min Concentration</label>
             <input
               type="number"
-              value={ingredient.min_concentration}
+              value={isDiluent ? 0 : ingredient.min_concentration}
               onChange={(e) => onChange({ min_concentration: parseFloat(e.target.value) || 0 })}
               min={0}
               step="any"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isDiluent}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Max Concentration</label>
             <input
               type="number"
-              value={ingredient.max_concentration}
+              value={isDiluent ? 0 : ingredient.max_concentration}
               onChange={(e) => onChange({ max_concentration: parseFloat(e.target.value) || 0 })}
               min={0}
               step="any"
+              disabled={isDiluent}
               className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 hasError ? 'border-red-300' : 'border-gray-300'
-              }`}
+              } disabled:bg-gray-100 disabled:text-gray-500`}
             />
           </div>
           <div>
@@ -172,54 +187,56 @@ function IngredientCard({
           <p className="text-xs text-red-600">Max concentration must be greater than min concentration.</p>
         )}
 
-        {/* Advanced toggle */}
-        <button
-          type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-xs text-gray-400 hover:text-gray-600 text-left"
-        >
-          {showAdvanced ? '▾ Hide advanced' : '▸ Advanced settings'}
-        </button>
-
-        {showAdvanced && (
-          <div className="grid grid-cols-3 gap-3 pt-1">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Molecular Weight (g/mol)</label>
-              <input
-                type="number"
-                value={ingredient.molecular_weight ?? ''}
-                onChange={(e) => onChange({ molecular_weight: parseFloat(e.target.value) || undefined })}
-                placeholder="e.g., 342.3"
-                step="any"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Stock Concentration (mM)</label>
-              <input
-                type="number"
-                value={ingredient.stock_concentration_mM ?? ''}
-                onChange={(e) => onChange({ stock_concentration_mM: parseFloat(e.target.value) || undefined })}
-                placeholder="e.g., 200"
-                step="any"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-end pb-1">
-              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={ingredient.is_diluent ?? false}
-                  onChange={(e) => onChange({ is_diluent: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Diluent (e.g., Water)
-              </label>
-            </div>
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Molecular Weight (g/mol)</label>
+            <input
+              type="number"
+              value={ingredient.molecular_weight ?? ''}
+              onChange={(e) => onChange({ molecular_weight: parseOptionalNumber(e.target.value) })}
+              placeholder="e.g., 342.3"
+              step="any"
+              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Stock Concentration (mM)</label>
+            <input
+              type="number"
+              value={isDiluent ? 0 : ingredient.stock_concentration_mM ?? ''}
+              onChange={(e) => onChange({ stock_concentration_mM: parseOptionalNumber(e.target.value) })}
+              placeholder="e.g., 200"
+              step="any"
+              min={0}
+              disabled={isDiluent}
+              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+            />
+          </div>
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isDiluent}
+                onChange={(e) => handleDiluentToggle(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Diluent (e.g., Water)
+            </label>
+          </div>
+        </div>
+
+        {isDiluent && (
+          <p className="text-xs text-gray-500">
+            Diluent is fixed at 0 concentration/stock and is excluded from tunable dimensions.
+          </p>
         )}
       </div>
     </div>
   );
 }
 
+function parseOptionalNumber(value: string): number | undefined {
+  if (value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}

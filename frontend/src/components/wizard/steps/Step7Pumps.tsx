@@ -1,5 +1,5 @@
 /**
- * Step 7: Pump Hardware (conditional — only if user enables pumps).
+ * Step 7: Pump Hardware.
  * Serial port, pump-to-ingredient mapping, dispensing settings.
  */
 
@@ -79,7 +79,7 @@ export default function Step7Pumps() {
         total_volume_ml: pump.total_volume_ml || 10,
         dispensing_rate_ul_min: pump.dispensing_rate_ul_min || 90000,
         simultaneous_dispensing: pump.simultaneous_dispensing ?? true,
-        use_burst_mode: pump.use_burst_mode ?? false,
+        use_burst_mode: pump.use_burst_mode ?? true,
       });
     } else {
       setPump({ enabled: false });
@@ -353,7 +353,7 @@ export default function Step7Pumps() {
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={pump.use_burst_mode ?? false}
+                  checked={pump.use_burst_mode ?? true}
                   onChange={(e) =>
                     setPump({ ...pump, use_burst_mode: e.target.checked })
                   }

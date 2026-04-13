@@ -33,11 +33,12 @@ export default function ProtocolManagerPage() {
 
   const filteredProtocols = protocols.filter((p) => {
     const q = searchQuery.toLowerCase();
+    const tags = Array.isArray(p.tags) ? p.tags : [];
     if (!q) return true;
     return (
       p.name.toLowerCase().includes(q) ||
       (p.description?.toLowerCase().includes(q)) ||
-      (p.tags?.some((t) => t.toLowerCase().includes(q)))
+      tags.some((t) => t.toLowerCase().includes(q))
     );
   });
 
@@ -50,8 +51,10 @@ export default function ProtocolManagerPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       await fetchProtocols();
-    } catch (err) {
-      setError('Failed to upload protocol. Check that the JSON is valid.');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Failed to upload protocol.');
       console.error('Error uploading protocol:', err);
     }
   };
@@ -74,6 +77,22 @@ export default function ProtocolManagerPage() {
       }
     } catch (err) {
       console.error('Error deleting protocol:', err);
+    }
+  };
+
+  const handleSelectProtocol = async (protocol: Protocol) => {
+    const isSelected = selectedProtocol?.protocol_id === protocol.protocol_id;
+    if (isSelected) {
+      setSelectedProtocol(null);
+      return;
+    }
+
+    try {
+      const res = await api.get(`/protocols/${protocol.protocol_id}`);
+      setSelectedProtocol(res.data);
+    } catch (err) {
+      setSelectedProtocol(protocol);
+      console.error('Error loading protocol details:', err);
     }
   };
 
@@ -168,10 +187,12 @@ export default function ProtocolManagerPage() {
             <tbody>
               {filteredProtocols.map((protocol) => {
                 const isSelected = selectedProtocol?.protocol_id === protocol.protocol_id;
+                const ingredientNames = (protocol.ingredients ?? []).map((i) => i.name).join(', ');
+                const tags = Array.isArray(protocol.tags) ? protocol.tags : [];
                 return (
                   <tr
                     key={protocol.protocol_id}
-                    onClick={() => setSelectedProtocol(isSelected ? null : protocol)}
+                    onClick={() => { void handleSelectProtocol(protocol); }}
                     className={`border-b border-border/50 cursor-pointer transition-colors ${
                       isSelected
                         ? 'bg-primary/5 border-l-4 border-l-primary'
@@ -181,12 +202,12 @@ export default function ProtocolManagerPage() {
                     <td className="p-2 font-medium text-text-primary">{protocol.name}</td>
                     <td className="p-2 text-text-secondary">{protocol.version ?? '—'}</td>
                     <td className="p-2 text-text-secondary">
-                      {protocol.ingredients.map((i) => i.name).join(', ') || '—'}
+                      {ingredientNames || '—'}
                     </td>
                     <td className="p-2">
-                      {protocol.tags?.length ? (
+                      {tags.length ? (
                         <div className="flex flex-wrap gap-1">
-                          {protocol.tags.map((tag) => (
+                          {tags.map((tag) => (
                             <span
                               key={tag}
                               className="px-2 py-0.5 text-xs bg-gray-100 text-text-secondary rounded-full"

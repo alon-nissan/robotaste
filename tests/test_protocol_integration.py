@@ -602,6 +602,82 @@ class TestInvalidProtocolHandling:
         assert not is_valid
         assert any("invalid mode" in err.lower() or "mode" in err.lower() for err in errors)
 
+    def test_predetermined_randomized_size_mismatch_does_not_crash(self, test_db, sample_protocol):
+        """Mismatch between cycle count and sample bank size should not raise exceptions."""
+        protocol = sample_protocol.copy()
+        protocol["sample_selection_schedule"] = [
+            {
+                "cycle_range": {"start": 1, "end": 4},
+                "mode": "predetermined_randomized",
+                "sample_bank": {
+                    "samples": [
+                        {"id": "A", "concentrations": {"Sugar": 10.0, "Salt": 2.0}},
+                        {"id": "B", "concentrations": {"Sugar": 20.0, "Salt": 4.0}},
+                    ],
+                    "design_type": "latin_square",
+                },
+            }
+        ]
+
+        is_valid, errors = validate_protocol(protocol)
+        assert is_valid, f"Validation should warn but not fail: {errors}"
+
+        protocol_id = create_protocol_in_db(protocol)
+        assert protocol_id is not None, "Protocol should still be saveable"
+
+    def test_diluent_zero_range_is_valid(self, test_db, sample_protocol):
+        """Diluent ingredients are fixed at zero concentration/stock."""
+        protocol = sample_protocol.copy()
+        protocol["ingredients"] = [
+            {
+                "name": "Sugar",
+                "min_concentration": 0.0,
+                "max_concentration": 100.0
+            },
+            {
+                "name": "Water",
+                "min_concentration": 0.0,
+                "max_concentration": 0.0,
+                "stock_concentration_mM": 0.0,
+                "is_diluent": True,
+            },
+        ]
+
+        is_valid, errors = validate_protocol(protocol)
+        assert is_valid, f"Diluent zero configuration should be valid: {errors}"
+
+    def test_non_diluent_zero_range_is_invalid(self, test_db, sample_protocol):
+        """Non-diluent ingredients must still have max > min."""
+        protocol = sample_protocol.copy()
+        protocol["ingredients"] = [
+            {
+                "name": "Sugar",
+                "min_concentration": 0.0,
+                "max_concentration": 0.0
+            }
+        ]
+
+        is_valid, errors = validate_protocol(protocol)
+        assert not is_valid
+        assert any("max_concentration must be > min_concentration" in err for err in errors)
+
+    def test_protocol_requires_non_diluent_ingredient(self, test_db, sample_protocol):
+        """A protocol cannot be configured with only diluents."""
+        protocol = sample_protocol.copy()
+        protocol["ingredients"] = [
+            {
+                "name": "Water",
+                "min_concentration": 0.0,
+                "max_concentration": 0.0,
+                "stock_concentration_mM": 0.0,
+                "is_diluent": True,
+            }
+        ]
+
+        is_valid, errors = validate_protocol(protocol)
+        assert not is_valid
+        assert any("non-diluent ingredient" in err for err in errors)
+
     def test_protocol_creation_fails_with_invalid_data(self, test_db):
         """Test that invalid protocols cannot be saved to database."""
 

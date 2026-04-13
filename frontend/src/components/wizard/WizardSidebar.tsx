@@ -6,12 +6,11 @@
 import { useWizard, WIZARD_STEPS } from '../../context/WizardContext';
 
 export default function WizardSidebar() {
-  const { state, dispatch, needsBO, needsPumps } = useWizard();
+  const { state, dispatch, needsBO } = useWizard();
 
   function isStepVisible(index: number): boolean {
     const step = WIZARD_STEPS[index];
     if (step.id === 'optimization' && !needsBO) return false;
-    if (step.id === 'pumps' && !needsPumps) return false;
     return true;
   }
 

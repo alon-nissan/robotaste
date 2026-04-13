@@ -43,6 +43,7 @@ export default function Step3Schedule() {
   const schedule = state.protocol.sample_selection_schedule ?? [];
   const stopping = state.protocol.stopping_criteria ?? { max_cycles: 6, min_cycles: 1 };
   const ingredients = state.protocol.ingredients ?? [];
+  const tunableIngredients = ingredients.filter((ing) => !(ing.is_diluent ?? false));
 
   function updateStopping(updates: Partial<StoppingCriteria>) {
     dispatch({ type: 'SET_STOPPING_CRITERIA', payload: { ...stopping, ...updates } });
@@ -139,7 +140,7 @@ export default function Step3Schedule() {
               key={index}
               block={block}
               index={index}
-              ingredients={ingredients}
+              ingredients={tunableIngredients}
               canRemove={schedule.length > 1}
               onChange={(updates) => updateBlock(index, updates)}
               onRemove={() => removeBlock(index)}
@@ -281,6 +282,14 @@ function PredeterminedEditor({
   const samples = block.predetermined_samples ?? [];
   const cycleCount = block.cycle_range.end - block.cycle_range.start + 1;
 
+  if (ingredients.length === 0) {
+    return (
+      <p className="text-xs text-gray-500">
+        No tunable ingredients available for concentration editing.
+      </p>
+    );
+  }
+
   function ensureSamples(): PredeterminedSample[] {
     const result: PredeterminedSample[] = [];
     for (let c = block.cycle_range.start; c <= block.cycle_range.end; c++) {
@@ -308,6 +317,9 @@ function PredeterminedEditor({
       <label className="block text-xs font-medium text-gray-600 mb-2">
         Samples ({cycleCount} cycles)
       </label>
+      <p className="text-xs text-gray-500 mb-2">
+        Enter ingredient concentrations (not percentages). Units are shown in each column header.
+      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -356,6 +368,14 @@ function SampleBankEditor({
   ingredients: Ingredient[];
   onChange: (updates: Partial<ScheduleBlock>) => void;
 }) {
+  if (ingredients.length === 0) {
+    return (
+      <p className="text-xs text-gray-500">
+        No tunable ingredients available for sample bank concentrations.
+      </p>
+    );
+  }
+
   const bank = block.sample_bank ?? {
     samples: [],
     design_type: 'latin_square' as const,
@@ -392,6 +412,10 @@ function SampleBankEditor({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Sample values are ingredient concentrations (not percentages). Use the unit shown per column.
+      </p>
+
       {/* Design type */}
       <div className="flex gap-4">
         <label className="flex items-center gap-2 text-sm">
@@ -453,7 +477,7 @@ function SampleBankEditor({
               <th className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">Label</th>
               {ingredients.map((ing) => (
                 <th key={ing.name} className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">
-                  {ing.name}
+                  {ing.name} ({ing.unit ?? 'mM'})
                 </th>
               ))}
               <th className="w-8"></th>
