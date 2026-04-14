@@ -38,6 +38,11 @@ import ProtocolManagerPage from './pages/ProtocolManagerPage';
 import ProtocolWizardPage from './pages/ProtocolWizardPage';
 import DoseResponseDashboardPage from './pages/DoseResponseDashboardPage';
 import SubjectAutoJoinPage from './pages/SubjectAutoJoinPage';
+import AnalysisHubLayout from './components/analysis/AnalysisHubLayout';
+import DashboardPage from './pages/analysis/DashboardPage';
+import DataExplorerPage from './pages/analysis/DataExplorerPage';
+import QueryBuilderPage from './pages/analysis/QueryBuilderPage';
+import SessionManagerPage from './pages/analysis/SessionManagerPage';
 
 function App() {
   return (
@@ -52,7 +57,16 @@ function App() {
         <Route path="/protocols" element={<ProtocolManagerPage />} />
         <Route path="/protocols/new" element={<ProtocolWizardPage />} />
         <Route path="/protocols/:id/edit" element={<ProtocolWizardPage />} />
-        <Route path="/analysis/dose-response" element={<DoseResponseDashboardPage />} />
+
+        {/* Analysis Hub — nested routes */}
+        <Route path="/analysis" element={<AnalysisHubLayout />}>
+          <Route index element={<Navigate to="/analysis/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="explorer" element={<DataExplorerPage />} />
+          <Route path="query" element={<QueryBuilderPage />} />
+          <Route path="sessions" element={<SessionManagerPage />} />
+          <Route path="dose-response" element={<DoseResponseDashboardPage />} />
+        </Route>
 
         {/* Subject routes */}
         <Route path="/subject" element={<SubjectAutoJoinPage />} />
