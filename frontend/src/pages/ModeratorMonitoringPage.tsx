@@ -49,6 +49,19 @@ import PageLayout from '../components/PageLayout';
 import SubjectConnectionCard from '../components/SubjectConnectionCard';
 import RefillWizard from '../components/RefillWizard';
 
+/**
+ * Format a concentration value with enough decimal places to show ~2–3
+ * significant figures, regardless of magnitude.
+ * e.g. 0.0003 → "0.0003 mM", 1.5 → "1.50 mM", 0 → "0 mM"
+ */
+function formatConcentration(val: number, unit = 'mM'): string {
+  if (val === 0) return `0 ${unit}`;
+  const abs = Math.abs(val);
+  if (abs >= 1) return `${val.toFixed(2)} ${unit}`;
+  const decimals = Math.max(2, -Math.floor(Math.log10(abs)) + 1);
+  return `${val.toFixed(decimals)} ${unit}`;
+}
+
 export default function ModeratorMonitoringPage() {
   // ─── URL PARAMS ────────────────────────────────────────────────────────
   // useSearchParams reads query parameters from the URL.
@@ -243,7 +256,7 @@ export default function ModeratorMonitoringPage() {
                     <td className="p-2 font-medium">{sample.cycle_number}</td>
                     <td className="p-2 text-text-secondary">
                       {Object.entries(sample.ingredient_concentration || {})
-                        .map(([name, val]) => `${name}: ${(val as number).toFixed(2)} mM`)
+                        .map(([name, val]) => `${name}: ${formatConcentration(val as number)}`)
                         .join(', ')}
                     </td>
                     <td className="p-2">

@@ -62,6 +62,22 @@ interface DoseResponseData {
   aggregated: AggregatedEntry[];
   ingredients: string[];
   response_variables: string[];
+  ingredient_units: Record<string, string>;
+}
+
+// ─── FORMATTERS ─────────────────────────────────────────────────────────────
+
+/**
+ * Format a concentration value for axis ticks and table cells.
+ * Adapts decimal places to value magnitude so small values aren't truncated.
+ * e.g. 0 → "0", 0.0003 → "0.0003", 1.5 → "1.50"
+ */
+function formatConc(val: number): string {
+  if (val === 0) return '0';
+  const abs = Math.abs(val);
+  if (abs >= 1) return val.toFixed(2);
+  const decimals = Math.max(2, -Math.floor(Math.log10(abs)) + 1);
+  return val.toFixed(decimals);
 }
 
 // ─── COLOR PALETTE ──────────────────────────────────────────────────────────
@@ -235,6 +251,13 @@ export default function DoseResponseDashboardPage() {
 
   const hasData = data && data.data_points.length > 0;
 
+  // Axis label strings derived from selected filters + ingredient units
+  const xUnit = data?.ingredient_units?.[selectedIngredient] ?? 'mM';
+  const xAxisLabel = selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration';
+  const yAxisLabel = selectedVariable
+    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ' (score)'
+    : 'Response';
+
   // ─── RENDER ─────────────────────────────────────────────────────────────
 
   return (
@@ -316,17 +339,18 @@ export default function DoseResponseDashboardPage() {
               </h3>
               <div className="h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                  <ComposedChart margin={{ top: 10, right: 20, bottom: 30, left: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                     <XAxis
                       dataKey="concentration"
                       type="number"
-                      label={{ value: selectedIngredient, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
+                      tickFormatter={formatConc}
+                      label={{ value: xAxisLabel, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
                       tick={{ fill: '#7F8C8D', fontSize: 12 }}
                       allowDuplicatedCategory={false}
                     />
                     <YAxis
-                      label={{ value: selectedVariable.replace(/_/g, ' '), angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
+                      label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
                       tick={{ fill: '#7F8C8D', fontSize: 12 }}
                     />
                     <Tooltip
@@ -359,16 +383,17 @@ export default function DoseResponseDashboardPage() {
               </h3>
               <div className="h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={meanCurveData} margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                  <ComposedChart data={meanCurveData} margin={{ top: 10, right: 20, bottom: 30, left: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                     <XAxis
                       dataKey="concentration"
                       type="number"
-                      label={{ value: selectedIngredient, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
+                      tickFormatter={formatConc}
+                      label={{ value: xAxisLabel, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
                       tick={{ fill: '#7F8C8D', fontSize: 12 }}
                     />
                     <YAxis
-                      label={{ value: selectedVariable.replace(/_/g, ' '), angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
+                      label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
                       tick={{ fill: '#7F8C8D', fontSize: 12 }}
                     />
                     <Tooltip
@@ -465,7 +490,7 @@ export default function DoseResponseDashboardPage() {
                   <thead>
                     <tr className="border-b border-border">
                       <th className="text-left p-2 text-text-secondary font-medium">
-                        {selectedIngredient || 'Concentration'}
+                        {selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration'}
                       </th>
                       <th className="text-right p-2 text-text-secondary font-medium">n</th>
                       <th className="text-right p-2 text-text-secondary font-medium">Mean</th>
@@ -478,7 +503,7 @@ export default function DoseResponseDashboardPage() {
                   <tbody>
                     {meanCurveData.map((row, i) => (
                       <tr key={i} className="border-b border-border/50">
-                        <td className="p-2 font-medium">{row.concentration}</td>
+                        <td className="p-2 font-medium">{formatConc(row.concentration)}</td>
                         <td className="p-2 text-right">{row.n}</td>
                         <td className="p-2 text-right">{row.mean.toFixed(2)}</td>
                         <td className="p-2 text-right">{row.std.toFixed(2)}</td>

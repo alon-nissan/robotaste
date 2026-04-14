@@ -78,6 +78,7 @@ def get_dose_response_data(
         subjects_map: dict = {}
         ingredients_set: set = set()
         response_vars_set: set = set()
+        ingredient_units: dict = {}  # ingredient name → unit string
         data_points = []
 
         skip_keys = {"questionnaire_type", "participant_id", "timestamp", "is_final"}
@@ -93,6 +94,17 @@ def get_dose_response_data(
                     "protocol_id": pid,
                     "name": row["protocol_name"] or pid[:8],
                 }
+                # Extract ingredient units from the protocol JSON
+                if row["protocol_json"]:
+                    try:
+                        proto_data = json.loads(row["protocol_json"])
+                        for ing in proto_data.get("ingredients", []):
+                            name = ing.get("name")
+                            unit = ing.get("unit")
+                            if name and unit and name not in ingredient_units:
+                                ingredient_units[name] = unit
+                    except Exception:
+                        pass
 
             # Track subjects
             sid = row["session_id"]
@@ -165,6 +177,7 @@ def get_dose_response_data(
             "aggregated": aggregated,
             "ingredients": ingredients_list,
             "response_variables": response_vars_list,
+            "ingredient_units": ingredient_units,
         }
 
     except Exception as e:

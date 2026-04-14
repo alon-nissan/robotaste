@@ -202,6 +202,61 @@ function TextAreaQuestion({
   );
 }
 
+/**
+ * For questions like "How sweet is the sample?" extracts "sweet" as the
+ * key concept. Returns null if the pattern doesn't match.
+ */
+function parseModality(label: string): { before: string; modality: string; after: string } | null {
+  const match = label.match(/^(how\s+)(\w+)(\s+.+)/i);
+  if (!match) return null;
+  return { before: match[1], modality: match[2], after: match[3] };
+}
+
+function QuestionLabel({
+  label,
+  helpText,
+  sequential,
+}: {
+  label: string;
+  helpText?: string;
+  sequential: boolean;
+}) {
+  const parsed = parseModality(label);
+
+  if (sequential && parsed) {
+    return (
+      <div className="mb-6 text-center">
+        <div className="text-4xl font-extrabold text-primary capitalize tracking-wider mb-2">
+          {parsed.modality}
+        </div>
+        <div className="text-sm text-text-secondary">{label}</div>
+        {helpText && (
+          <div className="mt-1 text-xs text-text-secondary/70 italic">{helpText}</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3">
+      <label className="block text-sm font-medium text-text-primary">
+        {parsed ? (
+          <>
+            {parsed.before}
+            <span className="font-bold text-primary">{parsed.modality}</span>
+            {parsed.after}
+          </>
+        ) : (
+          label
+        )}
+      </label>
+      {helpText && (
+        <div className="mt-0.5 text-xs text-text-secondary italic">{helpText}</div>
+      )}
+    </div>
+  );
+}
+
 function renderQuestion(
   question: QuestionConfig,
   value: unknown,
@@ -383,9 +438,11 @@ export default function QuestionnairePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-3">
-                  {questions[currentIndex].label}
-                </label>
+                <QuestionLabel
+                  label={questions[currentIndex].label}
+                  helpText={questions[currentIndex].help_text}
+                  sequential
+                />
                 {renderQuestion(
                   questions[currentIndex],
                   answers[questions[currentIndex].id],
@@ -397,9 +454,7 @@ export default function QuestionnairePage() {
             <div className="space-y-8">
               {questions.map((q) => (
                 <div key={q.id}>
-                  <label className="block text-sm font-medium text-text-primary mb-3">
-                    {q.label}
-                  </label>
+                  <QuestionLabel label={q.label} helpText={q.help_text} sequential={false} />
                   {renderQuestion(q, answers[q.id], (v) =>
                     updateAnswer(q.id, v)
                   )}
