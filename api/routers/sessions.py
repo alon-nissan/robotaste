@@ -170,13 +170,16 @@ def create_new_session(request: CreateSessionRequest):
 
 # ─── LIST SESSIONS ──────────────────────────────────────────────────────────
 @router.get("")
-def list_sessions():
+def list_sessions(available: bool = True):
     """
-    List all available sessions.
+    List active sessions.
 
-    Returns active and recent sessions for the dashboard.
+    Args:
+        available: If True (default), only sessions awaiting a participant
+                   (user_id IS NULL). Pass available=false for the moderator
+                   dashboard, which needs all active sessions.
     """
-    sessions = get_available_sessions()
+    sessions = get_available_sessions(available_only=available)
     return {"sessions": sessions or []}
 
 

@@ -1,9 +1,9 @@
 /**
- * LandingPage — Entry point for moderators and participants.
+ * LandingPage — Entry point for moderators.
  *
- * Two-column layout:
- * - Left: Moderator panel (create new session or resume existing)
- * - Right: Participant panel (join session by code)
+ * Single-column moderator layout:
+ * - Create / manage sessions
+ * - View and manage active sessions
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -13,107 +13,50 @@ import type { Session } from '../types';
 
 import PageLayout from '../components/PageLayout';
 
-interface SerialPortInfo {
-  device: string;
-  description: string;
-  hwid: string;
-}
-
 export default function LandingPage() {
   // ─── STATE ─────────────────────────────────────────────────────────────
-  const [sessionCode, setSessionCode] = useState('');
   const [activeSessions, setActiveSessions] = useState<Session[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [joining, setJoining] = useState(false);
+  const [killing, setKilling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [availablePorts, setAvailablePorts] = useState<SerialPortInfo[]>([]);
-  const [recommendedPort, setRecommendedPort] = useState<string | null>(null);
-  const [portsLoading, setPortsLoading] = useState(false);
-  const [portsError, setPortsError] = useState<string | null>(null);
 
   const navigate = useNavigate();
 
-  const fetchSerialPorts = useCallback(async () => {
-    setPortsLoading(true);
-    setPortsError(null);
+  // ─── FETCH ACTIVE SESSIONS ─────────────────────────────────────────────
+  const fetchSessions = useCallback(async () => {
     try {
-      const { data } = await api.get<{ ports: SerialPortInfo[]; recommended: string | null }>(
-        '/pump/ports'
-      );
-      setAvailablePorts(data.ports ?? []);
-      setRecommendedPort(data.recommended ?? null);
+      const res = await api.get('/sessions?available=false');
+      const sessions: Session[] = res.data.sessions || [];
+      setActiveSessions(sessions);
     } catch {
-      setAvailablePorts([]);
-      setRecommendedPort(null);
-      setPortsError('Could not detect serial ports right now.');
-    } finally {
-      setPortsLoading(false);
+      // Non-critical — active sessions section will just be empty
     }
   }, []);
 
-  // ─── FETCH ACTIVE SESSIONS ON MOUNT ────────────────────────────────────
   useEffect(() => {
-    async function fetchSessions() {
-      try {
-        const res = await api.get('/sessions');
-        const sessions: Session[] = res.data;
-        setActiveSessions(sessions.filter(s => s.state === 'active'));
-      } catch {
-        // Non-critical — resume dropdown will just be empty
-      }
-    }
     fetchSessions();
-    fetchSerialPorts();
-  }, [fetchSerialPorts]);
+  }, [fetchSessions]);
 
   // ─── HANDLERS ──────────────────────────────────────────────────────────
 
-  async function handleCreateSession() {
-    setCreating(true);
-    setError(null);
-    try {
-      const res = await api.post('/sessions', {
-        moderator_name: 'Research Team',
-      });
-      const newSessionId = res.data.session_id;
-      navigate(`/moderator/setup?session=${newSessionId}`);
-    } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })
-        ?.response?.data?.detail || 'Failed to create session';
-      setError(detail);
-    } finally {
-      setCreating(false);
-    }
+  function handleCreateSession() {
+    navigate('/moderator/setup');
   }
 
-  function handleResumeSession() {
-    if (!selectedSessionId) {
-      setError('Please select a session to resume');
+  async function handleKillSession(sessionId: string, sessionCode: string) {
+    if (!window.confirm(`Are you sure you want to end session ${sessionCode}? This cannot be undone.`)) {
       return;
     }
-    navigate(`/moderator/monitoring?session=${selectedSessionId}`);
-  }
-
-  async function handleJoinSession() {
-    const code = sessionCode.trim();
-    if (!code) {
-      setError('Please enter a session code');
-      return;
-    }
-
-    setJoining(true);
+    setKilling(sessionId);
     setError(null);
     try {
-      const res = await api.get(`/sessions/code/${code}`);
-      const session: Session = res.data;
-      navigate(`/subject/${session.session_id}/consent`);
+      await api.post(`/sessions/${sessionId}/end`);
+      await fetchSessions();
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
-        ?.response?.data?.detail || 'Invalid session code';
+        ?.response?.data?.detail || 'Failed to end session';
       setError(detail);
     } finally {
-      setJoining(false);
+      setKilling(null);
     }
   }
 
@@ -131,28 +74,18 @@ export default function LandingPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* ═══ LEFT: Moderator Panel ═══ */}
+      <div className="max-w-xl mx-auto space-y-6">
+        {/* ═══ Moderator Actions ═══ */}
         <div className="p-6 bg-surface rounded-xl border border-border">
           <h2 className="text-lg font-semibold mb-4">🧪 Moderator</h2>
 
-          {/* Create new session */}
           <button
             onClick={handleCreateSession}
-            disabled={creating}
-            className={`
-              w-full py-4 px-8 rounded-xl text-lg font-semibold
-              transition-all duration-200 shadow-md mb-6
-              ${creating
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer'
-              }
-            `}
+            className="w-full py-4 px-8 rounded-xl text-lg font-semibold transition-all duration-200 shadow-md mb-6 bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer"
           >
-            {creating ? 'Creating...' : 'Create New Session'}
+            Create New Session
           </button>
 
-          {/* Manage Protocols */}
           <button
             onClick={() => navigate('/protocols')}
             className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer mb-3"
@@ -162,126 +95,66 @@ export default function LandingPage() {
 
           <button
             onClick={() => navigate('/analysis/dose-response')}
-            className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer mb-6"
+            className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer"
           >
             Dose-Response Dashboard
           </button>
+        </div>
 
-          <div className="mb-6 p-4 rounded-lg border border-border bg-surface">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-text-primary">Serial Port Detector</h3>
-              <button
-                onClick={fetchSerialPorts}
-                disabled={portsLoading}
-                className="text-xs text-primary hover:text-primary-light disabled:text-text-secondary"
-              >
-                {portsLoading ? 'Scanning…' : 'Refresh'}
-              </button>
+        {/* ═══ Active Sessions ═══ */}
+        {activeSessions.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-text-secondary mb-3 px-1">
+              Active Sessions
+            </h2>
+            <div className="space-y-3">
+              {activeSessions.map((s) => {
+                const config = s.experiment_config as Record<string, unknown> | undefined;
+                const protocolName = (config?.protocol_name as string) ?? 'Not started';
+                const createdAt = s.created_at?.slice(0, 19).replace('T', ' ') ?? '—';
+
+                return (
+                  <div
+                    key={s.session_id}
+                    className="p-4 bg-surface rounded-xl border border-border border-l-4 border-l-primary"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-text-primary">{protocolName}</span>
+                      <span className="text-xs font-mono bg-gray-100 text-text-secondary px-2 py-0.5 rounded">
+                        {s.session_code}
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-secondary mb-1">
+                      Phase: {s.current_phase} · Cycle: {s.current_cycle}
+                    </p>
+                    <p className="text-xs text-text-secondary mb-4">
+                      Created: {createdAt}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => navigate(`/moderator/monitoring?session=${s.session_id}`)}
+                        className="px-4 py-1.5 text-sm rounded-lg border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer"
+                      >
+                        Resume
+                      </button>
+                      <button
+                        onClick={() => handleKillSession(s.session_id, s.session_code)}
+                        disabled={killing === s.session_id}
+                        className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                          killing === s.session_id
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-600 text-white hover:bg-red-700 cursor-pointer'
+                        }`}
+                      >
+                        {killing === s.session_id ? 'Ending...' : 'Kill Session'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-
-            <p className="text-xs text-text-secondary mb-2">
-              For manual protocol JSON, copy this into <code className="font-mono">pump_config.serial_port</code>.
-            </p>
-
-            <p className="text-sm text-text-primary mb-2">
-              Recommended:{' '}
-              <span className="font-mono font-medium">{recommendedPort ?? 'Not detected'}</span>
-            </p>
-
-            {portsError ? (
-              <p className="text-xs text-red-600">{portsError}</p>
-            ) : availablePorts.length > 0 ? (
-              <ul className="space-y-1 text-xs">
-                {availablePorts.map((port) => (
-                  <li key={port.device} className="font-mono text-text-primary">
-                    {port.device}
-                    {port.description && port.description !== 'n/a' ? (
-                      <span className="font-sans text-text-secondary"> — {port.description}</span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              !portsLoading && (
-                <p className="text-xs text-text-secondary">
-                  No ports detected. Connect USB-serial adapter and refresh.
-                </p>
-              )
-            )}
           </div>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-sm text-text-secondary">or</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Resume existing session */}
-          <label className="block text-sm font-medium text-text-primary mb-2">
-            Resume Session
-          </label>
-          <select
-            value={selectedSessionId}
-            onChange={e => setSelectedSessionId(e.target.value)}
-            className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary mb-4"
-          >
-            <option value="">Select a session...</option>
-            {activeSessions.map(s => (
-              <option key={s.session_id} value={s.session_id}>
-                {s.session_code} — Cycle {s.current_cycle} ({s.current_phase})
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={handleResumeSession}
-            disabled={!selectedSessionId}
-            className={`
-              px-4 py-2 text-sm rounded-lg border border-border
-              transition-colors
-              ${selectedSessionId
-                ? 'bg-surface text-text-primary hover:bg-gray-100 cursor-pointer'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              }
-            `}
-          >
-            Continue
-          </button>
-        </div>
-
-        {/* ═══ RIGHT: Participant Panel ═══ */}
-        <div className="p-6 bg-surface rounded-xl border border-border">
-          <h2 className="text-lg font-semibold mb-4">👤 Participant</h2>
-
-          <label className="block text-sm font-medium text-text-primary mb-2">
-            Session Code
-          </label>
-          <input
-            type="text"
-            value={sessionCode}
-            onChange={e => setSessionCode(e.target.value.toUpperCase())}
-            onKeyDown={e => e.key === 'Enter' && handleJoinSession()}
-            placeholder="Enter 6-character code"
-            maxLength={6}
-            className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary tracking-widest text-center text-lg mb-4"
-          />
-
-          <button
-            onClick={handleJoinSession}
-            disabled={joining || !sessionCode.trim()}
-            className={`
-              w-full py-4 px-8 rounded-xl text-lg font-semibold
-              transition-all duration-200 shadow-md
-              ${joining || !sessionCode.trim()
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-primary text-white hover:bg-primary-light active:bg-primary-dark cursor-pointer'
-              }
-            `}
-          >
-            {joining ? 'Joining...' : 'Join Session'}
-          </button>
-        </div>
+        )}
       </div>
     </PageLayout>
   );

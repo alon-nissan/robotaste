@@ -313,61 +313,69 @@ def get_questionnaire_from_session(session_info: Dict[str, Any]) -> Optional[Dic
     return questionnaire  # Returns None if not found (expected for historical sessions)
 
 
-def get_available_sessions() -> List[Dict]:
+def get_available_sessions(available_only: bool = True) -> List[Dict]:
     """
-    Get all active sessions awaiting their first subject.
-    
-    Returns sessions where:
-    - state = 'active'
-    - user_id IS NULL (no subject has joined yet)
-    
+    Get active sessions.
+
+    Args:
+        available_only: If True (default), only return sessions where no subject
+                        has joined yet (user_id IS NULL). Set to False to return
+                        all active sessions regardless of participant status
+                        (used by the moderator landing page).
+
     Returns:
-        List of dicts with session metadata (session_code, moderator_name, created_at, current_phase)
+        List of dicts with session metadata.
     """
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
-            
+
+            user_filter = "AND s.user_id IS NULL" if available_only else ""
+
             cursor.execute(
-                """
+                f"""
                 SELECT
                     s.session_id,
                     s.session_code,
                     s.current_phase,
+                    s.current_cycle,
+                    s.state,
                     s.created_at,
                     s.experiment_config
                 FROM sessions s
                 WHERE s.state = 'active'
-                  AND s.user_id IS NULL
+                  {user_filter}
                 ORDER BY s.created_at DESC
                 """
             )
-            
+
             rows = cursor.fetchall()
             sessions = []
-            
+
             for row in rows:
-                # Parse experiment_config to get moderator name
                 experiment_config = {}
                 if row["experiment_config"]:
                     try:
                         experiment_config = json.loads(row["experiment_config"])
                     except json.JSONDecodeError:
                         pass
-                
+
                 moderator_name = experiment_config.get("moderator_name", "Moderator")
-                
+
                 sessions.append({
                     "session_id": row["session_id"],
                     "session_code": row["session_code"],
                     "current_phase": row["current_phase"],
+                    "current_cycle": row["current_cycle"],
+                    "state": row["state"],
                     "created_at": row["created_at"],
                     "moderator_name": moderator_name,
+                    "experiment_config": experiment_config,
                 })
-            
+
             logger.info(f"Found {len(sessions)} available sessions")
             return sessions
-            
+
     except Exception as e:
         logger.error(f"Failed to get available sessions: {e}")
         return []
