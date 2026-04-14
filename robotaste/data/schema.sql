@@ -6,9 +6,11 @@
 -- Table 1: Users (Taste Testers/Subjects)
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
-    name TEXT,          -- New field
-    gender TEXT,        -- New field
-    age INTEGER,        -- New field
+    name TEXT,
+    gender TEXT,
+    age INTEGER,
+    email TEXT,
+    is_smoker INTEGER,  -- 0 = no, 1 = yes, NULL = not answered
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP DEFAULT NULL

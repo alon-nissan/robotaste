@@ -272,6 +272,8 @@ export interface Participant {
   name: string;
   age: number;
   gender: string;
+  email?: string;
+  is_smoker?: boolean;
 }
 
 

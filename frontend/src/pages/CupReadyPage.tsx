@@ -31,8 +31,12 @@ export default function CupReadyPage() {
           Place a clean cup under the spout
         </h2>
 
-        <p className="text-base text-text-secondary mb-8 max-w-md text-center">
+        <p className="text-base text-text-secondary mb-4 max-w-md text-center">
           Make sure a clean cup is positioned correctly before dispensing begins.
+        </p>
+
+        <p className="text-base font-medium text-primary mb-8 max-w-md text-center">
+          Please rinse your mouth with water before tasting the sample.
         </p>
 
         <button

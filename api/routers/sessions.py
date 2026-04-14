@@ -124,6 +124,8 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     age: int = Field(..., ge=0, le=150)
     gender: str = Field(..., min_length=1, max_length=50)
+    email: str | None = Field(None, max_length=254)
+    is_smoker: bool | None = Field(None)
 
 
 class PhaseRequest(BaseModel):
@@ -515,7 +517,7 @@ def register_participant(session_id: str, request: RegisterRequest):
 
     user_id = str(uuid.uuid4())
     create_user(user_id)
-    update_user_profile(user_id, request.name, request.gender, request.age)
+    update_user_profile(user_id, request.name, request.gender, request.age, request.email, request.is_smoker)
     update_session_user_id(session_id, user_id)
     logger.info(f"Participant registered for session {session_id}: user={user_id}, name={request.name}")
 

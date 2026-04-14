@@ -216,23 +216,28 @@ function QuestionLabel({
   label,
   helpText,
   sequential,
+  questionId,
 }: {
   label: string;
   helpText?: string;
   sequential: boolean;
+  questionId?: string;
 }) {
   const parsed = parseModality(label);
 
   if (sequential && parsed) {
+    const displayName = questionId
+      ? questionId.charAt(0).toUpperCase() + questionId.slice(1)
+      : parsed.modality.charAt(0).toUpperCase() + parsed.modality.slice(1);
+    const instructionText = questionId
+      ? `Move the slider according to the ${questionId} of the sample`
+      : label;
     return (
       <div className="mb-6 text-center">
-        <div className="text-4xl font-extrabold text-primary capitalize tracking-wider mb-2">
-          {parsed.modality}
+        <div className="text-5xl font-extrabold text-primary tracking-wide mb-3">
+          {displayName}
         </div>
-        <div className="text-sm text-text-secondary">{label}</div>
-        {helpText && (
-          <div className="mt-1 text-xs text-text-secondary/70 italic">{helpText}</div>
-        )}
+        <div className="text-xl text-text-secondary">{instructionText}</div>
       </div>
     );
   }
@@ -441,6 +446,7 @@ export default function QuestionnairePage() {
                 <QuestionLabel
                   label={questions[currentIndex].label}
                   helpText={questions[currentIndex].help_text}
+                  questionId={questions[currentIndex].id}
                   sequential
                 />
                 {renderQuestion(

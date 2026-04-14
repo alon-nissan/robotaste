@@ -73,6 +73,12 @@ def _apply_schema_migrations(cursor: sqlite3.Cursor) -> None:
     if not _column_exists(cursor, "samples", "sample_temperature_c"):
         cursor.execute("ALTER TABLE samples ADD COLUMN sample_temperature_c REAL")
         logger.info("Applied migration: added samples.sample_temperature_c")
+    if not _column_exists(cursor, "users", "email"):
+        cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        logger.info("Applied migration: added users.email")
+    if not _column_exists(cursor, "users", "is_smoker"):
+        cursor.execute("ALTER TABLE users ADD COLUMN is_smoker INTEGER")
+        logger.info("Applied migration: added users.is_smoker")
 
 
 def init_database() -> bool:
@@ -894,14 +900,21 @@ def get_user(user_id: str) -> Optional[Dict]:
         return None
 
 
-def update_user_profile(user_id: str, name: str, gender: str, age: int) -> bool:
+def update_user_profile(
+    user_id: str,
+    name: str,
+    gender: str,
+    age: int,
+    email: Optional[str] = None,
+    is_smoker: Optional[bool] = None,
+) -> bool:
     """Updates user profile with demographic data."""
     try:
         with get_database_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE users SET name = ?, gender = ?, age = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (name, gender, age, user_id),
+                "UPDATE users SET name = ?, gender = ?, age = ?, email = ?, is_smoker = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (name, gender, age, email, int(is_smoker) if is_smoker is not None else None, user_id),
             )
             conn.commit()
             return cursor.rowcount > 0

@@ -20,6 +20,8 @@ export default function RegistrationPage() {
   const [name, setName] = useState('');
   const [age, setAge] = useState<number | ''>('');
   const [gender, setGender] = useState('');
+  const [email, setEmail] = useState('');
+  const [isSmoker, setIsSmoker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +43,8 @@ export default function RegistrationPage() {
         name: name.trim(),
         age: typeof age === 'number' ? age : parseInt(String(age), 10),
         gender,
+        ...(email.trim() ? { email: email.trim() } : {}),
+        ...(isSmoker ? { is_smoker: true } : {}),
       });
       const res = await api.post(`/sessions/${sessionId}/phase`, { phase: 'next' });
       navigate(phaseToPath(res.data.current_phase, sessionId!));
@@ -127,6 +131,54 @@ export default function RegistrationPage() {
                   </label>
                 ))}
               </div>
+            </div>
+
+            {/* Email (optional) */}
+            <div>
+              <label className="block text-sm font-semibold text-text-primary mb-1">
+                Email <span className="font-normal text-text-secondary">(optional)</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+              />
+              <p className="mt-1 text-xs text-text-secondary italic">
+                Your email will only be used to contact you for follow-up experiments.
+              </p>
+            </div>
+
+            {/* Smoker */}
+            <div>
+              <label className="block text-sm font-semibold text-text-primary mb-2">
+                Smoking status
+              </label>
+              <label
+                className={`flex items-center gap-3 cursor-pointer select-none px-4 py-3 rounded-lg border-2 transition-all duration-150 w-fit
+                  ${isSmoker
+                    ? 'border-primary bg-primary/10 text-text-primary'
+                    : 'border-border bg-white text-text-primary hover:border-gray-400'
+                  }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSmoker}
+                  onChange={(e) => setIsSmoker(e.target.checked)}
+                  className="sr-only"
+                />
+                <span className={`w-5 h-5 rounded flex items-center justify-center border-2 flex-shrink-0 transition-all duration-150
+                  ${isSmoker ? 'bg-primary border-primary' : 'bg-white border-gray-300'}`}
+                >
+                  {isSmoker && (
+                    <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </span>
+                <span className="text-sm font-medium">I am a smoker</span>
+              </label>
             </div>
 
             {/* Error */}
