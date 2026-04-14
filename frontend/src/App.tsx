@@ -32,6 +32,7 @@ import SelectionPage from './pages/SelectionPage';
 import QuestionnairePage from './pages/QuestionnairePage';
 import CupReadyPage from './pages/CupReadyPage';
 import RobotPreparingPage from './pages/RobotPreparingPage';
+import TastingPage from './pages/TastingPage';
 import CompletionPage from './pages/CompletionPage';
 import CustomPhasePage from './pages/CustomPhasePage';
 import ProtocolManagerPage from './pages/ProtocolManagerPage';
@@ -63,6 +64,7 @@ function App() {
         <Route path="/subject/:sessionId/questionnaire" element={<QuestionnairePage />} />
         <Route path="/subject/:sessionId/cup-ready" element={<CupReadyPage />} />
         <Route path="/subject/:sessionId/preparing" element={<RobotPreparingPage />} />
+        <Route path="/subject/:sessionId/tasting" element={<TastingPage />} />
         <Route path="/subject/:sessionId/complete" element={<CompletionPage />} />
         <Route path="/subject/:sessionId/phase/:phaseId" element={<CustomPhasePage />} />
 

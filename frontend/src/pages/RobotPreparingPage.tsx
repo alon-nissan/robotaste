@@ -20,10 +20,7 @@ export default function RobotPreparingPage() {
   function advance() {
     if (navigatedRef.current || !sessionId) return;
     navigatedRef.current = true;
-    // Advance phase in DB before navigating
-    api.post(`/sessions/${sessionId}/phase`, { phase: 'questionnaire' })
-      .catch(() => {/* best-effort */})
-      .finally(() => navigate(`/subject/${sessionId}/questionnaire`));
+    navigate(`/subject/${sessionId}/tasting`);
   }
 
   // Fetch loading screen message from protocol config
@@ -65,7 +62,7 @@ export default function RobotPreparingPage() {
           // status === 'none' — no operation found, check session phase as fallback
           try {
             const sessionRes = await api.get(`/sessions/${sessionId}/status`);
-            if (sessionRes.data.current_phase === 'questionnaire') {
+            if (sessionRes.data.current_phase === 'questionnaire' || sessionRes.data.current_phase === 'tasting') {
               advance();
             }
           } catch {
