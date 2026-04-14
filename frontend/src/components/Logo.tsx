@@ -19,17 +19,20 @@
  * at the root URL, so /niv_lab_logo.png works directly.
  */
 
+import { Link } from 'react-router-dom';
+
 export default function Logo() {
   return (
     // py-4: vertical padding, px-6: horizontal padding
     <div className="py-4 px-6">
-      {/* The logo image. max-w-[250px] limits width to 250px (matches Streamlit version). */}
-      {/* If the logo file doesn't exist, nothing breaks — the img just won't show. */}
-      <img
-        src="/niv_lab_logo.png"
-        alt="Niv Taste Lab"
-        className="max-w-[250px] h-auto"
-      />
+      {/* Clicking the logo returns to the home page. */}
+      <Link to="/">
+        <img
+          src="/niv_lab_logo.png"
+          alt="Niv Taste Lab"
+          className="max-w-[250px] h-auto"
+        />
+      </Link>
     </div>
   );
 }

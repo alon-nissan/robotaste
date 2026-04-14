@@ -48,17 +48,33 @@ export default function Step6Experience() {
     if (exists) {
       updated = phases.filter((p) => p.phase_id !== phaseId);
     } else {
-      // Insert in canonical order
-      const allIds = BUILTIN_PHASES.map((p) => p.id);
+      // Append at the end (before completion if present), preserving user order
+      const completionIdx = phases.findIndex((p) => p.phase_id === 'completion');
       const newPhase: PhaseConfig = {
         phase_id: phaseId,
         phase_type: phaseId === 'experiment_loop' ? 'loop' : 'builtin',
         required: true,
       };
-      updated = [...phases, newPhase].sort(
-        (a, b) => allIds.indexOf(a.phase_id) - allIds.indexOf(b.phase_id)
-      );
+      if (completionIdx >= 0) {
+        updated = [
+          ...phases.slice(0, completionIdx),
+          newPhase,
+          ...phases.slice(completionIdx),
+        ];
+      } else {
+        updated = [...phases, newPhase];
+      }
     }
+    dispatch({ type: 'SET_PHASE_SEQUENCE', payload: { phases: updated } });
+  }
+
+  function movePhase(phaseId: string, direction: 'up' | 'down') {
+    const idx = phases.findIndex((p) => p.phase_id === phaseId);
+    if (idx < 0) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= phases.length) return;
+    const updated = [...phases];
+    [updated[idx], updated[targetIdx]] = [updated[targetIdx], updated[idx]];
     dispatch({ type: 'SET_PHASE_SEQUENCE', payload: { phases: updated } });
   }
 
@@ -87,36 +103,80 @@ export default function Step6Experience() {
       <div>
         <h3 className="text-sm font-medium text-gray-700 mb-3">Experiment Phases</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Toggle phases on or off. Experiment Loop and Completion are always included.
+          Toggle phases on or off and drag them into the order they should appear. Experiment Loop and Completion are always included.
         </p>
         <div className="space-y-2">
-          {BUILTIN_PHASES.map((phase) => {
-            const isEnabled = phases.some((p) => p.phase_id === phase.id);
+          {phases.map((phase, idx) => {
+            const def = BUILTIN_PHASES.find((p) => p.id === phase.phase_id);
+            const label = def?.label ?? phase.phase_id;
+            const description = def?.description ?? '';
+            const alwaysOn = def?.alwaysOn ?? false;
             return (
-              <label
-                key={phase.id}
+              <div
+                key={phase.phase_id}
                 className={`flex items-center gap-3 p-3 border rounded-lg transition-colors ${
-                  phase.alwaysOn
-                    ? 'border-gray-200 bg-gray-50 cursor-default'
-                    : isEnabled
-                      ? 'border-blue-200 bg-blue-50 cursor-pointer'
-                      : 'border-gray-200 cursor-pointer hover:border-gray-300'
+                  alwaysOn
+                    ? 'border-gray-200 bg-gray-50'
+                    : 'border-blue-200 bg-blue-50'
                 }`}
               >
+                {/* Enabled checkbox */}
                 <input
                   type="checkbox"
-                  checked={isEnabled}
-                  onChange={() => togglePhase(phase.id)}
-                  disabled={phase.alwaysOn}
+                  checked
+                  onChange={() => togglePhase(phase.phase_id)}
+                  disabled={alwaysOn}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                 />
-                <div>
-                  <div className="text-sm font-medium text-gray-700">{phase.label}</div>
-                  <div className="text-xs text-gray-500">{phase.description}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-700">{label}</div>
+                  <div className="text-xs text-gray-500">{description}</div>
                 </div>
-              </label>
+                {/* Move buttons */}
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => movePhase(phase.phase_id, 'up')}
+                    disabled={idx === 0}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-20 text-xs leading-none px-1"
+                    title="Move up"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => movePhase(phase.phase_id, 'down')}
+                    disabled={idx === phases.length - 1}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-20 text-xs leading-none px-1"
+                    title="Move down"
+                  >
+                    ▼
+                  </button>
+                </div>
+              </div>
             );
           })}
+
+          {/* Show available-but-disabled phases as toggle-able */}
+          {BUILTIN_PHASES.filter(
+            (def) => !phases.some((p) => p.phase_id === def.id)
+          ).map((def) => (
+            <label
+              key={def.id}
+              className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:border-gray-300 transition-colors"
+            >
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={() => togglePhase(def.id)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <div className="text-sm font-medium text-gray-700">{def.label}</div>
+                <div className="text-xs text-gray-500">{def.description}</div>
+              </div>
+            </label>
+          ))}
         </div>
       </div>
 
