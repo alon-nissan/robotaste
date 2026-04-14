@@ -475,6 +475,7 @@ class NE4000Pump:
         self.serial: Optional[serial.Serial] = None
         self._lock = RLock()  # Thread-safe operation
         self._connected = False
+        self._owns_serial = True  # False when serial connection is shared with another pump
         self._current_rate_ul_min: Optional[float] = (
             None  # Track current rate for time calculations
         )
@@ -548,6 +549,45 @@ class NE4000Pump:
                 )
                 raise PumpConnectionError(f"Connection error: {e}")
 
+    def attach_shared_serial(self, shared_serial: "serial.Serial") -> None:
+        """
+        Attach to an already-open serial connection owned by another pump.
+
+        Use this when multiple pumps share the same physical serial port (e.g., on
+        Windows where exclusive COM port access prevents opening the same port twice).
+        This pump will NOT close the serial connection on disconnect().
+
+        Args:
+            shared_serial: An already-opened serial.Serial object
+
+        Raises:
+            PumpConnectionError: If the pump does not respond on this connection
+        """
+        logger.info(
+            f"[Pump {self.address}] Attaching to shared serial on {self.port}"
+        )
+
+        with self._lock:
+            if self._connected:
+                logger.warning(f"[Pump {self.address}] Already connected")
+                return
+
+            self.serial = shared_serial
+            self._owns_serial = False
+            self._connected = True
+
+            try:
+                self._send_command(self.CMD_STOP)
+                logger.info(
+                    f"[Pump {self.address}] ✅ Shared connection verified (test command successful)"
+                )
+            except Exception as e:
+                self.serial = None
+                self._connected = False
+                raise PumpConnectionError(
+                    f"Pump {self.address} did not respond on shared serial: {e}"
+                )
+
     def disconnect(self) -> None:
         """Close serial port connection."""
         with self._lock:
@@ -558,7 +598,8 @@ class NE4000Pump:
                 except Exception as e:
                     logger.warning(f"Error stopping pump before disconnect: {e}")
 
-                self.serial.close()
+                if self._owns_serial:
+                    self.serial.close()
                 self._connected = False
                 logger.info(f"Disconnected from pump {self.address}")
 

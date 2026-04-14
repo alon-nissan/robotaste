@@ -140,6 +140,10 @@ def initialize_pumps(pump_config: Dict, db_path: str) -> bool:
     logger.info(f"Initializing {len(pump_configs)} pump(s) on {serial_port} at {baud_rate} baud")
 
     all_success = True
+    # Track the first connected pump per port so subsequent pumps can share its
+    # serial connection. On Windows, COM ports have exclusive access — opening the
+    # same port twice in separate serial.Serial() objects raises PermissionError(13).
+    first_pump_by_port: dict = {}
 
     for pump_cfg in pump_configs:
         address = pump_cfg.get('address', 0)
@@ -151,7 +155,6 @@ def initialize_pumps(pump_config: Dict, db_path: str) -> bool:
             continue
 
         try:
-            # Create pump instance
             pump = NE4000Pump(
                 port=serial_port,
                 address=address,
@@ -159,14 +162,18 @@ def initialize_pumps(pump_config: Dict, db_path: str) -> bool:
                 timeout=5.0
             )
 
-            # Connect to pump
-            pump.connect()
+            if serial_port in first_pump_by_port:
+                # Share the already-open serial connection to avoid Windows
+                # PermissionError when opening the same COM port a second time.
+                pump.attach_shared_serial(first_pump_by_port[serial_port].serial)
+            else:
+                pump.connect()
+                first_pump_by_port[serial_port] = pump
 
             # Configure syringe diameter
             diameter = pump_cfg.get('syringe_diameter_mm', 14.567)
             pump.set_diameter(diameter)
 
-            # Store pump instance
             pumps[address] = pump
 
             logger.debug(f"Initialized pump {address} ({ingredient}) - diameter: {diameter}mm")
