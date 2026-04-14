@@ -107,12 +107,12 @@ export default function CompletionPage() {
             Your responses have been recorded.
           </p>
 
-          {/* Return Home */}
+          {/* Return to waiting room (subjects re-enter the subject flow, not the moderator landing) */}
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/subject')}
             className="py-4 px-8 rounded-xl text-lg font-semibold bg-primary text-white hover:bg-primary-light active:bg-primary-dark shadow-md transition-all duration-200 cursor-pointer"
           >
-            Return to Home
+            Return to Waiting Room
           </button>
         </div>
       </div>

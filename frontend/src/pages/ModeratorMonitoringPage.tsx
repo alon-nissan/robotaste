@@ -218,6 +218,111 @@ export default function ModeratorMonitoringPage() {
         ?.stopping_criteria?.max_cycles || 0)
     : 0;
 
+  const isComplete = status?.current_phase === 'complete' || status?.state === 'completed';
+
+  const protocolId = (status?.experiment_config as Record<string, unknown>)?.protocol_id as string | undefined;
+
+  // ─── WRAP-UP VIEW (shown when session is complete) ─────────────────────
+  if (isComplete) {
+    return (
+      <PageLayout>
+        {/* Header banner */}
+        <div className="flex items-center gap-3 mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
+          <span className="text-2xl">✅</span>
+          <div>
+            <h1 className="text-xl font-semibold text-green-800">Experiment Complete</h1>
+            {status?.session_code && (
+              <p className="text-sm text-green-600">Session {status.session_code} — {samples.length} cycles recorded</p>
+            )}
+          </div>
+        </div>
+
+        {/* Summary stats */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-surface rounded-xl border border-border p-4 text-center">
+            <div className="text-3xl font-bold text-primary">{samples.length}</div>
+            <div className="text-sm text-text-secondary mt-1">Total Cycles</div>
+          </div>
+          <div className="bg-surface rounded-xl border border-border p-4 text-center">
+            <div className="text-3xl font-bold text-primary">
+              {modeInfo?.current_mode?.replace('_', ' ') || '—'}
+            </div>
+            <div className="text-sm text-text-secondary mt-1">Selection Mode</div>
+          </div>
+          <div className="bg-surface rounded-xl border border-border p-4 text-center">
+            <div className="text-3xl font-bold text-primary">
+              {status?.experiment_config
+                ? ((status.experiment_config as Record<string, unknown>)?.protocol_id as string)?.slice(0, 8) || '—'
+                : '—'}
+            </div>
+            <div className="text-sm text-text-secondary mt-1">Protocol ID (prefix)</div>
+          </div>
+        </div>
+
+        {/* Results table */}
+        <div className="bg-surface rounded-xl border border-border p-6 mb-6">
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Session Results</h2>
+          {samples.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-text-secondary font-medium">Cycle</th>
+                    <th className="text-left p-2 text-text-secondary font-medium">Concentrations</th>
+                    <th className="text-left p-2 text-text-secondary font-medium">Response</th>
+                    <th className="text-left p-2 text-text-secondary font-medium">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {samples.map((sample, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="p-2 font-medium">{sample.cycle_number}</td>
+                      <td className="p-2 text-text-secondary">
+                        {Object.entries(sample.ingredient_concentration || {})
+                          .map(([name, val]) => `${name}: ${formatConcentration(val as number)}`)
+                          .join(', ')}
+                      </td>
+                      <td className="p-2">
+                        {sample.questionnaire_answer
+                          ? Object.entries(sample.questionnaire_answer)
+                              .filter(([k]) => !['questionnaire_type', 'participant_id', 'timestamp', 'is_final'].includes(k))
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(', ')
+                          : '—'}
+                      </td>
+                      <td className="p-2 text-text-secondary text-xs">
+                        {sample.created_at?.slice(0, 19) || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-text-secondary">No samples were recorded.</p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between">
+          {protocolId && (
+            <button
+              onClick={() => navigate(`/analysis/dose-response?protocol=${protocolId}`)}
+              className="px-6 py-3 bg-surface border border-border text-text-primary rounded-lg font-medium hover:border-primary hover:text-primary transition-colors"
+            >
+              📊 View Dose-Response Dashboard
+            </button>
+          )}
+          <button
+            onClick={() => navigate('/')}
+            className="px-6 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary-light transition-colors ml-auto"
+          >
+            ← Return to Home
+          </button>
+        </div>
+      </PageLayout>
+    );
+  }
 
   // ─── RENDER ────────────────────────────────────────────────────────────
   return (
