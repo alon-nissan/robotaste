@@ -9,9 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import PageLayout from '../components/PageLayout';
 import {
   Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, ComposedChart, Area,
@@ -90,8 +88,6 @@ const SUBJECT_COLORS = [
 // ─── COMPONENT ──────────────────────────────────────────────────────────────
 
 export default function DoseResponseDashboardPage() {
-  const navigate = useNavigate();
-
   // State
   const [data, setData] = useState<DoseResponseData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -224,28 +220,18 @@ export default function DoseResponseDashboardPage() {
 
   if (loading) {
     return (
-      <PageLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-text-secondary text-lg">Loading dose-response data...</div>
-        </div>
-      </PageLayout>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-text-secondary text-lg">Loading dose-response data...</div>
+      </div>
     );
   }
 
   if (error && !data) {
     return (
-      <PageLayout>
-        <div className="p-6 bg-red-50 rounded-xl text-red-700">
-          <h2 className="font-semibold mb-2">Error</h2>
-          <p>{error}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="mt-4 px-4 py-2 bg-primary text-white rounded-lg"
-          >
-            Back to Home
-          </button>
-        </div>
-      </PageLayout>
+      <div className="p-6 bg-red-50 rounded-xl text-red-700">
+        <h2 className="font-semibold mb-2">Error</h2>
+        <p>{error}</p>
+      </div>
     );
   }
 
@@ -261,18 +247,12 @@ export default function DoseResponseDashboardPage() {
   // ─── RENDER ─────────────────────────────────────────────────────────────
 
   return (
-    <PageLayout>
+    <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-light text-text-primary tracking-wide">
           Dose-Response Dashboard
         </h1>
-        <button
-          onClick={() => navigate('/')}
-          className="px-4 py-2 text-sm bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors"
-        >
-          Back to Home
-        </button>
       </div>
 
       {!hasData ? (
@@ -524,6 +504,6 @@ export default function DoseResponseDashboardPage() {
           </div>
         </>
       )}
-    </PageLayout>
+    </div>
   );
 }

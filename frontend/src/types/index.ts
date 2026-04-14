@@ -513,3 +513,62 @@ export type ProtocolDraft = Partial<Protocol> & {
   ingredients?: Ingredient[];
   sample_selection_schedule?: ScheduleBlock[];
 }
+
+
+// ─── ANALYSIS HUB ─────────────────────────────────────────────────────────────
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  columns: ExplorerColumn[];
+}
+
+export interface DashboardStats {
+  total_sessions: number;
+  total_subjects: number;
+  total_samples: number;
+  completion_rate: number;
+}
+
+export interface ExplorerColumn {
+  key: string;
+  label?: string;
+  type?: string;
+  options?: string[];
+}
+
+export interface ColumnFilter {
+  column: string;
+  operator: string;
+  value: string | number;
+}
+
+export interface QueryRequest {
+  sql: string;
+}
+
+export interface QueryResult {
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+  execution_time_ms: number;
+}
+
+export interface SessionListItem {
+  session_id: string;
+  session_code: string;
+  protocol_name: string | null;
+  subject_name: string | null;
+  state: string;
+  current_phase: string;
+  current_cycle: number;
+  created_at: string;
+  deleted_at: string | null;
+}
+
+export interface BatchAction {
+  action: 'archive' | 'delete' | 'restore';
+  session_ids: string[];
+}

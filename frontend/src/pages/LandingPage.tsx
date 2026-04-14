@@ -94,10 +94,10 @@ export default function LandingPage() {
           </button>
 
           <button
-            onClick={() => navigate('/analysis/dose-response')}
+            onClick={() => navigate('/analysis')}
             className="w-full py-2 px-4 rounded-lg text-sm font-medium border border-border bg-surface text-text-primary hover:bg-gray-100 transition-colors cursor-pointer"
           >
-            Dose-Response Dashboard
+            Analysis Hub
           </button>
         </div>
 
