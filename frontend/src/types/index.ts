@@ -48,6 +48,7 @@ export interface Protocol {
   loading_screen?: LoadingScreenConfig;
   phase_sequence?: PhaseSequenceConfig;
   data_collection?: DataCollectionConfig;
+  sample_temperature_c?: number;  // Fixed sample temperature logged for each cycle
   created_at?: string;           // ISO timestamp
   updated_at?: string;
   is_archived?: boolean;
@@ -245,6 +246,7 @@ export type RefillStep = 'idle' | 'withdrawing' | 'swap_syringe' | 'purging' | '
 export interface Sample {
   cycle_number: number;
   ingredient_concentration: Record<string, number>;  // { "Sugar": 15.0, "Salt": 3.0 }
+  sample_temperature_c?: number | null;              // Protocol-level logged temperature (°C)
   questionnaire_answer?: Record<string, unknown>;    // Participant's response
   created_at?: string;
 }

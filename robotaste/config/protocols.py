@@ -245,6 +245,10 @@ def _validate_semantics(protocol: Dict[str, Any]) -> List[str]:
     criteria_errors = _validate_stopping_criteria(protocol)
     errors.extend(criteria_errors)
 
+    # Validate fixed protocol sample temperature
+    temperature_errors = _validate_sample_temperature(protocol)
+    errors.extend(temperature_errors)
+
     # Validate phase sequence (NEW for Week 5)
     phase_errors = _validate_phase_sequence(protocol)
     errors.extend(phase_errors)
@@ -598,6 +602,25 @@ def _validate_stopping_criteria(protocol: Dict[str, Any]) -> List[str]:
         errors.append(
             f"min_cycles ({min_cycles}) cannot be > max_cycles ({max_cycles})"
         )
+
+    return errors
+
+
+def _validate_sample_temperature(protocol: Dict[str, Any]) -> List[str]:
+    """Validate fixed protocol-level sample temperature configuration."""
+    errors = []
+    temperature_c = protocol.get("sample_temperature_c")
+
+    if temperature_c is None:
+        return errors
+
+    if isinstance(temperature_c, bool) or not isinstance(temperature_c, (int, float)):
+        errors.append("sample_temperature_c must be a numeric value in Celsius")
+        return errors
+
+    # Practical tasting experiment bounds in Celsius.
+    if temperature_c < -20 or temperature_c > 100:
+        errors.append("sample_temperature_c must be between -20 and 100 Celsius")
 
     return errors
 

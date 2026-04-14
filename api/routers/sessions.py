@@ -379,6 +379,7 @@ def get_samples(session_id: str):
     Each sample contains:
     - cycle_number: Which cycle this was
     - ingredient_concentration: The concentrations used
+    - sample_temperature_c: Protocol-level logged sample temperature (if configured)
     - questionnaire_answer: The participant's response
     - created_at: Timestamp
     """
@@ -686,6 +687,16 @@ def submit_response(session_id: str, request: ResponseRequest):
 
     # Get concentrations for this cycle: check persisted selection first, then fall back
     config = session.get("experiment_config", {})
+    sample_temperature_c = config.get("sample_temperature_c")
+    if sample_temperature_c is not None:
+        try:
+            sample_temperature_c = float(sample_temperature_c)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"Invalid sample_temperature_c in session {session_id}: {sample_temperature_c}"
+            )
+            sample_temperature_c = None
+
     pending = config.get("_pending_concentrations", {}).get(str(cycle_number))
     if pending:
         concentrations = pending["concentrations"]
@@ -708,6 +719,7 @@ def submit_response(session_id: str, request: ResponseRequest):
         request.answers,
         request.is_final,
         selection_mode,
+        sample_temperature_c=sample_temperature_c,
     )
     increment_cycle(session_id)
 
@@ -888,5 +900,10 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     loading_screen = protocol.get("loading_screen")
     if loading_screen:
         config["loading_screen"] = loading_screen
+
+    # Add fixed sample temperature if present
+    sample_temperature_c = protocol.get("sample_temperature_c")
+    if sample_temperature_c is not None:
+        config["sample_temperature_c"] = sample_temperature_c
 
     return config

@@ -31,6 +31,7 @@ This document provides a complete reference for the RoboTaste protocol JSON form
   "questionnaire_type": "string",
   "bayesian_optimization": {...},
   "stopping_criteria": {...},
+  "sample_temperature_c": 22.0,
   "protocol_hash": "string",
   "created_at": "ISO-8601-datetime",
   "updated_at": "ISO-8601-datetime"
@@ -60,6 +61,7 @@ This document provides a complete reference for the RoboTaste protocol JSON form
 | `tags` | array[string] | [] | Tags for organization and search |
 | `bayesian_optimization` | object | {} | BO configuration |
 | `stopping_criteria` | object | {} | Experiment stopping rules |
+| `sample_temperature_c` | number | null | Fixed sample temperature in Celsius, logged on every sample |
 | `protocol_hash` | string | auto-computed | SHA-256 hash of protocol content |
 | `created_at` | string | auto-set | ISO-8601 datetime of creation |
 | `updated_at` | string | auto-set | ISO-8601 datetime of last update |

@@ -104,7 +104,7 @@ const INITIAL_STATE: WizardState = {
 
 type WizardAction =
   | { type: 'SET_STEP'; step: number }
-  | { type: 'UPDATE_OVERVIEW'; payload: Partial<Pick<ProtocolDraft, 'name' | 'description' | 'tags'>> }
+  | { type: 'UPDATE_OVERVIEW'; payload: Partial<Pick<ProtocolDraft, 'name' | 'description' | 'tags' | 'sample_temperature_c'>> }
   | { type: 'SET_DATA_COLLECTION'; payload: DataCollectionConfig }
   | { type: 'SET_INGREDIENTS'; payload: Ingredient[] }
   | { type: 'SET_SCHEDULE'; payload: ScheduleBlock[] }

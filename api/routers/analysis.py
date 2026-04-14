@@ -37,6 +37,7 @@ def get_dose_response_data(
                     s.session_id,
                     s.cycle_number,
                     s.ingredient_concentration,
+                    s.sample_temperature_c,
                     s.questionnaire_answer,
                     s.selection_mode,
                     s.created_at,
@@ -71,6 +72,7 @@ def get_dose_response_data(
                 "aggregated": [],
                 "ingredients": [],
                 "response_variables": [],
+                "sample_temperatures_c": [],
             }
 
         # Collect unique protocols, subjects, ingredients, response variables
@@ -129,6 +131,7 @@ def get_dose_response_data(
                 "session_code": row["session_code"],
                 "subject_name": row["subject_name"] or row["session_code"],
                 "cycle_number": row["cycle_number"],
+                "sample_temperature_c": row["sample_temperature_c"],
                 "concentrations": conc,
                 "responses": {k: v for k, v in answer.items() if k not in skip_keys},
             })
@@ -142,13 +145,27 @@ def get_dose_response_data(
         response_vars_list = sorted(response_vars_set)
 
         for dp in data_points:
-            conc_key = tuple(dp["concentrations"].get(ing, 0) for ing in ingredients_list)
+            conc_key = (dp.get("sample_temperature_c"),) + tuple(
+                dp["concentrations"].get(ing, 0) for ing in ingredients_list
+            )
             conc_groups[conc_key].append(dp["responses"])
 
         aggregated = []
-        for conc_key, response_list in sorted(conc_groups.items()):
+
+        def _group_sort_key(item):
+            key = item[0]
+            temp = key[0]
+            concentrations_key = key[1:]
+            temp_sort = float("-inf") if temp is None else float(temp)
+            return (temp is None, temp_sort, *concentrations_key)
+
+        for conc_key, response_list in sorted(conc_groups.items(), key=_group_sort_key):
+            sample_temperature_c = conc_key[0]
             entry: dict = {
-                "concentrations": {ing: val for ing, val in zip(ingredients_list, conc_key)},
+                "sample_temperature_c": sample_temperature_c,
+                "concentrations": {
+                    ing: val for ing, val in zip(ingredients_list, conc_key[1:])
+                },
                 "n": len(response_list),
                 "stats": {},
             }
@@ -170,6 +187,12 @@ def get_dose_response_data(
                     }
             aggregated.append(entry)
 
+        sample_temperatures_c = sorted({
+            dp["sample_temperature_c"]
+            for dp in data_points
+            if dp.get("sample_temperature_c") is not None
+        })
+
         return {
             "protocols": list(protocols_map.values()),
             "subjects": list(subjects_map.values()),
@@ -178,6 +201,7 @@ def get_dose_response_data(
             "ingredients": ingredients_list,
             "response_variables": response_vars_list,
             "ingredient_units": ingredient_units,
+            "sample_temperatures_c": sample_temperatures_c,
         }
 
     except Exception as e:

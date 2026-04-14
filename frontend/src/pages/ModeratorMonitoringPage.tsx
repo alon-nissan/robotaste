@@ -269,6 +269,7 @@ export default function ModeratorMonitoringPage() {
                   <tr className="border-b border-border">
                     <th className="text-left p-2 text-text-secondary font-medium">Cycle</th>
                     <th className="text-left p-2 text-text-secondary font-medium">Concentrations</th>
+                    <th className="text-left p-2 text-text-secondary font-medium">Temp (°C)</th>
                     <th className="text-left p-2 text-text-secondary font-medium">Response</th>
                     <th className="text-left p-2 text-text-secondary font-medium">Time</th>
                   </tr>
@@ -281,6 +282,11 @@ export default function ModeratorMonitoringPage() {
                         {Object.entries(sample.ingredient_concentration || {})
                           .map(([name, val]) => `${name}: ${formatConcentration(val as number)}`)
                           .join(', ')}
+                      </td>
+                      <td className="p-2 text-text-secondary">
+                        {typeof sample.sample_temperature_c === 'number'
+                          ? sample.sample_temperature_c.toFixed(1)
+                          : '—'}
                       </td>
                       <td className="p-2">
                         {sample.questionnaire_answer
@@ -351,6 +357,7 @@ export default function ModeratorMonitoringPage() {
                 <tr className="border-b border-border">
                   <th className="text-left p-2 text-text-secondary font-medium">Cycle</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Concentrations</th>
+                  <th className="text-left p-2 text-text-secondary font-medium">Temp (°C)</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Response</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Time</th>
                 </tr>
@@ -363,6 +370,11 @@ export default function ModeratorMonitoringPage() {
                       {Object.entries(sample.ingredient_concentration || {})
                         .map(([name, val]) => `${name}: ${formatConcentration(val as number)}`)
                         .join(', ')}
+                    </td>
+                    <td className="p-2 text-text-secondary">
+                      {typeof sample.sample_temperature_c === 'number'
+                        ? sample.sample_temperature_c.toFixed(1)
+                        : '—'}
                     </td>
                     <td className="p-2">
                       {sample.questionnaire_answer

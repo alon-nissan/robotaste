@@ -56,6 +56,14 @@ export default function ReviewStep() {
           <Row label="Name" value={p.name || '(empty)'} />
           <Row label="Description" value={p.description || '(none)'} />
           <Row label="Tags" value={(p.tags ?? []).join(', ') || '(none)'} />
+          <Row
+            label="Sample Temperature"
+            value={
+              typeof p.sample_temperature_c === 'number'
+                ? `${p.sample_temperature_c} °C`
+                : '(not set)'
+            }
+          />
         </Section>
 
         <Section

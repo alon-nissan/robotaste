@@ -8,7 +8,7 @@ import type { DataCollectionConfig } from '../../../types';
 
 export default function Step1Overview() {
   const { state, dispatch } = useWizard();
-  const { name, description, tags } = state.protocol;
+  const { name, description, tags, sample_temperature_c: sampleTemperatureC } = state.protocol;
   const dc = state.protocol.data_collection ?? {
     track_trajectory: true,
     track_interaction_times: true,
@@ -17,6 +17,19 @@ export default function Step1Overview() {
 
   function updateOverview(field: 'name' | 'description', value: string) {
     dispatch({ type: 'UPDATE_OVERVIEW', payload: { [field]: value } });
+  }
+
+  function updateSampleTemperature(value: string) {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      dispatch({ type: 'UPDATE_OVERVIEW', payload: { sample_temperature_c: undefined } });
+      return;
+    }
+
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      dispatch({ type: 'UPDATE_OVERVIEW', payload: { sample_temperature_c: parsed } });
+    }
   }
 
   function updateTags(value: string) {
@@ -86,6 +99,25 @@ export default function Step1Overview() {
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
         <p className="text-xs text-gray-400 mt-1">Comma-separated. Used for searching and filtering protocols.</p>
+      </div>
+
+      {/* Sample temperature */}
+      <div>
+        <label htmlFor="sample-temperature" className="block text-sm font-medium text-gray-700 mb-1">
+          Sample Temperature (°C)
+        </label>
+        <input
+          id="sample-temperature"
+          type="number"
+          step="0.1"
+          value={sampleTemperatureC ?? ''}
+          onChange={(e) => updateSampleTemperature(e.target.value)}
+          placeholder="e.g., 22.0"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          Fixed protocol temperature. This value is logged on every sample in sessions using this protocol.
+        </p>
       </div>
 
       {/* Data Collection */}

@@ -61,6 +61,20 @@ def get_database_connection():
             conn.close()
 
 
+def _column_exists(cursor: sqlite3.Cursor, table_name: str, column_name: str) -> bool:
+    """Check whether a column exists in a SQLite table."""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = cursor.fetchall()
+    return any(col["name"] == column_name for col in columns)
+
+
+def _apply_schema_migrations(cursor: sqlite3.Cursor) -> None:
+    """Apply lightweight schema migrations for existing databases."""
+    if not _column_exists(cursor, "samples", "sample_temperature_c"):
+        cursor.execute("ALTER TABLE samples ADD COLUMN sample_temperature_c REAL")
+        logger.info("Applied migration: added samples.sample_temperature_c")
+
+
 def init_database() -> bool:
     """
     Initialize database from robotaste/data/schema.sql file.
@@ -94,6 +108,7 @@ def init_database() -> bool:
 
             # Execute schema (CREATE TABLE IF NOT EXISTS)
             cursor.executescript(schema_sql)
+            _apply_schema_migrations(cursor)
 
             conn.commit()
             logger.info("Database initialized successfully from schema.sql")
@@ -939,6 +954,7 @@ def save_sample_cycle(
     is_final: bool = False,
     selection_mode: str = "user_selected",
     was_bo_overridden: bool = False,
+    sample_temperature_c: Optional[float] = None,
 ) -> str:
     """
     Save complete cycle data in ONE row.
@@ -954,6 +970,7 @@ def save_sample_cycle(
         is_final: True if last cycle in session
         selection_mode: Mode used for this sample ("user_selected", "bo_selected", "predetermined")
         was_bo_overridden: True if user overrode BO suggestion in bo_selected mode
+        sample_temperature_c: Fixed protocol-level sample temperature in Celsius
 
     Returns:
         sample_id (UUID)
@@ -988,18 +1005,19 @@ def save_sample_cycle(
                 """
                 INSERT INTO samples (
                     sample_id, session_id, cycle_number,
-                    ingredient_concentration, selection_data,
+                    ingredient_concentration, sample_temperature_c, selection_data,
                     questionnaire_answer, is_final,
                     selection_mode, was_bo_overridden,
                     acquisition_function, acquisition_xi, acquisition_kappa,
                     acquisition_value, predicted_value, uncertainty
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     sample_id,
                     session_id,
                     cycle_number,
                     json.dumps(ingredient_concentration),
+                    sample_temperature_c,
                     json.dumps(selection_data) if selection_data else None,
                     json.dumps(questionnaire_answer),
                     1 if is_final else 0,
@@ -1057,6 +1075,7 @@ def get_sample(sample_id: str) -> Optional[Dict]:
                 "session_id": row["session_id"],
                 "cycle_number": row["cycle_number"],
                 "ingredient_concentration": json.loads(row["ingredient_concentration"]),
+                "sample_temperature_c": row["sample_temperature_c"],
                 "selection_data": (
                     json.loads(row["selection_data"]) if row["selection_data"] else None
                 ),
@@ -1115,6 +1134,7 @@ def get_session_samples(session_id: str, only_final: bool = False) -> List[Dict]
                         "ingredient_concentration": json.loads(
                             row["ingredient_concentration"]
                         ),
+                        "sample_temperature_c": row["sample_temperature_c"],
                         "selection_data": (
                             json.loads(row["selection_data"])
                             if row["selection_data"]
@@ -1543,6 +1563,7 @@ def export_session_csv(session_id: str) -> str:
             row = {
                 "session_id": session_id,
                 "cycle_number": sample["cycle_number"],
+                "sample_temperature_c": sample.get("sample_temperature_c"),
                 "is_final": sample["is_final"],
                 "created_at": sample["created_at"],
                 # Unpack concentrations

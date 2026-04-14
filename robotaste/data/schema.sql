@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS samples (
     session_id TEXT NOT NULL,
     cycle_number INTEGER NOT NULL,
     ingredient_concentration TEXT NOT NULL,
+    sample_temperature_c REAL,
     questionnaire_answer TEXT,
     selection_data TEXT,
     -- Sample selection mode tracking (for mixed-mode protocols)

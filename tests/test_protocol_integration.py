@@ -464,7 +464,56 @@ class TestMixedModeTransitions:
 
 
 # ============================================================================
-# Test 3: Invalid Protocol Handling
+# Test 3: Protocol Temperature Logging
+# ============================================================================
+
+class TestProtocolTemperatureLogging:
+    """Test protocol-level temperature validation and sample persistence."""
+
+    def test_protocol_temperature_validation(self, test_db, sample_protocol):
+        """sample_temperature_c accepts numeric values and rejects invalid types."""
+        valid_protocol = sample_protocol.copy()
+        valid_protocol["sample_temperature_c"] = 22.5
+
+        is_valid, errors = validate_protocol(valid_protocol)
+        assert is_valid, f"Protocol should be valid with sample_temperature_c, got: {errors}"
+
+        invalid_protocol = sample_protocol.copy()
+        invalid_protocol["sample_temperature_c"] = "cold"
+
+        is_valid, errors = validate_protocol(invalid_protocol)
+        assert not is_valid
+        assert any("sample_temperature_c" in err for err in errors)
+
+    def test_save_sample_cycle_persists_sample_temperature(self, test_db):
+        """save_sample_cycle should persist and return sample_temperature_c."""
+        session_id, _ = create_session(moderator_name="Temp Test")
+
+        save_sample_cycle(
+            session_id=session_id,
+            cycle_number=1,
+            ingredient_concentration={"Sugar": 10.0},
+            selection_data={},
+            questionnaire_answer={"overall_liking": 7},
+            sample_temperature_c=18.5,
+        )
+        save_sample_cycle(
+            session_id=session_id,
+            cycle_number=2,
+            ingredient_concentration={"Sugar": 20.0},
+            selection_data={},
+            questionnaire_answer={"overall_liking": 8},
+            sample_temperature_c=None,
+        )
+
+        samples = get_session_samples(session_id)
+        assert len(samples) == 2
+        assert samples[0]["sample_temperature_c"] == pytest.approx(18.5)
+        assert samples[1]["sample_temperature_c"] is None
+
+
+# ============================================================================
+# Test 4: Invalid Protocol Handling
 # ============================================================================
 
 class TestInvalidProtocolHandling:

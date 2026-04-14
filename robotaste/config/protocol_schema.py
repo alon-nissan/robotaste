@@ -426,6 +426,10 @@ PROTOCOL_JSON_SCHEMA = {
                 "custom_metadata": {"type": "object"},
             },
         },
+        "sample_temperature_c": {
+            "type": ["number", "null"],
+            "description": "Fixed sample temperature in Celsius, logged for every sample in this protocol",
+        },
         # ===== Pump Configuration =====
         "pump_config": {
             "type": "object",
@@ -648,6 +652,7 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
         "show_cycle_info": True,
         "message_size": "large",
     },
+    "sample_temperature_c": 22.0,
     # Data Collection
     "data_collection": {
         "track_trajectory": True,
@@ -712,6 +717,7 @@ def get_empty_protocol_template() -> Dict[str, Any]:
             "track_interaction_times": True,
             "collect_demographics": True,
         },
+        "sample_temperature_c": None,
         "pump_config": {
             "enabled": False,
             "serial_port": "",
