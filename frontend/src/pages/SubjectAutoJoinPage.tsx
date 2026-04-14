@@ -1,23 +1,32 @@
 /**
- * SubjectAutoJoinPage — Auto-connect subjects to active sessions.
+ * SubjectAutoJoinPage — Waiting room for subjects.
  *
- * Mirrors the Streamlit `landing_page_subject()` behavior:
- * 1. Polls GET /api/sessions for active sessions
- * 2. If exactly 1 active → auto-redirect to consent page
- * 3. If 0 → show "Waiting for moderator..." + poll every 5s
- * 4. If multiple → show list of sessions to pick from
+ * Behavior (Option B):
+ * 1. Polls GET /api/sessions every 5 s for active sessions.
+ * 2. While no session exists: show a calm "waiting for moderator" spinner.
+ * 3. Once ≥1 session is found: transition to a "ready" confirmation screen
+ *    with a large "Join Now" button. Always joins the most-recently-created
+ *    session so subjects never have to choose from a list.
+ * 4. Subject presses "Join Now" → navigates to the consent page.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Session } from '../types';
 import PageLayout from '../components/PageLayout';
 
+type PageStatus = 'loading' | 'waiting' | 'ready';
+
 export default function SubjectAutoJoinPage() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [status, setStatus] = useState<'loading' | 'waiting' | 'multiple'>('loading');
+  const [pageStatus, setPageStatus] = useState<PageStatus>('loading');
+  const [targetSession, setTargetSession] = useState<Session | null>(null);
   const navigate = useNavigate();
+
+  // Keep a stable ref to targetSession so the poll callback always sees the
+  // latest value without needing to be re-created on every render.
+  const targetSessionRef = useRef<Session | null>(null);
+  targetSessionRef.current = targetSession;
 
   useEffect(() => {
     let cancelled = false;
@@ -27,25 +36,29 @@ export default function SubjectAutoJoinPage() {
       try {
         const res = await api.get('/sessions');
         const allSessions: Session[] = res.data.sessions || res.data || [];
-        // API already returns only active sessions (filtered server-side)
-        const active = allSessions;
 
         if (cancelled) return;
 
-        if (active.length === 1) {
-          navigate(`/subject/${active[0].session_id}/consent`, { replace: true });
-          return;
-        } else if (active.length === 0) {
-          setStatus('waiting');
-          setSessions([]);
+        if (allSessions.length === 0) {
+          setPageStatus('waiting');
+          setTargetSession(null);
           timeoutId = setTimeout(poll, 5000);
         } else {
-          setStatus('multiple');
-          setSessions(active);
+          // Pick the most-recently-created session.
+          const newest = [...allSessions].sort((a, b) => {
+            const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return tb - ta;
+          })[0];
+
+          setTargetSession(newest);
+          setPageStatus('ready');
+          // Keep polling so we update the target if a newer session appears.
+          timeoutId = setTimeout(poll, 5000);
         }
       } catch {
         if (!cancelled) {
-          setStatus('waiting');
+          setPageStatus('waiting');
           timeoutId = setTimeout(poll, 5000);
         }
       }
@@ -53,51 +66,69 @@ export default function SubjectAutoJoinPage() {
 
     poll();
     return () => { cancelled = true; clearTimeout(timeoutId); };
-  }, [navigate]);
+  }, []);
+
+  function handleJoin() {
+    if (targetSession) {
+      navigate(`/subject/${targetSession.session_id}/consent`, { replace: true });
+    }
+  }
 
   return (
-    <PageLayout>
-      {status === 'loading' && (
-        <div className="text-center py-12">
-          <div className="text-lg text-text-secondary">Connecting...</div>
-        </div>
-      )}
+    <PageLayout showLogo={true}>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
 
-      {status === 'waiting' && (
-        <div className="text-center py-12">
-          <h1 className="text-2xl font-light text-text-primary mb-4">
-            Waiting for Session
-          </h1>
-          <p className="text-base text-text-secondary mb-6">
-            Waiting for moderator to create a session...
-          </p>
-          <div className="inline-block w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      )}
-
-      {status === 'multiple' && (
-        <div className="max-w-md mx-auto py-12">
-          <h1 className="text-2xl font-light text-text-primary mb-6 text-center">
-            Select Session
-          </h1>
-          <div className="space-y-3">
-            {sessions.map(s => (
-              <button
-                key={s.session_id}
-                onClick={() => navigate(`/subject/${s.session_id}/consent`, { replace: true })}
-                className="w-full p-4 bg-surface rounded-xl border border-border hover:border-primary transition-colors text-left cursor-pointer"
-              >
-                <div className="font-medium text-text-primary">
-                  Session {s.session_code}
-                </div>
-                <div className="text-sm text-text-secondary">
-                  Phase: {s.current_phase} · Cycle: {s.current_cycle}
-                </div>
-              </button>
-            ))}
+        {/* ─── LOADING ──────────────────────────────────────────────── */}
+        {pageStatus === 'loading' && (
+          <div className="space-y-4">
+            <div className="inline-block w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-base text-text-secondary">Connecting…</p>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ─── WAITING ──────────────────────────────────────────────── */}
+        {pageStatus === 'waiting' && (
+          <div className="space-y-6 max-w-sm">
+            <div className="inline-block w-12 h-12 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div>
+              <h1 className="text-2xl font-light text-text-primary mb-3">
+                Welcome
+              </h1>
+              <p className="text-base text-text-secondary leading-relaxed">
+                Please wait here. You'll be connected automatically once the moderator starts the experiment.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ─── READY ────────────────────────────────────────────────── */}
+        {pageStatus === 'ready' && targetSession && (
+          <div className="space-y-8 max-w-sm">
+            {/* Green checkmark / ready indicator */}
+            <div className="flex items-center justify-center w-20 h-20 rounded-full bg-green-50 border-2 border-green-200 mx-auto">
+              <span className="text-4xl">✓</span>
+            </div>
+
+            <div>
+              <h1 className="text-2xl font-light text-text-primary mb-3">
+                Your experiment is ready!
+              </h1>
+              <p className="text-base text-text-secondary leading-relaxed">
+                The moderator has prepared a session for you. Press the button below when you're ready to begin.
+              </p>
+            </div>
+
+            <button
+              onClick={handleJoin}
+              className="w-full py-4 px-8 rounded-xl text-lg font-semibold bg-primary text-white hover:bg-primary-light active:bg-primary-dark shadow-md transition-all duration-200 cursor-pointer"
+            >
+              Join Now
+            </button>
+          </div>
+        )}
+
+      </div>
     </PageLayout>
   );
 }
+
