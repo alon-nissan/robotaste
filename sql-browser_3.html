@@ -1,0 +1,2130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SQL Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg2: #131720;
+    --bg3: #1a2030;
+    --bg4: #212840;
+    --border: #2a3555;
+    --border2: #3a4a70;
+    --accent: #4f8ef7;
+    --accent2: #7eb8ff;
+    --accent-dim: rgba(79,142,247,0.12);
+    --accent-glow: rgba(79,142,247,0.25);
+    --green: #3dd68c;
+    --green-dim: rgba(61,214,140,0.12);
+    --orange: #f7a84f;
+    --orange-dim: rgba(247,168,79,0.12);
+    --red: #f76f6f;
+    --red-dim: rgba(247,111,111,0.12);
+    --text: #c8d8f5;
+    --text2: #8a9ec5;
+    --text3: #5a6e95;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── TOP BAR ─────────────────────────────────── */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    height: 52px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+  }
+  #topbar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent) 0%, transparent 60%);
+    opacity: 0.4;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent2);
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .logo svg { width: 20px; height: 20px; }
+  .logo-sep { color: var(--border2); margin: 0 4px; }
+
+  #open-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    color: var(--accent2);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  #open-btn:hover { background: rgba(79,142,247,0.22); box-shadow: 0 0 12px var(--accent-glow); }
+  #open-btn svg { width: 14px; height: 14px; }
+
+  #db-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    background: var(--green-dim);
+    border: 1px solid rgba(61,214,140,0.25);
+    border-radius: 4px;
+    padding: 4px 10px;
+    display: none;
+  }
+  #db-name.visible { display: block; }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #stats-bar {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    display: none;
+  }
+  #stats-bar.visible { display: flex; gap: 14px; }
+  .stat { display: flex; align-items: center; gap: 5px; }
+  .stat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* ─── MAIN LAYOUT ─────────────────────────────── */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ─── SIDEBAR ─────────────────────────────────── */
+  #sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 12px 14px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text3);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #table-count {
+    background: var(--bg4);
+    color: var(--text2);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border2);
+  }
+  #table-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+  #table-list::-webkit-scrollbar { width: 4px; }
+  #table-list::-webkit-scrollbar-track { background: transparent; }
+  #table-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .table-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.12s;
+    border-left: 2px solid transparent;
+    position: relative;
+  }
+  .table-item:hover { background: var(--bg3); }
+  .table-item.active {
+    background: var(--accent-dim);
+    border-left-color: var(--accent);
+    color: var(--accent2);
+  }
+  .table-item svg { width: 14px; height: 14px; opacity: 0.6; flex-shrink: 0; }
+  .table-item.active svg { opacity: 1; color: var(--accent); }
+  .table-item-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .table-item-rows {
+    font-size: 10px;
+    color: var(--text3);
+    font-family: var(--mono);
+  }
+
+  .sidebar-section {
+    border-top: 1px solid var(--border);
+    padding: 8px 14px;
+  }
+  .sidebar-section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  #view-list { display: flex; flex-direction: column; gap: 2px; }
+  .view-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text2);
+    transition: all 0.12s;
+  }
+  .view-item:hover { background: var(--bg3); color: var(--text); }
+  .view-item svg { width: 12px; height: 12px; opacity: 0.5; }
+
+  /* ─── CONTENT ─────────────────────────────────── */
+  #content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── TABS ─────────────────────────────────────── */
+  #tabs {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 0 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    height: 40px;
+    flex-shrink: 0;
+  }
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    height: 32px;
+    border-radius: 5px 5px 0 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.12s;
+    color: var(--text3);
+    border: 1px solid transparent;
+    border-bottom: none;
+    position: relative;
+    top: 1px;
+  }
+  .tab:hover { color: var(--text2); background: var(--bg3); }
+  .tab.active {
+    background: var(--bg);
+    color: var(--accent2);
+    border-color: var(--border);
+    border-bottom-color: var(--bg);
+  }
+  .tab svg { width: 12px; height: 12px; }
+  .tab-close {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: 0.1s;
+    cursor: pointer;
+  }
+  .tab:hover .tab-close { opacity: 1; }
+  .tab-close:hover { background: var(--red-dim); color: var(--red); }
+  #add-tab-btn {
+    width: 28px; height: 28px;
+    margin-left: 4px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text3);
+    transition: 0.12s;
+    font-size: 18px;
+    line-height: 1;
+    align-self: center;
+  }
+  #add-tab-btn:hover { color: var(--accent2); background: var(--accent-dim); }
+
+  /* ─── PANELS ─────────────────────────────────── */
+  .panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  /* ─── QUERY EDITOR ────────────────────────────── */
+  .query-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+  .editor-area {
+    position: relative;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  #sql-editor {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    padding: 14px 16px;
+    border: none;
+    outline: none;
+    resize: none;
+    height: 140px;
+    tab-size: 2;
+  }
+  #sql-editor::placeholder { color: var(--text3); }
+  .editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+  .run-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 16px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .run-btn:hover { background: var(--accent2); box-shadow: 0 0 16px var(--accent-glow); }
+  .run-btn:active { transform: scale(0.97); }
+  .run-btn svg { width: 13px; height: 13px; }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .tool-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 11px;
+    background: transparent;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.13s;
+  }
+  .tool-btn:hover { background: var(--bg3); color: var(--text); border-color: var(--text3); }
+  .tool-btn svg { width: 12px; height: 12px; }
+  .tool-btn.green { color: var(--green); border-color: rgba(61,214,140,0.35); }
+  .tool-btn.green:hover { background: var(--green-dim); }
+  .tool-btn.orange { color: var(--orange); border-color: rgba(247,168,79,0.35); }
+  .tool-btn.orange:hover { background: var(--orange-dim); }
+
+  .shortcut-hint {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .kbd {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+
+  /* ─── RESULTS AREA ────────────────────────────── */
+  .results-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .results-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .results-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .results-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    background: var(--green-dim);
+    padding: 1px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(61,214,140,0.2);
+  }
+  .results-time {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .results-header .tool-btn { margin-left: auto; }
+
+  .table-wrap { flex: 1; overflow: auto; }
+  .table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  table.data-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  table.data-table thead { position: sticky; top: 0; z-index: 2; }
+  table.data-table thead th {
+    background: var(--bg3);
+    color: var(--text2);
+    font-weight: 500;
+    padding: 9px 14px;
+    text-align: left;
+    border-bottom: 2px solid var(--border2);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: 0.1s;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  table.data-table thead th:hover { background: var(--bg4); color: var(--text); }
+  table.data-table thead th .th-inner { display: flex; align-items: center; gap: 5px; }
+  table.data-table thead th .sort-icon { opacity: 0.3; font-size: 10px; }
+  table.data-table thead th.sort-asc .sort-icon::after { content: '▲'; opacity: 1; }
+  table.data-table thead th.sort-desc .sort-icon::after { content: '▼'; opacity: 1; }
+
+  table.data-table tbody tr { border-bottom: 1px solid var(--border); transition: 0.1s; }
+  table.data-table tbody tr:hover { background: var(--bg3); }
+  table.data-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.015); }
+  table.data-table tbody tr:nth-child(even):hover { background: var(--bg3); }
+  table.data-table tbody td {
+    padding: 7px 14px;
+    border-right: 1px solid var(--border);
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .null-cell { color: var(--text3) !important; font-style: italic; }
+  .num-cell { color: var(--accent2); }
+  .bool-cell { color: var(--orange); }
+
+  .row-num {
+    color: var(--text3) !important;
+    background: var(--bg2) !important;
+    padding: 7px 10px !important;
+    text-align: right;
+    min-width: 40px;
+    user-select: none;
+    font-size: 10px;
+  }
+  thead .row-num { cursor: default !important; }
+  thead .row-num:hover { background: var(--bg3) !important; }
+
+  /* ─── SCHEMA VIEW ──────────────────────────────── */
+  .schema-view {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .schema-table {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .schema-table-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+  .schema-table-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent2);
+  }
+  .schema-col-count {
+    font-size: 11px;
+    color: var(--text3);
+    font-family: var(--mono);
+  }
+  .browse-btn {
+    margin-left: auto;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent2);
+    cursor: pointer;
+    transition: 0.13s;
+  }
+  .browse-btn:hover { background: rgba(79,142,247,0.22); }
+  .schema-cols { width: 100%; border-collapse: collapse; }
+  .schema-cols th {
+    padding: 7px 14px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text3);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .schema-cols td {
+    padding: 7px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-bottom: 1px solid rgba(42,53,85,0.5);
+  }
+  .schema-cols tr:last-child td { border-bottom: none; }
+  .col-pk { color: var(--orange); font-size: 10px; background: var(--orange-dim); padding: 1px 5px; border-radius: 3px; }
+  .col-notnull { color: var(--red); font-size: 10px; }
+  .col-type { color: var(--accent2); }
+
+  /* ─── EMPTY / SPLASH ──────────────────────────── */
+  #splash {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text3);
+  }
+  #splash svg { width: 64px; height: 64px; opacity: 0.15; }
+  .splash-title {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--text2);
+    letter-spacing: 0.04em;
+  }
+  .splash-sub {
+    font-size: 12px;
+    color: var(--text3);
+    text-align: center;
+    line-height: 1.7;
+  }
+  .drop-zone {
+    margin-top: 8px;
+    padding: 24px 40px;
+    border: 2px dashed var(--border2);
+    border-radius: 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent2);
+  }
+  .drop-zone p:first-child { font-size: 13px; margin-bottom: 4px; color: var(--text2); }
+
+  /* ─── PAGINATION ──────────────────────────────── */
+  .pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .page-btn {
+    padding: 3px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    color: var(--text2);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    transition: 0.12s;
+  }
+  .page-btn:hover:not(:disabled) { background: var(--bg4); color: var(--text); }
+  .page-btn:disabled { opacity: 0.3; cursor: default; }
+  .page-info { color: var(--text2); }
+  .page-size-select {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 6px;
+    cursor: pointer;
+    outline: none;
+    margin-left: auto;
+  }
+
+  /* ─── ERROR BOX ───────────────────────────────── */
+  .error-box {
+    margin: 16px;
+    padding: 12px 16px;
+    background: var(--red-dim);
+    border: 1px solid rgba(247,111,111,0.35);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--red);
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .error-box svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ─── SEARCH ──────────────────────────────────── */
+  .search-wrap {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: 0.15s;
+  }
+  .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+  .search-input::placeholder { color: var(--text3); }
+
+  /* ─── LOADING ─────────────────────────────────── */
+  .loading-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: blink 0.8s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+  /* ─── COLUMN DETAILS PANEL ────────────────────── */
+  .col-detail-panel {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    padding: 14px;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+  .col-detail-panel.open { display: flex; }
+  .col-detail-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text3);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .col-stat { }
+  .col-stat-name { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
+  .col-stat-val { font-family: var(--mono); font-size: 13px; color: var(--text); }
+
+  /* ─── FILTER BAR ──────────────────────────────── */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    flex-shrink: 0;
+    min-height: 0;
+  }
+  .filter-bar::-webkit-scrollbar { height: 3px; }
+  .filter-bar::-webkit-scrollbar-thumb { background: var(--border2); }
+  .filter-tag {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(79,142,247,0.3);
+    border-radius: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent2);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .filter-tag .remove { opacity: 0.6; }
+  .filter-tag .remove:hover { opacity: 1; }
+
+  /* toast */
+  #toast {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.25s;
+    z-index: 999;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { border-color: rgba(61,214,140,0.4); color: var(--green); }
+  #toast.error { border-color: rgba(247,111,111,0.4); color: var(--red); }
+
+  input[type="file"] { display: none; }
+
+  .results-outer { display: flex; flex: 1; overflow: hidden; }
+
+  /* ─── JSON CELL ───────────────────────────────── */
+  .json-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 240px;
+    cursor: pointer;
+    padding: 2px 7px 2px 5px;
+    border-radius: 4px;
+    background: rgba(79,142,247,0.08);
+    border: 1px solid rgba(79,142,247,0.2);
+    color: var(--accent2);
+    font-family: var(--mono);
+    font-size: 11px;
+    transition: all 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+  .json-cell:hover {
+    background: rgba(79,142,247,0.18);
+    border-color: var(--accent);
+    box-shadow: 0 0 8px rgba(79,142,247,0.2);
+  }
+  .json-cell .json-icon {
+    flex-shrink: 0;
+    width: 12px; height: 12px;
+    opacity: 0.7;
+  }
+  .json-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    background: rgba(79,142,247,0.15);
+    border-radius: 3px;
+    padding: 0px 4px;
+  }
+  .json-preview-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text2);
+    font-size: 11px;
+  }
+
+  /* ─── JSON MODAL ──────────────────────────────── */
+  #json-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(7, 9, 15, 0.75);
+    z-index: 100;
+    display: none;
+    align-items: flex-start;
+    justify-content: flex-end;
+    backdrop-filter: blur(2px);
+  }
+  #json-modal-overlay.open { display: flex; }
+
+  #json-modal {
+    width: 520px;
+    max-width: 92vw;
+    height: 100vh;
+    background: var(--bg2);
+    border-left: 1px solid var(--border2);
+    display: flex;
+    flex-direction: column;
+    animation: slideIn 0.2s ease;
+    box-shadow: -12px 0 48px rgba(0,0,0,0.5);
+  }
+  @keyframes slideIn {
+    from { transform: translateX(40px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+
+  #json-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg3);
+  }
+  .json-modal-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent2);
+    letter-spacing: 0.04em;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .json-modal-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    background: var(--bg4);
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .json-close-btn {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 15px;
+    transition: 0.12s;
+    flex-shrink: 0;
+    border: 1px solid transparent;
+  }
+  .json-close-btn:hover { background: var(--red-dim); color: var(--red); border-color: rgba(247,111,111,0.3); }
+
+  #json-modal-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    flex-shrink: 0;
+  }
+  .json-view-btn {
+    padding: 4px 11px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    color: var(--text3);
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .json-view-btn:hover { background: var(--bg3); color: var(--text2); }
+  .json-view-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent2);
+  }
+  .json-toolbar-sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
+
+  #json-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 14px;
+  }
+  #json-modal-body::-webkit-scrollbar { width: 5px; }
+  #json-modal-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ─── JSON TREE ───────────────────────────────── */
+  .json-tree { font-family: var(--mono); font-size: 12px; line-height: 1.8; }
+  .jt-node { position: relative; }
+  .jt-key { color: var(--accent2); }
+  .jt-colon { color: var(--text3); margin: 0 4px; }
+  .jt-str { color: var(--green); }
+  .jt-num { color: var(--orange); }
+  .jt-bool { color: #c792ea; }
+  .jt-null { color: var(--text3); font-style: italic; }
+  .jt-bracket { color: var(--text2); }
+  .jt-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 9px;
+    color: var(--text3);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    margin-right: 4px;
+    flex-shrink: 0;
+    transition: 0.1s;
+    vertical-align: middle;
+    user-select: none;
+  }
+  .jt-toggle:hover { background: var(--bg4); color: var(--text2); }
+  .jt-children {
+    padding-left: 22px;
+    border-left: 1px solid var(--border);
+    margin-left: 7px;
+  }
+  .jt-children.collapsed { display: none; }
+  .jt-summary {
+    color: var(--text3);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .jt-summary:hover { color: var(--text2); }
+  .jt-row { display: flex; align-items: baseline; gap: 0; padding: 1px 0; }
+  .jt-row:hover { background: rgba(255,255,255,0.025); border-radius: 3px; }
+  .jt-idx { color: var(--text3); font-size: 10px; margin-right: 6px; min-width: 24px; text-align: right; }
+
+  /* raw view */
+  #json-raw {
+    background: transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: none;
+  }
+  #json-raw.active { display: block; }
+  #json-tree-root { display: block; }
+  #json-tree-root.hidden { display: none; }
+
+  /* search in json */
+  #json-search-wrap {
+    display: flex;
+    gap: 6px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #json-search {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 5px 9px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+  }
+  #json-search:focus { border-color: var(--accent); }
+  #json-search::placeholder { color: var(--text3); }
+  .jt-match { background: rgba(247,168,79,0.3); border-radius: 2px; }
+
+  /* path breadcrumb */
+  #json-path {
+    padding: 5px 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    min-height: 26px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  #json-path::-webkit-scrollbar { height: 2px; }
+  .jp-seg { color: var(--text2); }
+  .jp-sep { color: var(--border2); margin: 0 3px; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <ellipse cx="12" cy="5" rx="9" ry="3"/>
+      <path d="M3 5v4c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+      <path d="M3 9v4c0 1.66 4.03 3 9 3s9-1.34 9-3V9"/>
+      <path d="M3 13v4c0 1.66 4.03 3 9 3s9-1.34 9-3v-4"/>
+    </svg>
+    SQL<span class="logo-sep">/</span>BROWSER
+  </div>
+
+  <button id="open-btn" onclick="document.getElementById('file-input').click()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    </svg>
+    Open Database
+  </button>
+  <input type="file" id="file-input" accept=".db,.sqlite,.sqlite3" onchange="loadDB(this)" />
+  <div id="db-name"></div>
+
+  <div class="topbar-right">
+    <div id="stats-bar">
+      <div class="stat"><span class="stat-dot" style="background:var(--green)"></span><span id="stat-tables">0 tables</span></div>
+      <div class="stat"><span class="stat-dot" style="background:var(--accent)"></span><span id="stat-views">0 views</span></div>
+      <div class="stat"><span class="stat-dot" style="background:var(--orange)"></span><span id="stat-size">0 KB</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      Tables
+      <span id="table-count">0</span>
+    </div>
+    <div id="table-list"></div>
+    <div class="sidebar-section" id="views-section" style="display:none">
+      <div class="sidebar-section-title">Views</div>
+      <div id="view-list"></div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="content">
+
+    <!-- TABS -->
+    <div id="tabs">
+      <div class="tab active" data-panel="splash-panel" onclick="switchTab(this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Welcome
+      </div>
+      <div id="add-tab-btn" title="New Query Tab" onclick="addQueryTab()">+</div>
+    </div>
+
+    <!-- SPLASH PANEL -->
+    <div class="panel active" id="splash-panel">
+      <div id="splash">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M3 5v4c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+          <path d="M3 9v4c0 1.66 4.03 3 9 3s9-1.34 9-3V9"/>
+          <path d="M3 13v4c0 1.66 4.03 3 9 3s9-1.34 9-3v-4"/>
+        </svg>
+        <div class="splash-title">No database loaded</div>
+        <div class="splash-sub">Open a SQLite database file to start browsing<br/>tables, running queries, and exporting data.</div>
+        <div class="drop-zone" id="drop-zone"
+          ondragover="event.preventDefault(); this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="handleDrop(event)">
+          <p>Drop a .db / .sqlite file here</p>
+          <p style="color:var(--text3)">or click "Open Database" above</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHEMA PANEL -->
+    <div class="panel" id="schema-panel">
+      <div class="results-header">
+        <span class="results-label">Schema</span>
+        <span id="schema-total" class="results-count"></span>
+        <button class="tool-btn green" style="margin-left:auto" onclick="exportSchemaExcel()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export Schema
+        </button>
+      </div>
+      <div class="schema-view" id="schema-view"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- JSON VIEWER MODAL -->
+<div id="json-modal-overlay" onclick="closeJSONModal(event)">
+  <div id="json-modal" onclick="event.stopPropagation()">
+    <div id="json-modal-header">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="flex-shrink:0">
+        <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+      </svg>
+      <span class="json-modal-title" id="json-modal-title">JSON Viewer</span>
+      <span class="json-modal-meta" id="json-modal-meta"></span>
+      <div class="json-close-btn" onclick="closeJSONModal()" title="Close (Esc)">✕</div>
+    </div>
+    <div id="json-search-wrap">
+      <input id="json-search" placeholder="Search keys and values…" oninput="jsonSearch(this.value)" />
+      <span id="json-search-count" style="font-family:var(--mono);font-size:11px;color:var(--text3);white-space:nowrap;align-self:center"></span>
+    </div>
+    <div id="json-path">—</div>
+    <div id="json-modal-toolbar">
+      <button class="json-view-btn active" id="btn-tree" onclick="switchJSONView('tree')">Tree</button>
+      <button class="json-view-btn" id="btn-raw" onclick="switchJSONView('raw')">Raw</button>
+      <div class="json-toolbar-sep"></div>
+      <button class="json-view-btn" onclick="jsonExpandAll()">Expand All</button>
+      <button class="json-view-btn" onclick="jsonCollapseAll()">Collapse All</button>
+      <div class="json-toolbar-sep"></div>
+      <button class="tool-btn" style="font-size:11px;padding:4px 10px" onclick="copyJSON()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+    </div>
+    <div id="json-modal-body">
+      <div id="json-tree-root" class="json-tree"></div>
+      <pre id="json-raw"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ─────────────────────────────────────────────
+let db = null;
+let SQL = null;
+let allTables = [];
+let allViews = [];
+let tabCounter = 0;
+let activeTabId = 'splash-panel';
+
+const PAGE_SIZES = [50, 100, 250, 500];
+
+// ─── INIT SQL.js ────────────────────────────────────────
+initSqlJs({
+  locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${file}`
+}).then(Sql => {
+  SQL = Sql;
+}).catch(e => toast('Failed to load SQL engine: ' + e.message, 'error'));
+
+// ─── FILE LOADING ───────────────────────────────────────
+function loadDB(input) {
+  const file = input.files[0];
+  if (!file) return;
+  readFile(file);
+  input.value = '';
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) readFile(file);
+}
+
+function readFile(file) {
+  if (!SQL) return toast('SQL engine not ready yet', 'error');
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const arr = new Uint8Array(ev.target.result);
+      if (db) db.close();
+      db = new SQL.Database(arr);
+      onDBLoaded(file);
+    } catch(e) {
+      toast('Failed to open database: ' + e.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function onDBLoaded(file) {
+  // update top bar
+  const nameEl = document.getElementById('db-name');
+  nameEl.textContent = file.name;
+  nameEl.classList.add('visible');
+
+  const sizeKB = (file.size / 1024).toFixed(1);
+  document.getElementById('stat-size').textContent = sizeKB + ' KB';
+  document.getElementById('stats-bar').classList.add('visible');
+
+  // load tables
+  allTables = getTables('table');
+  allViews  = getTables('view');
+
+  document.getElementById('table-count').textContent = allTables.length;
+  document.getElementById('stat-tables').textContent = allTables.length + ' tables';
+  document.getElementById('stat-views').textContent  = allViews.length + ' views';
+
+  renderSidebar();
+  buildSchema();
+
+  // switch to schema
+  switchToPanel('schema-panel');
+  toast('Opened ' + file.name, 'success');
+}
+
+function getTables(type) {
+  if (!db) return [];
+  try {
+    const res = db.exec(`SELECT name FROM sqlite_master WHERE type='${type}' AND name NOT LIKE 'sqlite_%' ORDER BY name`);
+    if (!res.length) return [];
+    return res[0].values.map(r => r[0]);
+  } catch(e) { return []; }
+}
+
+function getRowCount(tbl) {
+  try {
+    const res = db.exec(`SELECT COUNT(*) FROM "${tbl}"`);
+    return res[0].values[0][0];
+  } catch(e) { return '?'; }
+}
+
+// ─── SIDEBAR ─────────────────────────────────────────────
+function renderSidebar() {
+  const list = document.getElementById('table-list');
+  list.innerHTML = allTables.map(t => {
+    const cnt = getRowCount(t);
+    return `<div class="table-item" onclick="browseTable('${esc(t)}')" data-table="${esc(t)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <line x1="3" y1="9" x2="21" y2="9"/>
+        <line x1="3" y1="15" x2="21" y2="15"/>
+        <line x1="12" y1="3" x2="12" y2="21"/>
+      </svg>
+      <span class="table-item-name">${t}</span>
+      <span class="table-item-rows">${Number(cnt).toLocaleString()}</span>
+    </div>`;
+  }).join('');
+
+  const viewSection = document.getElementById('views-section');
+  if (allViews.length > 0) {
+    viewSection.style.display = 'block';
+    document.getElementById('view-list').innerHTML = allViews.map(v =>
+      `<div class="view-item" onclick="browseTable('${esc(v)}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        ${v}
+      </div>`
+    ).join('');
+  } else {
+    viewSection.style.display = 'none';
+  }
+}
+
+function esc(s) { return String(s).replace(/'/g, "\\'"); }
+
+// ─── SCHEMA ───────────────────────────────────────────────
+function buildSchema() {
+  const container = document.getElementById('schema-view');
+  document.getElementById('schema-total').textContent = allTables.length + ' tables';
+  container.innerHTML = allTables.map(tbl => {
+    let cols = [];
+    try {
+      const info = db.exec(`PRAGMA table_info("${tbl}")`);
+      if (info.length) {
+        cols = info[0].values.map(r => ({
+          cid: r[0], name: r[1], type: r[2], notnull: r[3], dflt: r[4], pk: r[5]
+        }));
+      }
+    } catch(e) {}
+    const rows = getRowCount(tbl);
+    return `<div class="schema-table">
+      <div class="schema-table-header">
+        <span class="schema-table-name">${tbl}</span>
+        <span class="schema-col-count">${cols.length} cols · ${Number(rows).toLocaleString()} rows</span>
+        <button class="browse-btn" onclick="browseTable('${esc(tbl)}')">Browse →</button>
+      </div>
+      <table class="schema-cols">
+        <thead><tr>
+          <th>#</th><th>Column</th><th>Type</th><th>Constraints</th><th>Default</th>
+        </tr></thead>
+        <tbody>
+          ${cols.map(c => `<tr>
+            <td style="color:var(--text3)">${c.cid}</td>
+            <td>${c.pk ? `<b style="color:var(--accent2)">${c.name}</b>` : c.name}</td>
+            <td class="col-type">${c.type || '<i style="opacity:.4">any</i>'}</td>
+            <td>${c.pk ? '<span class="col-pk">PK</span> ' : ''}${c.notnull ? '<span class="col-notnull">NOT NULL</span>' : ''}</td>
+            <td style="color:var(--text3)">${c.dflt !== null ? c.dflt : ''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+// ─── TABS ────────────────────────────────────────────────
+function switchTab(tabEl) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  tabEl.classList.add('active');
+  const panelId = tabEl.dataset.panel;
+  document.getElementById(panelId).classList.add('active');
+  activeTabId = panelId;
+  // highlight sidebar
+  const tbl = tabEl.dataset.table;
+  document.querySelectorAll('.table-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.table === tbl);
+  });
+}
+
+function switchToPanel(panelId) {
+  const tab = document.querySelector(`.tab[data-panel="${panelId}"]`);
+  if (tab) switchTab(tab);
+}
+
+function addQueryTab(sql = '') {
+  tabCounter++;
+  const id = `query-panel-${tabCounter}`;
+  const label = `Query ${tabCounter}`;
+
+  // create panel
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.id = id;
+  panel.innerHTML = buildQueryPanelHTML(id, sql);
+  document.getElementById('content').appendChild(panel);
+
+  // create tab
+  const tab = document.createElement('div');
+  tab.className = 'tab';
+  tab.dataset.panel = id;
+  tab.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+    </svg>
+    ${label}
+    <span class="tab-close" onclick="closeTab(event, '${id}')">✕</span>
+  `;
+  tab.onclick = e => { if (!e.target.classList.contains('tab-close')) switchTab(tab); };
+  document.getElementById('add-tab-btn').insertAdjacentElement('beforebegin', tab);
+
+  switchTab(tab);
+
+  // attach run button
+  const editor = panel.querySelector('.sql-editor-input');
+  editor.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      runQuery(id);
+    }
+  });
+  if (sql) setTimeout(() => runQuery(id), 50);
+}
+
+function buildQueryPanelHTML(id, defaultSql = '') {
+  return `
+  <div class="query-panel">
+    <div class="editor-area">
+      <textarea class="sql-editor-input" id="editor-${id}" placeholder="SELECT * FROM table_name LIMIT 100;">${defaultSql}</textarea>
+    </div>
+    <div class="editor-toolbar">
+      <button class="run-btn" onclick="runQuery('${id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Run
+      </button>
+      <button class="tool-btn" onclick="formatQuery('${id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/>
+          <line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/>
+        </svg>
+        Format
+      </button>
+      <button class="tool-btn" onclick="clearEditor('${id}')">Clear</button>
+      <span class="shortcut-hint"><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> to run</span>
+    </div>
+    <div class="results-area" id="results-${id}">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--mono);font-size:12px">
+        Run a query to see results
+      </div>
+    </div>
+  </div>`;
+}
+
+function closeTab(e, id) {
+  e.stopPropagation();
+  const tab = document.querySelector(`.tab[data-panel="${id}"]`);
+  const panel = document.getElementById(id);
+  if (tab) {
+    // switch to another tab first
+    const tabs = Array.from(document.querySelectorAll('.tab'));
+    const idx = tabs.indexOf(tab);
+    const next = tabs[idx + 1] || tabs[idx - 1];
+    if (next) switchTab(next);
+    tab.remove();
+  }
+  if (panel) panel.remove();
+}
+
+function clearEditor(id) {
+  document.getElementById(`editor-${id}`).value = '';
+}
+
+// ─── BROWSE TABLE ────────────────────────────────────────
+function browseTable(tbl) {
+  // check if tab already open for this table
+  const existTab = document.querySelector(`.tab[data-table="${tbl}"]`);
+  if (existTab) { switchTab(existTab); return; }
+
+  const id = `table-panel-${tbl.replace(/[^a-zA-Z0-9]/g,'_')}`;
+
+  // check if panel already exists
+  if (!document.getElementById(id)) {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.id = id;
+    panel.innerHTML = buildTablePanelHTML(id, tbl);
+    document.getElementById('content').appendChild(panel);
+  }
+
+  // create tab
+  const tab = document.createElement('div');
+  tab.className = 'tab';
+  tab.dataset.panel = id;
+  tab.dataset.table = tbl;
+  tab.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+      <line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>
+    </svg>
+    ${tbl}
+    <span class="tab-close" onclick="closeTab(event, '${id}')">✕</span>
+  `;
+  tab.onclick = e => { if (!e.target.classList.contains('tab-close')) switchTab(tab); };
+  document.getElementById('add-tab-btn').insertAdjacentElement('beforebegin', tab);
+  switchTab(tab);
+
+  loadTableData(id, tbl, 1);
+}
+
+function buildTablePanelHTML(id, tbl) {
+  return `
+  <div class="query-panel" style="flex:1">
+    <div class="editor-toolbar" style="padding:8px 16px;gap:10px">
+      <span style="font-family:var(--mono);font-size:12px;color:var(--accent2);font-weight:600">${tbl}</span>
+      <div class="search-input" id="search-wrap-${id}" style="display:flex;align-items:center;gap:6px;padding:0;background:transparent;border:none;margin-left:8px;flex:1">
+        <input class="search-input" id="search-${id}" placeholder="Filter rows..." oninput="filterTable('${id}','${esc(tbl)}')" style="max-width:260px" />
+      </div>
+      <button class="tool-btn green" onclick="exportTableExcel('${esc(tbl)}', '${id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Excel
+      </button>
+      <button class="tool-btn orange" onclick="openQueryForTable('${esc(tbl)}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+        </svg>
+        Query
+      </button>
+    </div>
+    <div class="results-area" id="results-${id}">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--mono);font-size:12px">
+        <span class="loading-dot"></span>&nbsp; Loading...
+      </div>
+    </div>
+  </div>`;
+}
+
+// per-panel state
+const panelState = {};
+
+function loadTableData(id, tbl, page, filter = '') {
+  if (!db) return;
+  if (!panelState[id]) panelState[id] = { page: 1, pageSize: 50, sort: null, sortDir: 'asc', filter: '' };
+  const state = panelState[id];
+  state.page = page;
+  state.filter = filter;
+
+  let whereClause = '';
+  if (filter.trim()) {
+    // get columns
+    try {
+      const info = db.exec(`PRAGMA table_info("${tbl}")`);
+      if (info.length) {
+        const cols = info[0].values.map(r => r[1]);
+        const conds = cols.map(c => `CAST("${c}" AS TEXT) LIKE '%${filter.replace(/'/g,"''")}%'`);
+        whereClause = 'WHERE ' + conds.join(' OR ');
+      }
+    } catch(e) {}
+  }
+
+  let orderClause = '';
+  if (state.sort) orderClause = `ORDER BY "${state.sort}" ${state.sortDir.toUpperCase()}`;
+
+  const offset = (page - 1) * state.pageSize;
+
+  let total = 0;
+  try {
+    const countRes = db.exec(`SELECT COUNT(*) FROM "${tbl}" ${whereClause}`);
+    total = countRes[0].values[0][0];
+  } catch(e) {}
+
+  let results = null;
+  try {
+    results = db.exec(`SELECT * FROM "${tbl}" ${whereClause} ${orderClause} LIMIT ${state.pageSize} OFFSET ${offset}`);
+  } catch(e) {
+    showError(`results-${id}`, e.message);
+    return;
+  }
+
+  state.total = total;
+  state.tbl = tbl;
+  renderResults(`results-${id}`, results, total, state, id);
+}
+
+function filterTable(id, tbl) {
+  const q = document.getElementById(`search-${id}`)?.value || '';
+  loadTableData(id, tbl, 1, q);
+}
+
+function openQueryForTable(tbl) {
+  addQueryTab(`SELECT * FROM "${tbl}" LIMIT 100;`);
+}
+
+// ─── QUERY EXECUTION ────────────────────────────────────
+function runQuery(id) {
+  if (!db) { toast('No database loaded', 'error'); return; }
+  const sql = document.getElementById(`editor-${id}`).value.trim();
+  if (!sql) return;
+  const t0 = performance.now();
+  try {
+    const results = db.exec(sql);
+    const ms = (performance.now() - t0).toFixed(1);
+    if (results.length === 0) {
+      const aff = db.getRowsModified();
+      showInfo(`results-${id}`, `Query executed. Rows affected: ${aff}`, ms);
+    } else {
+      const total = results[0].values.length;
+      // store for export
+      panelState[id] = { queryResults: results, sql, tbl: null };
+      renderResultsQuery(`results-${id}`, results, ms, id);
+    }
+  } catch(e) {
+    showError(`results-${id}`, e.message);
+  }
+}
+
+function formatQuery(id) {
+  const el = document.getElementById(`editor-${id}`);
+  let sql = el.value;
+  const keywords = ['SELECT','FROM','WHERE','JOIN','LEFT JOIN','RIGHT JOIN','INNER JOIN','ON','GROUP BY','ORDER BY','HAVING','LIMIT','OFFSET','INSERT INTO','VALUES','UPDATE','SET','DELETE','CREATE','DROP','ALTER','AND','OR','NOT','AS','DISTINCT','COUNT','SUM','AVG','MIN','MAX','UNION','WITH'];
+  keywords.forEach(k => {
+    sql = sql.replace(new RegExp(`\\b${k}\\b`, 'gi'), k);
+  });
+  // basic indentation
+  sql = sql
+    .replace(/\s*(SELECT|FROM|WHERE|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|ON|GROUP BY|ORDER BY|HAVING|LIMIT|OFFSET|AND|OR)\s+/gi, '\n$1 ')
+    .replace(/,\s*/g, ',\n  ')
+    .trim();
+  el.value = sql;
+}
+
+// ─── RENDER RESULTS ──────────────────────────────────────
+function renderResults(containerId, results, total, state, panelId) {
+  const container = document.getElementById(containerId);
+  if (!results || !results.length) {
+    container.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3);font-family:var(--mono);font-size:12px">No rows found</div>`;
+    return;
+  }
+  const { columns, values } = results[0];
+  const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+  const offset = (state.page - 1) * state.pageSize;
+
+  container.innerHTML = `
+    <div class="results-header">
+      <span class="results-label">Data</span>
+      <span class="results-count">${Number(total).toLocaleString()} rows</span>
+      <span class="results-time" id="time-${panelId}"></span>
+      <button class="tool-btn green" style="margin-left:auto" onclick="exportCurrentTable('${panelId}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Page
+      </button>
+      <button class="tool-btn" onclick="exportAllRows('${panelId}')">Export All</button>
+    </div>
+    <div class="results-outer">
+      <div class="table-wrap">
+        ${buildTable(columns, values, offset, state, panelId)}
+      </div>
+    </div>
+    <div class="pagination">
+      <button class="page-btn" onclick="changePage('${panelId}', ${state.page - 1})" ${state.page <= 1 ? 'disabled' : ''}>← Prev</button>
+      <span class="page-info">Page ${state.page} of ${totalPages}</span>
+      <button class="page-btn" onclick="changePage('${panelId}', ${state.page + 1})" ${state.page >= totalPages ? 'disabled' : ''}>Next →</button>
+      <span style="margin-left:8px">Go to:</span>
+      <input type="number" min="1" max="${totalPages}" value="${state.page}" style="width:50px;padding:2px 6px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none" onchange="changePage('${panelId}', parseInt(this.value))" />
+      <select class="page-size-select" onchange="changePageSize('${panelId}', parseInt(this.value))">
+        ${PAGE_SIZES.map(s => `<option value="${s}" ${s === state.pageSize ? 'selected' : ''}>${s} per page</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+function renderResultsQuery(containerId, results, ms, panelId) {
+  const container = document.getElementById(containerId);
+  const { columns, values } = results[0];
+  container.innerHTML = `
+    <div class="results-header">
+      <span class="results-label">Results</span>
+      <span class="results-count">${Number(values.length).toLocaleString()} rows</span>
+      <span class="results-time">${ms}ms</span>
+      <button class="tool-btn green" style="margin-left:auto" onclick="exportQueryResults('${panelId}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Excel
+      </button>
+    </div>
+    <div class="results-outer">
+      <div class="table-wrap">
+        ${buildTable(columns, values, 0, null, panelId)}
+      </div>
+    </div>`;
+}
+
+// Store for JSON cell payloads — avoids any escaping issues in onclick attributes
+const _jsonStore = new Map();
+let _jsonStoreIdx = 0;
+
+function buildTable(columns, values, offset, state, panelId) {
+  const sortCol = state?.sort;
+  const sortDir = state?.sortDir;
+  const tbl = state?.tbl;
+
+  const header = `<tr>
+    <th class="row-num">#</th>
+    ${columns.map(c => {
+      const isSorted = sortCol === c;
+      const cls = isSorted ? (sortDir === 'asc' ? 'sort-asc' : 'sort-desc') : '';
+      const onclick = tbl ? `sortTable('${panelId}', '${esc(c)}')` : '';
+      return `<th class="${cls}" onclick="${onclick}">
+        <div class="th-inner">${c}<span class="sort-icon"></span></div>
+      </th>`;
+    }).join('')}
+  </tr>`;
+
+  const rows = values.map((row, ri) =>
+    `<tr>${`<td class="row-num">${offset + ri + 1}</td>` + row.map((v, ci) => {
+      if (v === null) return `<td class="null-cell">NULL</td>`;
+      if (typeof v === 'number') return `<td class="num-cell">${v.toLocaleString()}</td>`;
+      if (typeof v === 'boolean') return `<td class="bool-cell">${v}</td>`;
+      const s = String(v);
+      const colName = columns[ci] || '';
+      // JSON detection — store payload by index to avoid any escaping problems
+      const parsed = tryParseJSON(s);
+      if (parsed !== null) {
+        const idx = _jsonStoreIdx++;
+        _jsonStore.set(idx, { src: s, colName });
+        const preview = jsonPreviewText(parsed);
+        return `<td style="padding:4px 10px">
+          <span class="json-cell" onclick="openJSONViewerByIdx(${idx})">
+            <svg class="json-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+            <span class="json-badge">${Array.isArray(parsed) ? `[${parsed.length}]` : '{}'}</span>
+            <span class="json-preview-text">${htmlEsc(preview)}</span>
+          </span>
+        </td>`;
+      }
+      return `<td title="${s.replace(/"/g,'&quot;')}">${htmlEsc(s.length > 120 ? s.slice(0, 120) + '…' : s)}</td>`;
+    }).join('')}</tr>`
+  ).join('');
+
+  return `<table class="data-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+}
+
+// ─── JSON UTILITIES ──────────────────────────────────────
+function tryParseJSON(s) {
+  if (typeof s !== 'string') return null;
+  const t = s.trim();
+  if (!((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']')))) return null;
+  try { return JSON.parse(t); } catch(e) { return null; }
+}
+
+function jsonPreviewText(parsed) {
+  if (Array.isArray(parsed)) {
+    return parsed.slice(0, 3).map(v => {
+      if (typeof v === 'object' && v !== null) return '{…}';
+      return String(v);
+    }).join(', ') + (parsed.length > 3 ? ', …' : '');
+  }
+  const keys = Object.keys(parsed);
+  return keys.slice(0, 3).map(k => {
+    const v = parsed[k];
+    const vs = typeof v === 'object' && v !== null ? (Array.isArray(v) ? `[…]` : '{…}') : String(v);
+    return `${k}: ${vs}`;
+  }).join(' · ') + (keys.length > 3 ? ' · …' : '');
+}
+
+// ─── JSON MODAL ───────────────────────────────────────────
+let _currentJSON = null;
+let _jsonView = 'tree';
+
+function openJSONViewerByIdx(idx) {
+  const entry = _jsonStore.get(idx);
+  if (!entry) return;
+  openJSONViewer(entry.src, entry.colName);
+}
+
+function openJSONViewer(src, colName) {
+  let parsed;
+  try { parsed = JSON.parse(src); } catch(e) { toast('Invalid JSON', 'error'); return; }
+  _currentJSON = { src, parsed };
+
+  // meta info
+  const depth = jsonDepth(parsed);
+  const count = Array.isArray(parsed) ? parsed.length + ' items' : Object.keys(parsed).length + ' keys';
+  document.getElementById('json-modal-title').textContent = colName || 'JSON';
+  document.getElementById('json-modal-meta').textContent = `${count} · depth ${depth}`;
+  document.getElementById('json-path').innerHTML = '<span class="jp-seg">root</span>';
+  document.getElementById('json-search').value = '';
+  document.getElementById('json-search-count').textContent = '';
+
+  renderJSONTree(parsed);
+  document.getElementById('json-raw').textContent = JSON.stringify(parsed, null, 2);
+
+  // ensure tree view active
+  switchJSONView(_jsonView === 'raw' ? 'raw' : 'tree');
+  document.getElementById('json-modal-overlay').classList.add('open');
+}
+
+function closeJSONModal(e) {
+  if (e && e.target !== document.getElementById('json-modal-overlay')) return;
+  document.getElementById('json-modal-overlay').classList.remove('open');
+}
+
+function switchJSONView(v) {
+  _jsonView = v;
+  document.getElementById('btn-tree').classList.toggle('active', v === 'tree');
+  document.getElementById('btn-raw').classList.toggle('active', v === 'raw');
+  document.getElementById('json-tree-root').classList.toggle('hidden', v === 'raw');
+  document.getElementById('json-raw').classList.toggle('active', v === 'raw');
+}
+
+function copyJSON() {
+  if (!_currentJSON) return;
+  navigator.clipboard.writeText(JSON.stringify(_currentJSON.parsed, null, 2))
+    .then(() => toast('JSON copied', 'success'))
+    .catch(() => toast('Copy failed', 'error'));
+}
+
+function jsonExpandAll() {
+  document.querySelectorAll('#json-tree-root .jt-children').forEach(el => el.classList.remove('collapsed'));
+  document.querySelectorAll('#json-tree-root .jt-toggle').forEach(el => el.textContent = '▾');
+}
+function jsonCollapseAll() {
+  document.querySelectorAll('#json-tree-root .jt-children').forEach(el => el.classList.add('collapsed'));
+  document.querySelectorAll('#json-tree-root .jt-toggle').forEach(el => el.textContent = '▸');
+}
+
+function jsonDepth(v, d=0) {
+  if (typeof v !== 'object' || v === null) return d;
+  const vals = Array.isArray(v) ? v : Object.values(v);
+  return vals.reduce((m, c) => Math.max(m, jsonDepth(c, d+1)), d);
+}
+
+// ─── JSON TREE RENDERER ───────────────────────────────────
+function renderJSONTree(data) {
+  const root = document.getElementById('json-tree-root');
+  root.innerHTML = '';
+  root.appendChild(buildJSONNode(data, null, 'root', 0));
+}
+
+function buildJSONNode(val, key, path, depth) {
+  const frag = document.createDocumentFragment();
+
+  if (val === null) {
+    frag.appendChild(makeRow(key, `<span class="jt-null">null</span>`, path, depth));
+  } else if (typeof val === 'boolean') {
+    frag.appendChild(makeRow(key, `<span class="jt-bool">${val}</span>`, path, depth));
+  } else if (typeof val === 'number') {
+    frag.appendChild(makeRow(key, `<span class="jt-num">${val}</span>`, path, depth));
+  } else if (typeof val === 'string') {
+    frag.appendChild(makeRow(key, `<span class="jt-str">"${htmlEsc(val)}"</span>`, path, depth));
+  } else if (Array.isArray(val)) {
+    frag.appendChild(buildCollapsible(val, key, path, depth, true));
+  } else if (typeof val === 'object') {
+    frag.appendChild(buildCollapsible(val, key, path, depth, false));
+  }
+  return frag;
+}
+
+function buildCollapsible(val, key, path, depth, isArray) {
+  const isRoot = (path === 'root' && key === null);
+  const wrap = document.createElement('div');
+  wrap.className = 'jt-node';
+
+  const entries = isArray ? val : Object.entries(val);
+  const count = isArray ? val.length : Object.keys(val).length;
+  const open = depth < 2; // auto-collapse deep nodes
+  const ob = isArray ? '[' : '{'; const cb = isArray ? ']' : '}';
+
+  // header row
+  const header = document.createElement('div');
+  header.className = 'jt-row';
+  header.style.cursor = 'pointer';
+  header.dataset.path = path;
+
+  const toggle = document.createElement('span');
+  toggle.className = 'jt-toggle';
+  toggle.textContent = open ? '▾' : '▸';
+
+  const keySpan = key !== null
+    ? `<span class="jt-key">"${htmlEsc(String(key))}"</span><span class="jt-colon">:</span>`
+    : '';
+  const summary = `<span class="jt-bracket">${ob}</span><span class="jt-summary"> ${count} ${isArray ? 'items' : 'keys'} </span><span class="jt-bracket">${cb}</span>`;
+  header.innerHTML = `${keySpan}${summary}`;
+  header.prepend(toggle);
+
+  // children
+  const children = document.createElement('div');
+  children.className = 'jt-children' + (open ? '' : ' collapsed');
+
+  if (isArray) {
+    val.forEach((item, i) => {
+      const childPath = `${path}[${i}]`;
+      const rowWrap = document.createElement('div');
+      rowWrap.className = 'jt-node';
+      const idx = document.createElement('span');
+      idx.className = 'jt-idx';
+      idx.textContent = i;
+      if (typeof item === 'object' && item !== null) {
+        rowWrap.appendChild(buildCollapsible(item, null, childPath, depth+1, Array.isArray(item)));
+        rowWrap.firstChild.prepend(idx);
+      } else {
+        const primitive = document.createElement('div');
+        primitive.className = 'jt-row';
+        primitive.innerHTML = `<span class="jt-idx">${i}</span>${renderPrimitive(item)}`;
+        rowWrap.appendChild(primitive);
+      }
+      children.appendChild(rowWrap);
+    });
+  } else {
+    Object.entries(val).forEach(([k, v]) => {
+      const childPath = `${path}.${k}`;
+      const node = document.createElement('div');
+      node.className = 'jt-node';
+      if (typeof v === 'object' && v !== null) {
+        node.appendChild(buildCollapsible(v, k, childPath, depth+1, Array.isArray(v)));
+      } else {
+        const row = document.createElement('div');
+        row.className = 'jt-row';
+        row.dataset.path = childPath;
+        row.innerHTML = `<span class="jt-key">"${htmlEsc(k)}"</span><span class="jt-colon">:</span>${renderPrimitive(v)}`;
+        row.addEventListener('mouseenter', () => showPath(childPath));
+        node.appendChild(row);
+      }
+      children.appendChild(node);
+    });
+  }
+
+  // toggle click
+  header.addEventListener('click', () => {
+    const collapsed = children.classList.toggle('collapsed');
+    toggle.textContent = collapsed ? '▸' : '▾';
+    showPath(path);
+  });
+  header.addEventListener('mouseenter', () => showPath(path));
+
+  wrap.appendChild(header);
+  wrap.appendChild(children);
+  return wrap;
+}
+
+function makeRow(key, valueHTML, path, depth) {
+  const div = document.createElement('div');
+  div.className = 'jt-row';
+  div.dataset.path = path;
+  const keyPart = key !== null ? `<span class="jt-key">"${htmlEsc(String(key))}"</span><span class="jt-colon">:</span>` : '';
+  div.innerHTML = `${keyPart}${valueHTML}`;
+  div.addEventListener('mouseenter', () => showPath(path));
+  return div;
+}
+
+function renderPrimitive(v) {
+  if (v === null) return `<span class="jt-null">null</span>`;
+  if (typeof v === 'boolean') return `<span class="jt-bool">${v}</span>`;
+  if (typeof v === 'number') return `<span class="jt-num">${v}</span>`;
+  return `<span class="jt-str">"${htmlEsc(String(v))}"</span>`;
+}
+
+function showPath(path) {
+  const el = document.getElementById('json-path');
+  const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.');
+  el.innerHTML = parts.map((p,i) =>
+    `<span class="jp-seg">${htmlEsc(p)}</span>${i < parts.length-1 ? '<span class="jp-sep">›</span>' : ''}`
+  ).join('');
+}
+
+// ─── JSON SEARCH ─────────────────────────────────────────
+function jsonSearch(q) {
+  const root = document.getElementById('json-tree-root');
+  // remove old highlights
+  root.querySelectorAll('.jt-match').forEach(el => {
+    el.outerHTML = el.innerHTML;
+  });
+  const countEl = document.getElementById('json-search-count');
+  if (!q.trim()) { countEl.textContent = ''; return; }
+  let hits = 0;
+  const walk = el => {
+    if (!el.childNodes) return;
+    el.childNodes.forEach(node => {
+      if (node.nodeType === 3) { // text node
+        const idx = node.textContent.toLowerCase().indexOf(q.toLowerCase());
+        if (idx >= 0) {
+          hits++;
+          const span = document.createElement('span');
+          span.innerHTML = htmlEsc(node.textContent).replace(
+            new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'),
+            m => `<span class="jt-match">${htmlEsc(m)}</span>`
+          );
+          node.parentNode.replaceChild(span, node);
+        }
+      } else if (node.nodeType === 1) {
+        walk(node);
+      }
+    });
+  };
+  walk(root);
+  countEl.textContent = hits ? `${hits} match${hits > 1 ? 'es' : ''}` : 'no matches';
+  // auto-expand all to show results
+  if (hits > 0) jsonExpandAll();
+}
+
+function htmlEsc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showError(containerId, msg) {
+  document.getElementById(containerId).innerHTML = `
+    <div class="error-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+      </svg>
+      ${htmlEsc(msg)}
+    </div>`;
+}
+
+function showInfo(containerId, msg, ms) {
+  document.getElementById(containerId).innerHTML = `
+    <div style="margin:16px;padding:12px 16px;background:var(--green-dim);border:1px solid rgba(61,214,140,.3);border-radius:6px;font-family:var(--mono);font-size:12px;color:var(--green);display:flex;align-items:center;gap:8px">
+      ✓ ${htmlEsc(msg)} <span style="color:var(--text3);margin-left:auto">${ms}ms</span>
+    </div>`;
+}
+
+// ─── SORTING / PAGINATION ─────────────────────────────────
+function sortTable(panelId, col) {
+  const state = panelState[panelId];
+  if (!state) return;
+  if (state.sort === col) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+  else { state.sort = col; state.sortDir = 'asc'; }
+  loadTableData(panelId, state.tbl, state.page, state.filter);
+}
+
+function changePage(panelId, page) {
+  const state = panelState[panelId];
+  if (!state) return;
+  const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
+  page = Math.max(1, Math.min(page, totalPages));
+  loadTableData(panelId, state.tbl, page, state.filter);
+}
+
+function changePageSize(panelId, size) {
+  const state = panelState[panelId];
+  if (!state) return;
+  state.pageSize = size;
+  loadTableData(panelId, state.tbl, 1, state.filter);
+}
+
+// ─── EXPORT ───────────────────────────────────────────────
+function exportTableExcel(tbl, panelId) {
+  if (!db) return;
+  try {
+    const res = db.exec(`SELECT * FROM "${tbl}"`);
+    if (!res.length) { toast('Table is empty', 'error'); return; }
+    writeExcel([{ name: tbl, data: res[0] }], tbl + '_export');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function exportCurrentTable(panelId) {
+  const state = panelState[panelId];
+  if (!state || !db) return;
+  const containerId = `results-${panelId}`;
+  const tableEl = document.querySelector(`#${containerId} table.data-table`);
+  if (!tableEl) return;
+  const headers = Array.from(tableEl.querySelectorAll('thead th')).slice(1).map(th => th.innerText.trim().replace(/[▲▼]/g,'').trim());
+  const rows = Array.from(tableEl.querySelectorAll('tbody tr')).map(tr =>
+    Array.from(tr.querySelectorAll('td')).slice(1).map(td => td.innerText)
+  );
+  const name = state.tbl || 'query_result';
+  writeExcelRaw(headers, rows, name + '_page');
+}
+
+function exportAllRows(panelId) {
+  const state = panelState[panelId];
+  if (!state || !db) return;
+  try {
+    let whereClause = '';
+    if (state.filter) {
+      const info = db.exec(`PRAGMA table_info("${state.tbl}")`);
+      if (info.length) {
+        const cols = info[0].values.map(r => r[1]);
+        const conds = cols.map(c => `CAST("${c}" AS TEXT) LIKE '%${state.filter.replace(/'/g,"''")}%'`);
+        whereClause = 'WHERE ' + conds.join(' OR ');
+      }
+    }
+    let orderClause = '';
+    if (state.sort) orderClause = `ORDER BY "${state.sort}" ${state.sortDir.toUpperCase()}`;
+    const res = db.exec(`SELECT * FROM "${state.tbl}" ${whereClause} ${orderClause}`);
+    if (!res.length) { toast('No data to export', 'error'); return; }
+    writeExcel([{ name: state.tbl, data: res[0] }], state.tbl + '_full');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function exportQueryResults(panelId) {
+  const state = panelState[panelId];
+  if (!state || !state.queryResults) return;
+  writeExcel([{ name: 'Query Result', data: state.queryResults[0] }], 'query_result');
+}
+
+function exportSchemaExcel() {
+  if (!db || !allTables.length) return;
+  const sheets = allTables.map(tbl => {
+    try {
+      const info = db.exec(`PRAGMA table_info("${tbl}")`);
+      if (info.length) return { name: tbl.slice(0, 31), data: { columns: info[0].columns, values: info[0].values } };
+    } catch(e) {}
+    return null;
+  }).filter(Boolean);
+  writeExcel(sheets, 'schema');
+  toast('Schema exported', 'success');
+}
+
+function writeExcel(sheets, filename) {
+  const wb = XLSX.utils.book_new();
+  sheets.forEach(s => {
+    const ws = XLSX.utils.aoa_to_sheet([s.data.columns, ...s.data.values]);
+    styleExcelSheet(ws, s.data.columns.length);
+    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+  });
+  XLSX.writeFile(wb, filename + '.xlsx');
+  toast('Exported ' + filename + '.xlsx', 'success');
+}
+
+function writeExcelRaw(headers, rows, filename) {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  styleExcelSheet(ws, headers.length);
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, filename + '.xlsx');
+  toast('Exported ' + filename + '.xlsx', 'success');
+}
+
+function styleExcelSheet(ws, colCount) {
+  // set column widths
+  ws['!cols'] = Array.from({length: colCount}, () => ({ wch: 18 }));
+  // freeze header row
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+}
+
+// ─── TOAST ────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3000);
+}
+
+// ─── KEYBOARD ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Esc closes JSON modal
+  if (e.key === 'Escape') {
+    document.getElementById('json-modal-overlay').classList.remove('open');
+  }
+  // Ctrl+O open file
+  if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+    e.preventDefault();
+    document.getElementById('file-input').click();
+  }
+  // Ctrl+T new query tab
+  if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+    e.preventDefault();
+    addQueryTab();
+  }
+});
+</script>
+</body>
+</html>
