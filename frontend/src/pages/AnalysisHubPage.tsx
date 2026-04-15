@@ -748,7 +748,8 @@ function QueryBuilderTab() {
           <span className="text-sm font-medium text-text-primary">Power Mode</span>
         </label>
         {powerMode && (
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+          <div role="alert" className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            <span className="sr-only">Warning: </span>
             ⚠️ Write operations (DELETE / UPDATE / INSERT / DROP) are enabled. Proceed with caution.
           </div>
         )}

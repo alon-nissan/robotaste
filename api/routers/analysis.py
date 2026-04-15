@@ -293,7 +293,10 @@ _ALLOWED_TABLES = {
 # Pre-built mapping of allowed table name → double-quoted identifier.
 # Using the literal names from _ALLOWED_TABLES guarantees no user input
 # is ever interpolated into SQL strings.
-_TABLE_SQL_NAME: dict = {t: f'"{t}"' for t in _ALLOWED_TABLES}
+_TABLE_SQL_NAME: dict[str, str] = {t: f'"{t}"' for t in _ALLOWED_TABLES}
+
+# Maximum rows returned by the query builder to protect against runaway queries.
+_MAX_QUERY_RESULTS = 1000
 
 
 @router.get("/explorer/tables")
@@ -381,6 +384,9 @@ def execute_query(body: QueryRequest):
     if not sql:
         raise HTTPException(status_code=400, detail="SQL query is empty.")
 
+    # Note: multi-statement queries (e.g. "SELECT 1; DROP TABLE …") are not a
+    # concern here because sqlite3.execute() raises OperationalError on multiple
+    # statements — only the first statement is ever executed.
     is_safe = bool(_SAFE_PATTERN.match(sql))
     has_write = bool(_WRITE_PATTERN.search(sql))
 
@@ -392,12 +398,13 @@ def execute_query(body: QueryRequest):
 
     try:
         with get_database_connection() as conn:
-            # Intentional: this endpoint executes user-supplied SQL.
-            # Write operations are gated behind power_mode validation above.
-            cur = conn.execute(sql)
+            # Intentional: this is the only place in the codebase where user-supplied
+            # SQL is executed directly. Write operations are blocked above unless
+            # power_mode is explicitly enabled by the user in the UI.
+            cur = conn.execute(sql)  # nosec B608 — intentional query builder
             if cur.description:
                 columns = [d[0] for d in cur.description]
-                all_rows = cur.fetchmany(1000)
+                all_rows = cur.fetchmany(_MAX_QUERY_RESULTS)
                 rows = [dict(zip(columns, r)) for r in all_rows]
                 return {
                     "columns": columns,
