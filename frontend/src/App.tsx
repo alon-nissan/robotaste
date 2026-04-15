@@ -38,6 +38,7 @@ import CustomPhasePage from './pages/CustomPhasePage';
 import ProtocolManagerPage from './pages/ProtocolManagerPage';
 import ProtocolWizardPage from './pages/ProtocolWizardPage';
 import DoseResponseDashboardPage from './pages/DoseResponseDashboardPage';
+import AnalysisHubPage from './pages/AnalysisHubPage';
 import SubjectAutoJoinPage from './pages/SubjectAutoJoinPage';
 
 function App() {
@@ -54,6 +55,7 @@ function App() {
         <Route path="/protocols/new" element={<ProtocolWizardPage />} />
         <Route path="/protocols/:id/edit" element={<ProtocolWizardPage />} />
         <Route path="/analysis/dose-response" element={<DoseResponseDashboardPage />} />
+        <Route path="/analysis" element={<AnalysisHubPage />} />
 
         {/* Subject routes */}
         <Route path="/subject" element={<SubjectAutoJoinPage />} />
