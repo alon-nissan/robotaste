@@ -290,6 +290,11 @@ _ALLOWED_TABLES = {
     "session_sample_bank_state",
 }
 
+# Pre-built mapping of allowed table name → double-quoted identifier.
+# Using the literal names from _ALLOWED_TABLES guarantees no user input
+# is ever interpolated into SQL strings.
+_TABLE_SQL_NAME: dict = {t: f'"{t}"' for t in _ALLOWED_TABLES}
+
 
 @router.get("/explorer/tables")
 def list_tables():
@@ -305,7 +310,8 @@ def list_tables():
                 name = row["name"]
                 if name not in _ALLOWED_TABLES:
                     continue
-                count = conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]  # noqa: S608
+                sql_name = _TABLE_SQL_NAME[name]
+                count = conn.execute(f"SELECT COUNT(*) FROM {sql_name}").fetchone()[0]
                 result.append({"name": name, "row_count": count})
 
         return {"tables": result}
@@ -323,12 +329,15 @@ def get_table_data(
     """Return paginated rows from a single table."""
     if table_name not in _ALLOWED_TABLES:
         raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found.")
+    # Use the pre-built safe SQL identifier (from _TABLE_SQL_NAME) — never interpolate
+    # raw user input into SQL strings.
+    sql_name = _TABLE_SQL_NAME[table_name]
     try:
         with get_database_connection() as conn:
-            total = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]  # noqa: S608
+            total = conn.execute(f"SELECT COUNT(*) FROM {sql_name}").fetchone()[0]
             offset = page * page_size
             cur = conn.execute(
-                f"SELECT * FROM {table_name} LIMIT ? OFFSET ?",  # noqa: S608
+                f"SELECT * FROM {sql_name} LIMIT ? OFFSET ?",
                 (page_size, offset),
             )
             rows = cur.fetchall()
@@ -383,6 +392,8 @@ def execute_query(body: QueryRequest):
 
     try:
         with get_database_connection() as conn:
+            # Intentional: this endpoint executes user-supplied SQL.
+            # Write operations are gated behind power_mode validation above.
             cur = conn.execute(sql)
             if cur.description:
                 columns = [d[0] for d in cur.description]

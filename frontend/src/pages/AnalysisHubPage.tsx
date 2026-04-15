@@ -261,7 +261,10 @@ function DoseResponseTab() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProtocol]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedProtocol]);
+  // selectedIngredient, selectedVariable, and selectedSubjects are intentionally omitted:
+  // they filter data client-side from the already-fetched payload; only a protocol change
+  // requires a new API call.
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -392,6 +395,7 @@ function DoseResponseTab() {
                   Individual Subject Curves
                 </h3>
                 <button onClick={() => downloadSvg(individualChartRef, 'individual-curves.svg')}
+                  aria-label="Download individual curves as SVG"
                   className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
                   ↓ SVG
                 </button>
@@ -427,6 +431,7 @@ function DoseResponseTab() {
                   Mean Dose-Response Curve (± SEM)
                 </h3>
                 <button onClick={() => downloadSvg(meanChartRef, 'mean-curve.svg')}
+                  aria-label="Download mean curve as SVG"
                   className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
                   ↓ SVG
                 </button>
