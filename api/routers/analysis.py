@@ -5,12 +5,15 @@ Provides endpoints to query completed experiment data across sessions
 and return structured results for charting (dose-response curves, etc.).
 """
 
+import io
 import json
 import logging
 import re
 from typing import Optional
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from robotaste.data.database import get_database_connection
 
@@ -423,4 +426,105 @@ def execute_query(body: QueryRequest):
                 }
     except Exception as e:
         logger.error("Query execution error: %s | SQL: %s", e, sql[:200])
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── EXCEL EXPORTS ──────────────────────────────────────────────────────────
+
+_EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+_SAMPLES_EXPORT_SQL = """
+    SELECT
+        s.sample_id,
+        COALESCE(u.name, ses.session_code)                              AS participant_name,
+        s.cycle_number,
+        CAST(json_extract(s.ingredient_concentration, '$.RebM') AS REAL) AS rebM_concentration,
+        s.sample_temperature_c                                           AS sample_temperature,
+        CAST(json_extract(s.questionnaire_answer, '$.sweetness')  AS REAL) AS sweetness_rating,
+        CAST(json_extract(s.questionnaire_answer, '$.bitterness') AS REAL) AS bitterness_rating,
+        CAST(json_extract(s.questionnaire_answer, '$.saltiness')  AS REAL) AS saltiness_rating,
+        s.created_at                                                     AS timestamp
+    FROM samples s
+    JOIN sessions ses ON s.session_id = ses.session_id
+    LEFT JOIN users u ON ses.user_id = u.id
+    WHERE s.deleted_at IS NULL
+      AND ses.deleted_at IS NULL
+"""
+
+
+def _rows_to_excel(columns: list[str], rows: list) -> io.BytesIO:
+    df = pd.DataFrame([dict(zip(columns, r)) for r in rows], columns=columns)
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    buf.seek(0)
+    return buf
+
+
+@router.get("/export/samples")
+def export_samples_excel(
+    protocol_id: Optional[str] = Query(None, description="Filter by protocol ID"),
+):
+    """
+    Download all samples as an Excel file with the preset schema:
+    sample_id, participant_name, cycle_number, rebM_concentration,
+    sample_temperature, sweetness_rating, bitterness_rating, saltiness_rating, timestamp.
+    """
+    sql = _SAMPLES_EXPORT_SQL
+    params: list = []
+    if protocol_id:
+        sql += " AND ses.protocol_id = ?"
+        params.append(protocol_id)
+    sql += " ORDER BY ses.session_id, s.cycle_number ASC"
+
+    try:
+        with get_database_connection() as conn:
+            cur = conn.execute(sql, params)
+            columns = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+
+        buf = _rows_to_excel(columns, rows)
+        return StreamingResponse(
+            buf,
+            media_type=_EXCEL_MEDIA_TYPE,
+            headers={"Content-Disposition": "attachment; filename=\"samples_export.xlsx\""},
+        )
+    except Exception as e:
+        logger.error("Error exporting samples: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/export/query")
+def export_query_excel(body: QueryRequest):
+    """
+    Execute a SELECT query and download the results as an Excel file.
+    Write operations are always blocked regardless of power_mode.
+    Results capped at 1000 rows.
+    """
+    sql = body.sql.strip()
+    if not sql:
+        raise HTTPException(status_code=400, detail="SQL query is empty.")
+
+    if not _SAFE_PATTERN.match(sql):
+        raise HTTPException(status_code=403, detail="Only SELECT / WITH / EXPLAIN / PRAGMA statements can be exported.")
+    if _WRITE_PATTERN.search(sql):
+        raise HTTPException(status_code=403, detail="Write operations are not allowed in Excel export.")
+
+    try:
+        with get_database_connection() as conn:
+            cur = conn.execute(sql)  # nosec B608
+            if not cur.description:
+                raise HTTPException(status_code=400, detail="Query produced no columns.")
+            columns = [d[0] for d in cur.description]
+            rows = cur.fetchmany(_MAX_QUERY_RESULTS)
+
+        buf = _rows_to_excel(columns, rows)
+        return StreamingResponse(
+            buf,
+            media_type=_EXCEL_MEDIA_TYPE,
+            headers={"Content-Disposition": "attachment; filename=\"query_export.xlsx\""},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Export query error: %s | SQL: %s", e, sql[:200])
         raise HTTPException(status_code=400, detail=str(e))

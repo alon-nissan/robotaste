@@ -60,6 +60,16 @@ const SUBJECT_COLORS = [
   '#0891b2', '#be123c', '#4f46e5', '#ca8a04', '#0d9488',
 ];
 
+async function downloadExcel(request: Promise<{ data: Blob }>, filename: string) {
+  const res = await request;
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function downloadSvg(containerRef: React.RefObject<HTMLDivElement | null>, filename: string) {
   const svgEl = containerRef.current?.querySelector('svg');
   if (!svgEl) return;
@@ -155,9 +165,11 @@ export default function AnalysisHubPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function DashboardTab() {
-  const [data, setData]     = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState<string | null>(null);
+  const [data, setData]         = useState<DashboardData | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [exportProtocol, setExportProtocol] = useState('');
+  const [exporting, setExporting]           = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -166,6 +178,22 @@ function DashboardTab() {
       .catch(() => setError('Failed to load dashboard statistics.'))
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = {};
+      if (exportProtocol) params.protocol_id = exportProtocol;
+      await downloadExcel(
+        api.get('/analysis/export/samples', { params, responseType: 'blob' }),
+        'samples_export.xlsx',
+      );
+    } catch {
+      // silent — browser will not navigate on blob error
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (loading) return <LoadingState text="Loading dashboard…" />;
   if (error)   return <ErrorState text={error} />;
@@ -183,7 +211,7 @@ function DashboardTab() {
       </div>
 
       {/* Per-protocol table */}
-      <div className="p-6 bg-surface rounded-xl border border-border">
+      <div className="p-6 bg-surface rounded-xl border border-border mb-6">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Statistics by Protocol
         </h2>
@@ -213,6 +241,41 @@ function DashboardTab() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Export card */}
+      <div className="p-6 bg-surface rounded-xl border border-border">
+        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-1">
+          Export Sample Data
+        </h2>
+        <p className="text-xs text-text-secondary mb-4">
+          Downloads an Excel file with one row per sample:
+          sample&nbsp;ID · participant · cycle · RebM concentration · temperature · sweetness / bitterness / saltiness ratings · timestamp
+        </p>
+        <div className="flex items-center gap-3">
+          <select
+            value={exportProtocol}
+            onChange={e => setExportProtocol(e.target.value)}
+            className="p-2 border border-border rounded-lg bg-white text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">All Protocols</option>
+            {protocols.map(p => (
+              <option key={p.protocol_id} value={p.protocol_id}>{p.protocol_name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            aria-label="Download sample data as Excel"
+            className={`px-4 py-2 text-sm rounded-lg font-medium transition-colors ${
+              exporting
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-primary text-white hover:bg-primary-light'
+            }`}
+          >
+            {exporting ? 'Preparing…' : '↓ Download .xlsx'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -709,6 +772,22 @@ function QueryBuilderTab() {
   const [result, setResult]         = useState<QueryResult | null>(null);
   const [error, setError]           = useState<string | null>(null);
   const [running, setRunning]       = useState(false);
+  const [exporting, setExporting]   = useState(false);
+
+  async function handleExportExcel() {
+    if (!sql.trim()) return;
+    setExporting(true);
+    try {
+      await downloadExcel(
+        api.post('/analysis/export/query', { sql: sql.trim(), power_mode: false }, { responseType: 'blob' }),
+        'query_export.xlsx',
+      );
+    } catch {
+      // silent
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function runQuery() {
     if (!sql.trim()) return;
@@ -801,6 +880,18 @@ function QueryBuilderTab() {
               <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">
                 {result.row_count} row(s) returned
               </span>
+            )}
+            {result.columns.length > 0 && !result.is_write && (
+              <button
+                onClick={handleExportExcel}
+                disabled={exporting}
+                aria-label="Download query results as Excel"
+                className={`ml-auto text-xs px-2 py-1 rounded border border-border transition-colors ${
+                  exporting ? 'opacity-40 cursor-not-allowed' : 'text-text-secondary hover:bg-gray-100'
+                }`}
+              >
+                {exporting ? 'Preparing…' : '↓ Excel'}
+              </button>
             )}
           </div>
           {result.columns.length > 0 ? (
