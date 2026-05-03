@@ -24,6 +24,7 @@ interface SubjectInfo  { session_id: string; session_code: string; subject_name:
 interface DataPoint    {
   session_id: string; session_code: string; subject_name: string;
   cycle_number: number; concentrations: Record<string, number>; responses: Record<string, number>;
+  sample_temperature_c?: number;
 }
 interface StatEntry    { mean: number; std: number; sem: number; min: number; max: number; n: number; }
 interface AggregatedEntry { concentrations: Record<string, number>; n: number; stats: Record<string, StatEntry>; }
@@ -48,16 +49,37 @@ interface QueryResult { columns: string[]; rows: Record<string, unknown>[]; row_
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
-function formatConc(val: number): string {
+
+// ─── CHART STYLE ─────────────────────────────────────────────────────────────
+// Matches the reference matplotlib palette from scripts/generate_rebm_plots.py
+
+const CS = {
+  blue:        '#3D5A99',
+  blueLight:   '#A8B8D8',
+  maroon:      '#7B2D3E',
+  bg:          '#F8F9FC',
+  grid:        '#DDE1EC',
+  titleColor:  '#2D3A5C',
+  axisColor:   '#4A5568',
+};
+
+const INTENSITY_LABELS: Record<number, string> = {
+  1: 'Not at all',
+  3: 'Light',
+  5: 'Moderate',
+  7: 'Strong',
+  9: 'Extremely strong',
+};
+
+function fmtConc(val: number): string {
   if (val === 0) return '0';
-  const abs = Math.abs(val);
-  if (abs >= 1) return val.toFixed(2);
-  return val.toFixed(Math.max(2, -Math.floor(Math.log10(abs)) + 1));
+  if (val < 0.1) return val.toFixed(3);
+  return val.toFixed(2);
 }
 
 const SUBJECT_COLORS = [
-  '#521924', '#2563eb', '#16a34a', '#ea580c', '#7c3aed',
-  '#0891b2', '#be123c', '#4f46e5', '#ca8a04', '#0d9488',
+  CS.blue, CS.maroon, '#2E7D32', '#E65100', '#6A1B9A',
+  '#00695C', '#AD1457', '#283593', '#F57F17', '#004D40',
 ];
 
 async function downloadExcel(request: Promise<{ data: Blob }>, filename: string) {
@@ -70,19 +92,71 @@ async function downloadExcel(request: Promise<{ data: Blob }>, filename: string)
   URL.revokeObjectURL(url);
 }
 
-function downloadSvg(containerRef: React.RefObject<HTMLDivElement | null>, filename: string) {
+async function downloadChartAsPng(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  title: string,
+  subtitle: string,
+  baseName: string,
+) {
   const svgEl = containerRef.current?.querySelector('svg');
   if (!svgEl) return;
   const clone = svgEl.cloneNode(true) as SVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  const svgData = new XMLSerializer().serializeToString(clone);
-  const blob = new Blob([svgData], { type: 'image/svg+xml' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
+
+  const { width, height } = svgEl.getBoundingClientRect();
+  const scale    = 2;
+  const titleH   = subtitle ? 80 : 50;
+  const footerH  = 32;
+
+  const svgString = new XMLSerializer().serializeToString(clone);
+  const svgBlob   = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  const url       = URL.createObjectURL(svgBlob);
+
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = url;
+  });
+
+  const canvas    = document.createElement('canvas');
+  canvas.width    = Math.round(width  * scale);
+  canvas.height   = Math.round((titleH + height + footerH) * scale);
+  const ctx       = canvas.getContext('2d')!;
+
+  ctx.fillStyle   = CS.bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.textAlign   = 'center';
+  ctx.fillStyle   = CS.titleColor;
+  ctx.font        = `bold ${16 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillText(title, canvas.width / 2, 26 * scale);
+  if (subtitle) {
+    ctx.font      = `bold ${13 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    ctx.fillText(subtitle, canvas.width / 2, 50 * scale);
+  }
+
+  ctx.drawImage(img, 0, titleH * scale, Math.round(width * scale), Math.round(height * scale));
+
+  const ts    = new Date();
+  const stamp = ts.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  ctx.fillStyle   = CS.axisColor;
+  ctx.font        = `${10 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.textAlign   = 'right';
+  ctx.fillText(`Downloaded: ${stamp}`, canvas.width - 10 * scale, canvas.height - 8 * scale);
+
   URL.revokeObjectURL(url);
+
+  const fileStamp = ts.toISOString().replace(/[:.T]/g, '-').slice(0, 19);
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    const dl = URL.createObjectURL(blob);
+    const a  = document.createElement('a');
+    a.href     = dl;
+    a.download = `${baseName}_${fileStamp}.png`;
+    a.click();
+    URL.revokeObjectURL(dl);
+  }, 'image/png');
 }
 
 // ─── TAB DEFINITIONS ────────────────────────────────────────────────────────
@@ -382,6 +456,30 @@ function DoseResponseTab() {
     return map;
   }, [data]);
 
+  const meanSubjectInfo = useMemo(() => {
+    if (!data) return { n: 0, meanTempStr: '?' };
+    const relevant = data.data_points
+      .filter(dp => selectedSubjects.has(dp.session_id))
+      .filter(dp => !selectedIngredient || dp.concentrations[selectedIngredient] !== undefined);
+    const n = new Set(relevant.map(dp => dp.session_id)).size;
+    const temps = relevant.map(dp => dp.sample_temperature_c).filter((t): t is number => t != null);
+    const meanTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
+    return { n, meanTempStr: meanTemp != null ? `${meanTemp.toFixed(1)}°C` : '?' };
+  }, [data, selectedSubjects, selectedIngredient]);
+
+  const meanCurveDataCategorical = useMemo(
+    () => meanCurveData.map(row => ({ ...row, concKey: fmtConc(row.concentration) })),
+    [meanCurveData],
+  );
+
+  const subjectLinesCategorical = useMemo(() => {
+    const result: Record<string, { concKey: string; response: number }[]> = {};
+    for (const [subject, points] of Object.entries(subjectLines)) {
+      result[subject] = points.map(p => ({ concKey: fmtConc(p.concentration), response: p.response }));
+    }
+    return result;
+  }, [subjectLines]);
+
   // Per-subject raw data table (all data points for selected filters)
   const perSubjectRows = useMemo(() => {
     if (!data || !selectedIngredient || !selectedVariable) return [];
@@ -405,8 +503,8 @@ function DoseResponseTab() {
   const xUnit    = data?.ingredient_units?.[selectedIngredient] ?? 'mM';
   const xLabel   = selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration';
   const yLabel   = selectedVariable
-    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' (score)'
-    : 'Response';
+    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' score (1–9 scale)'
+    : 'Response score (1–9 scale)';
 
   if (loading) return <LoadingState text="Loading dose-response data…" />;
   if (error && !data) return <ErrorState text={error} />;
@@ -452,34 +550,53 @@ function DoseResponseTab() {
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Individual curves */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
+            <div className="p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: CS.titleColor }}>
                   Individual Subject Curves
                 </h3>
-                <button onClick={() => downloadSvg(individualChartRef, 'individual-curves.svg')}
-                  aria-label="Download individual curves as SVG"
+                <button
+                  onClick={() => void downloadChartAsPng(
+                    individualChartRef,
+                    `${selectedIngredient || 'Concentration'} Dose-Response`,
+                    `Individual Subject ${yLabel}`,
+                    'individual-curves',
+                  )}
+                  aria-label="Download individual curves as PNG"
                   className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
-                  ↓ SVG
+                  ↓ PNG
                 </button>
               </div>
-              <div className="h-[360px]" ref={individualChartRef}>
+              <div className="h-[380px]" ref={individualChartRef}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart margin={{ top: 10, right: 20, bottom: 40, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis dataKey="concentration" type="number" tickFormatter={formatConc}
-                      label={{ value: xLabel, position: 'bottom', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }} allowDuplicatedCategory={false} />
+                  <ComposedChart margin={{ top: 10, right: 100, bottom: 50, left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CS.grid} />
+                    <XAxis
+                      dataKey="concKey" type="category" allowDuplicatedCategory={false}
+                      label={{ value: xLabel, position: 'bottom', offset: 12, style: { fill: CS.axisColor, fontSize: 13 } }}
+                      tick={{ fill: CS.axisColor, fontSize: 12 }}
+                    />
                     <YAxis
-                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }} />
-                    <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }}
-                      formatter={(v) => typeof v === 'number' ? v.toFixed(2) : v} />
-                    <Legend verticalAlign="top" height={36} />
-                    {Object.entries(subjectLines).map(([subject, points]) => (
+                      domain={[1, 9]} ticks={[1,2,3,4,5,6,7,8,9]} allowDecimals={false}
+                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: CS.axisColor, fontSize: 13 } }}
+                      tick={{ fill: CS.axisColor, fontSize: 12 }}
+                    />
+                    <YAxis
+                      yAxisId="intensity" orientation="right"
+                      domain={[1, 9]} ticks={[1, 3, 5, 7, 9]}
+                      tickFormatter={(v: number) => INTENSITY_LABELS[v] ?? ''}
+                      tick={{ fill: CS.axisColor, fontSize: 11 }}
+                      axisLine={{ stroke: CS.grid }} tickLine={{ stroke: CS.grid }} width={100}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 8, border: `1px solid ${CS.grid}`, fontSize: 13, backgroundColor: '#fff' }}
+                      formatter={(v) => typeof v === 'number' ? v.toFixed(2) : v}
+                    />
+                    <Legend verticalAlign="top" height={48} />
+                    {Object.entries(subjectLinesCategorical).map(([subject, points]) => (
                       <Line key={subject} data={points} dataKey="response" name={subject}
-                        stroke={subjectColorMap[subject] || '#521924'} strokeWidth={2}
-                        dot={{ r: 5, fill: subjectColorMap[subject] || '#521924' }}
+                        stroke={subjectColorMap[subject] || CS.blue} strokeWidth={2.5}
+                        dot={{ r: 7, fill: subjectColorMap[subject] || CS.blue, stroke: '#fff', strokeWidth: 1.5 }}
                         connectNulls type="monotone" />
                     ))}
                   </ComposedChart>
@@ -488,33 +605,62 @@ function DoseResponseTab() {
             </div>
 
             {/* Mean curve */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
+            <div className="p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: CS.titleColor }}>
                   Mean Dose-Response Curve (± SEM)
                 </h3>
-                <button onClick={() => downloadSvg(meanChartRef, 'mean-curve.svg')}
-                  aria-label="Download mean curve as SVG"
+                <button
+                  onClick={() => void downloadChartAsPng(
+                    meanChartRef,
+                    `${selectedIngredient || 'Concentration'} Dose-Response`,
+                    `Mean ${yLabel}`,
+                    'mean-dose-response',
+                  )}
+                  aria-label="Download mean curve as PNG"
                   className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
-                  ↓ SVG
+                  ↓ PNG
                 </button>
               </div>
-              <div className="h-[360px]" ref={meanChartRef}>
+              <div className="h-[380px]" ref={meanChartRef}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={meanCurveData} margin={{ top: 10, right: 20, bottom: 40, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis dataKey="concentration" type="number" tickFormatter={formatConc}
-                      label={{ value: xLabel, position: 'bottom', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }} />
+                  <ComposedChart data={meanCurveDataCategorical} margin={{ top: 10, right: 100, bottom: 50, left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CS.grid} />
+                    <XAxis
+                      dataKey="concKey" type="category" allowDuplicatedCategory={false}
+                      label={{ value: xLabel, position: 'bottom', offset: 12, style: { fill: CS.axisColor, fontSize: 13 } }}
+                      tick={{ fill: CS.axisColor, fontSize: 12 }}
+                    />
                     <YAxis
-                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }} />
-                    <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }}
-                      formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, name === 'mean' ? 'Mean' : name]} />
-                    <Area dataKey="upper" stroke="none" fill="#521924" fillOpacity={0.1} connectNulls type="monotone" />
-                    <Area dataKey="lower" stroke="none" fill="#ffffff" fillOpacity={1}   connectNulls type="monotone" />
-                    <Line dataKey="mean" name="Mean" stroke="#521924" strokeWidth={3}
-                      dot={{ r: 6, fill: '#521924', stroke: '#fff', strokeWidth: 2 }} connectNulls type="monotone" />
+                      domain={[1, 9]} ticks={[1,2,3,4,5,6,7,8,9]} allowDecimals={false}
+                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: CS.axisColor, fontSize: 13 } }}
+                      tick={{ fill: CS.axisColor, fontSize: 12 }}
+                    />
+                    <YAxis
+                      yAxisId="intensity" orientation="right"
+                      domain={[1, 9]} ticks={[1, 3, 5, 7, 9]}
+                      tickFormatter={(v: number) => INTENSITY_LABELS[v] ?? ''}
+                      tick={{ fill: CS.axisColor, fontSize: 11 }}
+                      axisLine={{ stroke: CS.grid }} tickLine={{ stroke: CS.grid }} width={100}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 8, border: `1px solid ${CS.grid}`, fontSize: 13, backgroundColor: '#fff' }}
+                      formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, name === 'mean' ? 'Mean' : name]}
+                    />
+                    <Legend
+                      verticalAlign="top" height={52}
+                      payload={[
+                        { value: '±SEM band', type: 'square', color: CS.blueLight, id: 'sem' },
+                        {
+                          value: `Mean ${(selectedVariable || '').replace(/_/g, ' ')} (participants n=${meanSubjectInfo.n}, mean temp=${meanSubjectInfo.meanTempStr})`,
+                          type: 'line', color: CS.blue, id: 'mean',
+                        },
+                      ]}
+                    />
+                    <Area dataKey="upper" stroke="none" fill={CS.blueLight} fillOpacity={0.5} connectNulls type="monotone" legendType="none" />
+                    <Area dataKey="lower" stroke="none" fill={CS.bg}        fillOpacity={1}   connectNulls type="monotone" legendType="none" />
+                    <Line dataKey="mean" stroke={CS.blue} strokeWidth={2.5}
+                      dot={{ r: 7, fill: CS.blue, stroke: '#fff', strokeWidth: 2 }} connectNulls type="monotone" legendType="none" />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -568,7 +714,7 @@ function DoseResponseTab() {
                   <tbody>
                     {meanCurveData.map((row, i) => (
                       <tr key={i} className="border-b border-border/50">
-                        <td className="p-2 font-medium">{formatConc(row.concentration)}</td>
+                        <td className="p-2 font-medium">{fmtConc(row.concentration)}</td>
                         <td className="p-2 text-right">{row.n}</td>
                         <td className="p-2 text-right">{row.mean.toFixed(2)}</td>
                         <td className="p-2 text-right">{row.std.toFixed(2)}</td>
@@ -608,7 +754,7 @@ function DoseResponseTab() {
                       <td className="p-2">{row.subject}</td>
                       <td className="p-2 font-mono text-xs text-text-secondary">{row.session_code}</td>
                       <td className="p-2 text-right">{row.cycle}</td>
-                      <td className="p-2 text-right">{formatConc(row.concentration)}</td>
+                      <td className="p-2 text-right">{fmtConc(row.concentration)}</td>
                       <td className="p-2 text-right">{typeof row.response === 'number' ? row.response.toFixed(2) : row.response}</td>
                     </tr>
                   ))}
