@@ -25,6 +25,7 @@ interface DataPoint    {
   session_id: string; session_code: string; subject_name: string;
   cycle_number: number; concentrations: Record<string, number>; responses: Record<string, number>;
   sample_temperature_c?: number;
+  created_at?: string;
 }
 interface StatEntry    { mean: number; std: number; sem: number; min: number; max: number; n: number; }
 interface AggregatedEntry { concentrations: Record<string, number>; n: number; stats: Record<string, StatEntry>; }
@@ -32,6 +33,7 @@ interface DoseResponseData {
   protocols: ProtocolInfo[]; subjects: SubjectInfo[]; data_points: DataPoint[];
   aggregated: AggregatedEntry[]; ingredients: string[]; response_variables: string[];
   ingredient_units: Record<string, string>;
+  sample_temperatures_c?: number[];
 }
 
 interface DashboardProtocol {
@@ -323,8 +325,9 @@ function DashboardTab() {
           Export Sample Data
         </h2>
         <p className="text-xs text-text-secondary mb-4">
-          Downloads an Excel file with one row per sample:
-          sample&nbsp;ID · participant · cycle · RebM concentration · temperature · sweetness / bitterness / saltiness ratings · timestamp
+          Downloads an Excel file with one row per sample: sample&nbsp;ID · participant · cycle ·
+          per-ingredient concentrations · temperature · questionnaire ratings · timestamp.
+          Columns are discovered from the selected protocol's data.
         </p>
         <div className="flex items-center gap-3">
           <select
@@ -376,9 +379,13 @@ function DoseResponseTab() {
   const [selectedIngredient, setSelectedIngredient] = useState('');
   const [selectedVariable, setSelectedVariable]     = useState('');
   const [selectedSubjects, setSelectedSubjects]     = useState<Set<string>>(new Set());
+  const [selectedTemps, setSelectedTemps]           = useState<Set<string>>(new Set());
+  const [cycleMin, setCycleMin]                     = useState<number | null>(null);
+  const [cycleMax, setCycleMax]                     = useState<number | null>(null);
+  const [dateFrom, setDateFrom]                     = useState('');
+  const [dateTo, setDateTo]                         = useState('');
 
-  const individualChartRef = useRef<HTMLDivElement>(null);
-  const meanChartRef       = useRef<HTMLDivElement>(null);
+  const meanChartRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -407,78 +414,60 @@ function DoseResponseTab() {
 
   // ── Derived data ──
 
-  const subjectChartData = useMemo(() => {
-    if (!data || !selectedIngredient || !selectedVariable) return [];
-    return data.data_points
-      .filter(dp => selectedSubjects.has(dp.session_id))
-      .filter(dp => dp.concentrations[selectedIngredient] !== undefined)
-      .filter(dp => dp.responses[selectedVariable] !== undefined)
-      .map(dp => ({
-        concentration: dp.concentrations[selectedIngredient],
-        response: dp.responses[selectedVariable],
-        subject: dp.subject_name,
-        session_id: dp.session_id,
-      }))
-      .sort((a, b) => a.concentration - b.concentration);
-  }, [data, selectedIngredient, selectedVariable, selectedSubjects]);
 
-  const subjectLines = useMemo(() => {
-    const grouped: Record<string, { concentration: number; response: number }[]> = {};
-    for (const dp of subjectChartData) {
-      if (!grouped[dp.subject]) grouped[dp.subject] = [];
-      grouped[dp.subject].push({ concentration: dp.concentration, response: dp.response });
-    }
-    for (const k in grouped) grouped[k].sort((a, b) => a.concentration - b.concentration);
-    return grouped;
-  }, [subjectChartData]);
+  const filteredForChart = useMemo(() => {
+    if (!data || !selectedIngredient || !selectedVariable) return [];
+    return data.data_points.filter(dp => {
+      if (!selectedSubjects.has(dp.session_id)) return false;
+      if (selectedTemps.size > 0) {
+        const t = dp.sample_temperature_c == null ? '' : String(dp.sample_temperature_c);
+        if (!selectedTemps.has(t)) return false;
+      }
+      if (cycleMin != null && dp.cycle_number < cycleMin) return false;
+      if (cycleMax != null && dp.cycle_number > cycleMax) return false;
+      if (dateFrom && dp.created_at && dp.created_at < dateFrom) return false;
+      if (dateTo && dp.created_at && dp.created_at > dateTo + 'T23:59:59') return false;
+      return dp.concentrations[selectedIngredient] !== undefined && dp.responses[selectedVariable] != null;
+    });
+  }, [data, selectedIngredient, selectedVariable, selectedSubjects, selectedTemps, cycleMin, cycleMax, dateFrom, dateTo]);
 
   const meanCurveData = useMemo(() => {
-    if (!data || !selectedIngredient || !selectedVariable) return [];
-    return data.aggregated
-      .filter(agg => agg.stats[selectedVariable])
-      .map(agg => ({
-        concentration: agg.concentrations[selectedIngredient] ?? 0,
-        mean:  agg.stats[selectedVariable].mean,
-        sem:   agg.stats[selectedVariable].sem,
-        std:   agg.stats[selectedVariable].std,
-        n:     agg.stats[selectedVariable].n,
-        min:   agg.stats[selectedVariable].min,
-        max:   agg.stats[selectedVariable].max,
-        upper: agg.stats[selectedVariable].mean + agg.stats[selectedVariable].sem,
-        lower: agg.stats[selectedVariable].mean - agg.stats[selectedVariable].sem,
-      }))
+    const groups = new Map<number, number[]>();
+    for (const dp of filteredForChart) {
+      const c = dp.concentrations[selectedIngredient] ?? 0;
+      const v = Number(dp.responses[selectedVariable]);
+      if (!Number.isFinite(v)) continue;
+      const arr = groups.get(c) ?? [];
+      arr.push(v);
+      groups.set(c, arr);
+    }
+    return Array.from(groups.entries())
+      .map(([concentration, vals]) => {
+        const n = vals.length;
+        const mean = vals.reduce((a, b) => a + b, 0) / n;
+        const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
+        const std = Math.sqrt(variance);
+        const sem = n > 1 ? std / Math.sqrt(n) : 0;
+        return {
+          concentration, mean, std, sem, n,
+          min: Math.min(...vals), max: Math.max(...vals),
+          lower: mean - sem, upper: mean + sem,
+        };
+      })
       .sort((a, b) => a.concentration - b.concentration);
-  }, [data, selectedIngredient, selectedVariable]);
-
-  const subjectColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    data?.subjects.forEach((s, i) => { map[s.subject_name || s.session_code] = SUBJECT_COLORS[i % SUBJECT_COLORS.length]; });
-    return map;
-  }, [data]);
+  }, [filteredForChart, selectedIngredient, selectedVariable]);
 
   const meanSubjectInfo = useMemo(() => {
-    if (!data) return { n: 0, meanTempStr: '?' };
-    const relevant = data.data_points
-      .filter(dp => selectedSubjects.has(dp.session_id))
-      .filter(dp => !selectedIngredient || dp.concentrations[selectedIngredient] !== undefined);
-    const n = new Set(relevant.map(dp => dp.session_id)).size;
-    const temps = relevant.map(dp => dp.sample_temperature_c).filter((t): t is number => t != null);
+    const n = new Set(filteredForChart.map(dp => dp.session_id)).size;
+    const temps = filteredForChart.map(dp => dp.sample_temperature_c).filter((t): t is number => t != null);
     const meanTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
     return { n, meanTempStr: meanTemp != null ? `${meanTemp.toFixed(1)}°C` : '?' };
-  }, [data, selectedSubjects, selectedIngredient]);
+  }, [filteredForChart]);
 
   const meanCurveDataCategorical = useMemo(
     () => meanCurveData.map(row => ({ ...row, concKey: fmtConc(row.concentration) })),
     [meanCurveData],
   );
-
-  const subjectLinesCategorical = useMemo(() => {
-    const result: Record<string, { concKey: string; response: number }[]> = {};
-    for (const [subject, points] of Object.entries(subjectLines)) {
-      result[subject] = points.map(p => ({ concKey: fmtConc(p.concentration), response: p.response }));
-    }
-    return result;
-  }, [subjectLines]);
 
   // Per-subject raw data table (all data points for selected filters)
   const perSubjectRows = useMemo(() => {
@@ -547,65 +536,10 @@ function DoseResponseTab() {
             </div>
           </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            {/* Individual curves */}
-            <div className="p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: CS.titleColor }}>
-                  Individual Subject Curves
-                </h3>
-                <button
-                  onClick={() => void downloadChartAsPng(
-                    individualChartRef,
-                    `${selectedIngredient || 'Concentration'} Dose-Response`,
-                    `Individual Subject ${yLabel}`,
-                    'individual-curves',
-                  )}
-                  aria-label="Download individual curves as PNG"
-                  className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
-                  ↓ PNG
-                </button>
-              </div>
-              <div className="h-[380px]" ref={individualChartRef}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart margin={{ top: 10, right: 100, bottom: 50, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CS.grid} />
-                    <XAxis
-                      dataKey="concKey" type="category" allowDuplicatedCategory={false}
-                      label={{ value: xLabel, position: 'bottom', offset: 12, style: { fill: CS.axisColor, fontSize: 13 } }}
-                      tick={{ fill: CS.axisColor, fontSize: 12 }}
-                    />
-                    <YAxis
-                      domain={[1, 9]} ticks={[1,2,3,4,5,6,7,8,9]} allowDecimals={false}
-                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: CS.axisColor, fontSize: 13 } }}
-                      tick={{ fill: CS.axisColor, fontSize: 12 }}
-                    />
-                    <YAxis
-                      yAxisId="intensity" orientation="right"
-                      domain={[1, 9]} ticks={[1, 3, 5, 7, 9]}
-                      tickFormatter={(v: number) => INTENSITY_LABELS[v] ?? ''}
-                      tick={{ fill: CS.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: CS.grid }} tickLine={{ stroke: CS.grid }} width={100}
-                    />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 8, border: `1px solid ${CS.grid}`, fontSize: 13, backgroundColor: '#fff' }}
-                      formatter={(v) => typeof v === 'number' ? v.toFixed(2) : v}
-                    />
-                    <Legend verticalAlign="top" height={48} />
-                    {Object.entries(subjectLinesCategorical).map(([subject, points]) => (
-                      <Line key={subject} data={points} dataKey="response" name={subject}
-                        stroke={subjectColorMap[subject] || CS.blue} strokeWidth={2.5}
-                        dot={{ r: 7, fill: subjectColorMap[subject] || CS.blue, stroke: '#fff', strokeWidth: 1.5 }}
-                        connectNulls type="monotone" />
-                    ))}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Mean curve */}
-            <div className="p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
+          {/* Chart + Filters */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* Mean curve — 2/3 width */}
+            <div className="lg:col-span-2 p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: CS.titleColor }}>
                   Mean Dose-Response Curve (± SEM)
@@ -622,7 +556,7 @@ function DoseResponseTab() {
                   ↓ PNG
                 </button>
               </div>
-              <div className="h-[380px]" ref={meanChartRef}>
+              <div className="h-[420px]" ref={meanChartRef}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={meanCurveDataCategorical} margin={{ top: 10, right: 100, bottom: 50, left: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CS.grid} />
@@ -649,13 +583,18 @@ function DoseResponseTab() {
                     />
                     <Legend
                       verticalAlign="top" height={52}
-                      payload={[
-                        { value: '±SEM band', type: 'square', color: CS.blueLight, id: 'sem' },
-                        {
-                          value: `Mean ${(selectedVariable || '').replace(/_/g, ' ')} (participants n=${meanSubjectInfo.n}, mean temp=${meanSubjectInfo.meanTempStr})`,
-                          type: 'line', color: CS.blue, id: 'mean',
-                        },
-                      ]}
+                      content={() => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 12px', fontSize: 13, color: CS.axisColor }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: CS.blueLight, borderRadius: 2, flexShrink: 0 }} />
+                            <span>±SEM band</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ display: 'inline-block', width: 24, height: 3, backgroundColor: CS.blue, borderRadius: 1, flexShrink: 0 }} />
+                            <span>Mean {(selectedVariable || '').replace(/_/g, ' ')} (participants n={meanSubjectInfo.n}, mean temp={meanSubjectInfo.meanTempStr})</span>
+                          </div>
+                        </div>
+                      )}
                     />
                     <Area dataKey="upper" stroke="none" fill={CS.blueLight} fillOpacity={0.5} connectNulls type="monotone" legendType="none" />
                     <Area dataKey="lower" stroke="none" fill={CS.bg}        fillOpacity={1}   connectNulls type="monotone" legendType="none" />
@@ -665,70 +604,150 @@ function DoseResponseTab() {
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
 
-          {/* Bottom row: Subject selector + summary stats */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            {/* Subject selector */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">Subjects</h3>
-              <div className="flex gap-2 mb-3">
-                <button onClick={() => setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)))}
-                  className="px-3 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary-light transition-colors">
-                  Select All
-                </button>
-                <button onClick={() => setSelectedSubjects(new Set())}
-                  className="px-3 py-1 text-xs bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors">
-                  Clear All
+            {/* Filters card — 1/3 width */}
+            <div className="p-6 bg-surface rounded-xl border border-border flex flex-col gap-5 overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">Filters</h3>
+                <button
+                  onClick={() => {
+                    setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)));
+                    setSelectedTemps(new Set());
+                    setCycleMin(null);
+                    setCycleMax(null);
+                    setDateFrom('');
+                    setDateTo('');
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
+                  Reset
                 </button>
               </div>
-              <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                {data.subjects.map((s, i) => (
-                  <label key={s.session_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-                    <input type="checkbox" checked={selectedSubjects.has(s.session_id)}
-                      onChange={() => toggleSubject(s.session_id)} className="w-4 h-4 rounded accent-primary" />
-                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: SUBJECT_COLORS[i % SUBJECT_COLORS.length] }} />
-                    <span className="text-sm text-text-primary">{s.subject_name || s.session_code}</span>
-                    <span className="text-xs text-text-secondary ml-auto">{s.session_code}</span>
-                  </label>
-                ))}
+
+              {/* Subjects */}
+              <div>
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Subjects</div>
+                <div className="flex gap-2 mb-2">
+                  <button onClick={() => setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)))}
+                    className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary-light transition-colors">
+                    All
+                  </button>
+                  <button onClick={() => setSelectedSubjects(new Set())}
+                    className="px-2 py-1 text-xs bg-surface text-text-primary rounded border border-border hover:bg-gray-100 transition-colors">
+                    None
+                  </button>
+                </div>
+                <div className="space-y-1 max-h-[160px] overflow-y-auto">
+                  {data.subjects.map((s, i) => (
+                    <label key={s.session_id} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={selectedSubjects.has(s.session_id)}
+                        onChange={() => toggleSubject(s.session_id)} className="w-4 h-4 rounded accent-primary" />
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: SUBJECT_COLORS[i % SUBJECT_COLORS.length] }} />
+                      <span className="text-sm text-text-primary truncate">{s.subject_name || s.session_code}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Temperature */}
+              {data.sample_temperatures_c && data.sample_temperatures_c.length > 1 && (
+                <div>
+                  <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Temperature</div>
+                  <div className="space-y-1">
+                    {data.sample_temperatures_c.map(t => {
+                      const key = String(t);
+                      return (
+                        <label key={key} className="flex items-center gap-2 py-1 cursor-pointer">
+                          <input type="checkbox"
+                            checked={selectedTemps.size === 0 || selectedTemps.has(key)}
+                            onChange={() => {
+                              setSelectedTemps(prev => {
+                                const allKeys = new Set((data.sample_temperatures_c ?? []).map(String));
+                                if (prev.size === 0) {
+                                  const next = new Set(allKeys);
+                                  next.delete(key);
+                                  return next;
+                                }
+                                const next = new Set(prev);
+                                next.has(key) ? next.delete(key) : next.add(key);
+                                if (next.size === allKeys.size) return new Set<string>();
+                                return next;
+                              });
+                            }}
+                            className="w-4 h-4 rounded accent-primary" />
+                          <span className="text-sm text-text-primary">{t.toFixed(1)} °C</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Cycle range */}
+              <div>
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Cycle Range</div>
+                <div className="flex gap-2 items-center">
+                  <input type="number" min={1} placeholder="Min"
+                    value={cycleMin ?? ''}
+                    onChange={e => setCycleMin(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary" />
+                  <span className="text-text-secondary text-sm flex-shrink-0">–</span>
+                  <input type="number" min={1} placeholder="Max"
+                    value={cycleMax ?? ''}
+                    onChange={e => setCycleMax(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+
+              {/* Date range */}
+              <div>
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Date Range</div>
+                <div className="flex flex-col gap-2">
+                  <input type="date"
+                    value={dateFrom}
+                    onChange={e => setDateFrom(e.target.value)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary" />
+                  <input type="date"
+                    value={dateTo}
+                    onChange={e => setDateTo(e.target.value)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
               </div>
             </div>
+          </div>
 
-            {/* Summary stats */}
-            <div className="lg:col-span-2 p-6 bg-surface rounded-xl border border-border">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">Summary Statistics</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left p-2 text-text-secondary font-medium">{xLabel}</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">n</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">Mean</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">SD</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">SEM</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">Min</th>
-                      <th className="text-right p-2 text-text-secondary font-medium">Max</th>
+          {/* Summary stats */}
+          <div className="p-6 bg-surface rounded-xl border border-border mb-6">
+            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">Summary Statistics</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-text-secondary font-medium">{xLabel}</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">n</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">Mean</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">SD</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">SEM</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">Min</th>
+                    <th className="text-right p-2 text-text-secondary font-medium">Max</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {meanCurveData.map((row, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="p-2 font-medium">{fmtConc(row.concentration)}</td>
+                      <td className="p-2 text-right">{row.n}</td>
+                      <td className="p-2 text-right">{row.mean.toFixed(2)}</td>
+                      <td className="p-2 text-right">{row.std.toFixed(2)}</td>
+                      <td className="p-2 text-right">{row.sem.toFixed(2)}</td>
+                      <td className="p-2 text-right">{row.min.toFixed(2)}</td>
+                      <td className="p-2 text-right">{row.max.toFixed(2)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {meanCurveData.map((row, i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="p-2 font-medium">{fmtConc(row.concentration)}</td>
-                        <td className="p-2 text-right">{row.n}</td>
-                        <td className="p-2 text-right">{row.mean.toFixed(2)}</td>
-                        <td className="p-2 text-right">{row.std.toFixed(2)}</td>
-                        <td className="p-2 text-right">{row.sem.toFixed(2)}</td>
-                        <td className="p-2 text-right">{row.min.toFixed(2)}</td>
-                        <td className="p-2 text-right">{row.max.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {meanCurveData.length === 0 && (
-                  <p className="text-center text-text-secondary text-sm py-6">No aggregated data for the selected filters.</p>
-                )}
-              </div>
+                  ))}
+                </tbody>
+              </table>
+              {meanCurveData.length === 0 && (
+                <p className="text-center text-text-secondary text-sm py-6">No data for the selected filters.</p>
+              )}
             </div>
           </div>
 

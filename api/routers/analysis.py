@@ -137,6 +137,7 @@ def get_dose_response_data(
                 "subject_name": row["subject_name"] or row["session_code"],
                 "cycle_number": row["cycle_number"],
                 "sample_temperature_c": row["sample_temperature_c"],
+                "created_at": row["created_at"],
                 "concentrations": conc,
                 "responses": {k: v for k, v in answer.items() if k not in skip_keys},
             })
@@ -433,17 +434,15 @@ def execute_query(body: QueryRequest):
 
 _EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-_SAMPLES_EXPORT_SQL = """
+_SAMPLES_RAW_SQL = """
     SELECT
         s.sample_id,
-        COALESCE(u.name, ses.session_code)                              AS participant_name,
+        COALESCE(u.name, ses.session_code) AS participant_name,
         s.cycle_number,
-        CAST(json_extract(s.ingredient_concentration, '$.RebM') AS REAL) AS rebM_concentration,
-        s.sample_temperature_c                                           AS sample_temperature,
-        CAST(json_extract(s.questionnaire_answer, '$.sweetness')  AS REAL) AS sweetness_rating,
-        CAST(json_extract(s.questionnaire_answer, '$.bitterness') AS REAL) AS bitterness_rating,
-        CAST(json_extract(s.questionnaire_answer, '$.saltiness')  AS REAL) AS saltiness_rating,
-        s.created_at                                                     AS timestamp
+        s.ingredient_concentration,
+        s.sample_temperature_c,
+        s.questionnaire_answer,
+        s.created_at
     FROM samples s
     JOIN sessions ses ON s.session_id = ses.session_id
     LEFT JOIN users u ON ses.user_id = u.id
@@ -451,9 +450,19 @@ _SAMPLES_EXPORT_SQL = """
       AND ses.deleted_at IS NULL
 """
 
+_EXPORT_SKIP_KEYS = {"questionnaire_type", "participant_id", "timestamp", "is_final"}
+
 
 def _rows_to_excel(columns: list[str], rows: list) -> io.BytesIO:
     df = pd.DataFrame([dict(zip(columns, r)) for r in rows], columns=columns)
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    buf.seek(0)
+    return buf
+
+
+def _dicts_to_excel(dict_rows: list[dict], columns: list[str]) -> io.BytesIO:
+    df = pd.DataFrame(dict_rows, columns=columns)
     buf = io.BytesIO()
     df.to_excel(buf, index=False, engine="openpyxl")
     buf.seek(0)
@@ -465,11 +474,14 @@ def export_samples_excel(
     protocol_id: Optional[str] = Query(None, description="Filter by protocol ID"),
 ):
     """
-    Download all samples as an Excel file with the preset schema:
-    sample_id, participant_name, cycle_number, rebM_concentration,
-    sample_temperature, sweetness_rating, bitterness_rating, saltiness_rating, timestamp.
+    Download all samples as an Excel file.
+
+    Columns are discovered dynamically from the data: one <ingredient>_concentration
+    column per ingredient found and one <var>_rating column per response variable
+    found (questionnaire metadata keys are excluded). This works for any protocol,
+    regardless of which stimuli or questionnaire it uses.
     """
-    sql = _SAMPLES_EXPORT_SQL
+    sql = _SAMPLES_RAW_SQL
     params: list = []
     if protocol_id:
         sql += " AND ses.protocol_id = ?"
@@ -478,11 +490,50 @@ def export_samples_excel(
 
     try:
         with get_database_connection() as conn:
-            cur = conn.execute(sql, params)
-            columns = [d[0] for d in cur.description]
-            rows = cur.fetchall()
+            rows = conn.execute(sql, params).fetchall()
 
-        buf = _rows_to_excel(columns, rows)
+        # Discover ingredient and response-variable keys present in this slice of data
+        ingredients_set: set[str] = set()
+        response_vars_set: set[str] = set()
+        parsed: list[dict] = []
+
+        for row in rows:
+            conc = json.loads(row["ingredient_concentration"]) if isinstance(row["ingredient_concentration"], str) else (row["ingredient_concentration"] or {})
+            answer = json.loads(row["questionnaire_answer"]) if isinstance(row["questionnaire_answer"], str) else (row["questionnaire_answer"] or {})
+            ingredients_set.update(conc.keys())
+            response_vars_set.update(k for k in answer if k not in _EXPORT_SKIP_KEYS)
+            parsed.append({"_conc": conc, "_answer": answer, "_row": row})
+
+        ingredients_list = sorted(ingredients_set)
+        response_vars_list = sorted(response_vars_set)
+
+        columns = (
+            ["sample_id", "participant_name", "cycle_number"]
+            + [f"{ing}_concentration" for ing in ingredients_list]
+            + ["sample_temperature"]
+            + [f"{var}_rating" for var in response_vars_list]
+            + ["timestamp"]
+        )
+
+        dict_rows: list[dict] = []
+        for p in parsed:
+            row = p["_row"]
+            conc = p["_conc"]
+            answer = p["_answer"]
+            d: dict = {
+                "sample_id": row["sample_id"],
+                "participant_name": row["participant_name"],
+                "cycle_number": row["cycle_number"],
+                "sample_temperature": row["sample_temperature_c"],
+                "timestamp": row["created_at"],
+            }
+            for ing in ingredients_list:
+                d[f"{ing}_concentration"] = conc.get(ing)
+            for var in response_vars_list:
+                d[f"{var}_rating"] = answer.get(var)
+            dict_rows.append(d)
+
+        buf = _dicts_to_excel(dict_rows, columns)
         return StreamingResponse(
             buf,
             media_type=_EXCEL_MEDIA_TYPE,
