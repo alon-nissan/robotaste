@@ -383,14 +383,20 @@ export default function QuestionnairePage() {
         return;
       }
 
-      // Next cycle: check mode to decide routing
+      // Next cycle: check mode to decide routing. Both predetermined and BO
+      // ('bo_selected') cycles are system-selected and auto-advance without a
+      // manual pick; other modes route to the selection page as usual. If BO
+      // isn't ready yet (no concentrations returned), fall through to the
+      // selection page, which itself retries the auto-submit and falls back
+      // to manual selection if BO still isn't ready.
       const cycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
       const cycleInfo = cycleRes.data;
       const mode: string = cycleInfo.mode || 'user_selected';
       const isPredetermined = mode.startsWith('predetermined');
+      const isBO = mode === 'bo_selected';
 
-      if (isPredetermined && cycleInfo.concentrations) {
-        // Auto-submit predetermined selection
+      if ((isPredetermined || isBO) && cycleInfo.concentrations) {
+        // Auto-submit the system-selected concentrations
         const selRes = await api.post(`/sessions/${sessionId}/selection`, {
           concentrations: cycleInfo.concentrations,
           selection_mode: mode,

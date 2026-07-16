@@ -1389,33 +1389,45 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
             else:
                 return pd.DataFrame()
 
-        # Get questionnaire type name
-        questionnaire_type = session.get("questionnaire_name")
-        if not questionnaire_type:
-            logger.warning(f"No questionnaire type for session {session_id}")
-            return pd.DataFrame()
-
-        # Get target variable name from questionnaire config
+        # Get target variable name from questionnaire config.
+        # Prefer the inline questionnaire stored on the experiment config (preferred
+        # per protocol schema) over the legacy library lookup by name, since the
+        # inline config is the one that actually has the correct bayesian_target
+        # for this protocol.
         target_column_name = "target_value"  # Default fallback
-        questionnaire_config = None
-        try:
-            from robotaste.config.questionnaire import QUESTIONNAIRE_CONFIGS
-
-            questionnaire_type_normalized = questionnaire_type.strip().lower()
-            q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
-            if not q_def:
-                q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
-            if q_def:
-                questionnaire_config = q_def  # Store the full config
-                bayesian_config = q_def.get("bayesian_target", {})
-                target_key = bayesian_config.get("variable")
-                if target_key:
-                    target_column_name = target_key
-                    logger.info(f"Using target column name: '{target_column_name}'")
-        except Exception as e:
-            logger.warning(
-                f"Could not get target variable name from config: {e}, using default 'target_value'"
+        questionnaire_config = experiment_config.get("questionnaire")
+        if questionnaire_config and "bayesian_target" in questionnaire_config:
+            target_key = questionnaire_config.get("bayesian_target", {}).get("variable")
+            if target_key:
+                target_column_name = target_key
+                logger.info(f"Using target column name: '{target_column_name}' (inline questionnaire)")
+        else:
+            questionnaire_config = None
+            # Legacy fallback: look up by questionnaire name in the library
+            questionnaire_type = experiment_config.get("questionnaire_name") or session.get(
+                "questionnaire_name"
             )
+            if not questionnaire_type:
+                logger.warning(f"No questionnaire type for session {session_id}")
+            else:
+                try:
+                    from robotaste.config.questionnaire import QUESTIONNAIRE_CONFIGS
+
+                    questionnaire_type_normalized = questionnaire_type.strip().lower()
+                    q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
+                    if not q_def:
+                        q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
+                    if q_def:
+                        questionnaire_config = q_def  # Store the full config
+                        bayesian_config = q_def.get("bayesian_target", {})
+                        target_key = bayesian_config.get("variable")
+                        if target_key:
+                            target_column_name = target_key
+                            logger.info(f"Using target column name: '{target_column_name}'")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not get target variable name from config: {e}, using default 'target_value'"
+                    )
 
         # Get samples
         samples = get_session_samples(session_id, only_final=only_final)
@@ -1425,7 +1437,7 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
 
         # Fallback questionnaire config if not found
         if not questionnaire_config:
-            logger.warning(f"Using fallback questionnaire config for type: {questionnaire_type}")
+            logger.warning(f"Using fallback questionnaire config for session {session_id}")
             questionnaire_config = {
                 "bayesian_target": {
                     "variable": "overall_liking",
@@ -1439,6 +1451,11 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
         for sample in samples:
             # Get concentrations
             concentrations = sample["ingredient_concentration"]
+            if not concentrations:
+                logger.warning(
+                    f"Skipping sample {sample.get('sample_id', 'unknown')} with no ingredient_concentration"
+                )
+                continue
 
             # Extract target value
             target = extract_target_variable(

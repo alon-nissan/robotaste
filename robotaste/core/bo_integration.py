@@ -18,6 +18,20 @@ CANVAS_SIZE = 500  # Default canvas size for coordinate mapping
 logger = logging.getLogger(__name__)
 
 
+def _ingredient_range(ing: Dict[str, Any]) -> tuple:
+    """
+    Get (min, max) concentration for an ingredient dict.
+
+    Accepts either the protocol-style keys (`min_concentration` /
+    `max_concentration`) or the session experiment_config keys
+    (`min_concentration_mM` / `max_concentration_mM`), since callers may pass
+    either shape.
+    """
+    min_c = ing.get("min_concentration", ing.get("min_concentration_mM", 0))
+    max_c = ing.get("max_concentration", ing.get("max_concentration_mM", 100))
+    return (min_c, max_c)
+
+
 def should_use_bo_for_cycle(session_id: str, cycle_number: int) -> bool:
     """
     Check if current cycle should use BO mode per protocol.
@@ -115,8 +129,7 @@ def get_bo_suggestion_for_session(
         if num_ingredients == 2:
             # 2D Grid interface - use grid sampling
             ingredient_ranges = {
-                ing["name"]: (ing["min_concentration"], ing["max_concentration"])
-                for ing in ingredients
+                ing["name"]: _ingredient_range(ing) for ing in ingredients
             }
 
             # Get concentration ranges for the two ingredients
@@ -129,8 +142,7 @@ def get_bo_suggestion_for_session(
         else:
             # Slider interface - use Latin Hypercube Sampling
             ingredient_ranges = {
-                ing["name"]: (ing["min_concentration"], ing["max_concentration"])
-                for ing in ingredients
+                ing["name"]: _ingredient_range(ing) for ing in ingredients
             }
             candidates = generate_candidates_latin_hypercube(
                 ranges=ingredient_ranges,
@@ -189,8 +201,7 @@ def get_bo_suggestion_for_session(
 
             # Get concentration ranges
             ingredient_ranges_dict = {
-                ing["name"]: (ing["min_concentration"], ing["max_concentration"])
-                for ing in ingredients
+                ing["name"]: _ingredient_range(ing) for ing in ingredients
             }
             sugar_range = ingredient_ranges_dict[ingredient_names[0]]
             salt_range = ingredient_ranges_dict[ingredient_names[1]]
@@ -218,8 +229,7 @@ def get_bo_suggestion_for_session(
             for ing in ingredients:
                 ing_name = ing["name"]
                 conc = concentrations.get(ing_name, 0)
-                min_conc = ing["min_concentration"]
-                max_conc = ing["max_concentration"]
+                min_conc, max_conc = _ingredient_range(ing)
 
                 # Convert to percentage (0-100)
                 if max_conc > min_conc:

@@ -107,33 +107,10 @@ export default function SelectionPage() {
         return defaults;
       });
 
-      // Determine current mode and fetch BO suggestion if needed
-      const schedule = config?.sample_selection_schedule as Array<{
-        cycle_range: { start: number; end: number };
-        mode: string;
-      }> | undefined;
-      let currentMode = 'user_selected';
-      if (schedule) {
-        const cycle = statusData.current_cycle;
-        for (const block of schedule) {
-          if (cycle >= block.cycle_range.start && cycle <= block.cycle_range.end) {
-            currentMode = block.mode;
-            break;
-          }
-        }
-      }
-
-      if (currentMode === 'bo_selected') {
-        try {
-          const boRes = await api.get(`/sessions/${sessionId}/bo-suggestion`);
-          setBoSuggestion(boRes.data);
-        } catch {
-          // BO may not be ready yet — ignore
-          setBoSuggestion(null);
-        }
-      } else {
-        setBoSuggestion(null);
-      }
+      // BO cycles auto-apply the optimizer's suggestion (see auto-submit effect
+      // below) rather than showing it for manual override, so no separate
+      // /bo-suggestion fetch is needed here.
+      setBoSuggestion(null);
 
       setError(null);
     } catch (err) {
@@ -177,17 +154,26 @@ export default function SelectionPage() {
         ?.stopping_criteria?.max_cycles)
     || 0;
 
-  // ─── AUTO-SUBMIT FOR PREDETERMINED MODE ─────────────────────────────────
+  // ─── AUTO-SUBMIT FOR PREDETERMINED / BO MODE ─────────────────────────────
+  // Both modes are system-selected: predetermined concentrations come from the
+  // protocol, BO concentrations come from the optimizer. Neither requires the
+  // subject to pick manually, so both auto-advance using the same server-derived
+  // cycle-info. If BO isn't ready yet (e.g. insufficient samples), fall back to
+  // the manual selection UI below instead of blocking the subject.
   const autoSubmitDone = useRef(false);
   useEffect(() => {
     if (!sessionId || !session || !status || loading || autoSubmitDone.current) return;
-    if (!currentMode.startsWith('predetermined')) return;
+    const isPredetermined = currentMode.startsWith('predetermined');
+    const isBO = currentMode === 'bo_selected';
+    if (!isPredetermined && !isBO) return;
 
     autoSubmitDone.current = true;
 
     (async () => {
       try {
-        // Fetch cycle info for predetermined concentrations
+        // Fetch cycle info — for predetermined this returns the scheduled
+        // concentrations, for BO this triggers optimization and returns the
+        // suggested sample (mode reflects what actually happened server-side).
         const cycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
         const cycleInfo = cycleRes.data;
 
@@ -201,11 +187,22 @@ export default function SelectionPage() {
             ? `/subject/${sessionId}/cup-ready`
             : `/subject/${sessionId}/questionnaire`
           );
+        } else if (isBO) {
+          // BO genuinely not ready (not enough samples yet, or training
+          // failed) — let the subject pick manually instead of erroring out.
+          console.warn('BO suggestion not available yet; falling back to manual selection');
+        } else {
+          setError('Failed to auto-submit predetermined selection');
+          autoSubmitDone.current = false;
         }
       } catch (err) {
         console.error('Auto-submit failed:', err);
-        setError('Failed to auto-submit predetermined selection');
-        autoSubmitDone.current = false;
+        if (isBO) {
+          console.warn('BO auto-submit failed; falling back to manual selection');
+        } else {
+          setError('Failed to auto-submit predetermined selection');
+          autoSubmitDone.current = false;
+        }
       }
     })();
   }, [sessionId, session, status, loading, currentMode, navigate]);
@@ -289,7 +286,7 @@ export default function SelectionPage() {
           </div>
 
           {/* BO Suggestion box */}
-          {currentMode === 'bo_selected' && boSuggestion && !suggestionDismissed && (
+          {currentMode === 'bo_selected' && boSuggestion?.concentrations && !suggestionDismissed && (
             <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg mb-6">
               <p className="text-sm font-medium text-blue-800 mb-2">
                 🤖 The algorithm suggests:{' '}
