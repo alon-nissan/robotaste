@@ -48,6 +48,9 @@ import type { SessionStatus, PumpGlobalStatus, ModeInfo, Sample } from '../types
 import PageLayout from '../components/PageLayout';
 import SubjectConnectionCard from '../components/SubjectConnectionCard';
 import RefillWizard from '../components/RefillWizard';
+import BOProgressChart from '../components/BOProgressChart';
+import BOVisualization1D from '../components/BOVisualization1D';
+import BOVisualization2D from '../components/BOVisualization2D';
 
 /**
  * Format a concentration value with enough decimal places to show ~2–3
@@ -222,6 +225,13 @@ export default function ModeratorMonitoringPage() {
 
   const protocolId = (status?.experiment_config as Record<string, unknown>)?.protocol_id as string | undefined;
 
+  // BO monitoring graphs only apply to protocols with BO enabled.
+  const experimentConfig = status?.experiment_config as Record<string, unknown> | undefined;
+  const boEnabled = Boolean(
+    (experimentConfig?.bayesian_optimization as Record<string, unknown> | undefined)?.enabled
+  );
+  const ingredientCount = ((experimentConfig?.ingredients as unknown[]) || []).length;
+
   // ─── WRAP-UP VIEW (shown when session is complete) ─────────────────────
   if (isComplete) {
     return (
@@ -338,6 +348,18 @@ export default function ModeratorMonitoringPage() {
         <div className="flex items-center gap-3 mb-6 p-3 bg-surface rounded-xl border border-border">
           <span className="text-sm text-text-secondary">Session Code:</span>
           <span className="text-xl font-bold tracking-widest text-primary">{status.session_code}</span>
+        </div>
+      )}
+
+      {/* ═══ BO MONITORING GRAPHS (only for BO-enabled protocols) ═══ */}
+      {boEnabled && sessionId && (
+        <div className="space-y-6 mb-6">
+          <BOProgressChart sessionId={sessionId} />
+          {ingredientCount === 2 ? (
+            <BOVisualization2D sessionId={sessionId} />
+          ) : ingredientCount === 1 ? (
+            <BOVisualization1D sessionId={sessionId} />
+          ) : null}
         </div>
       )}
 

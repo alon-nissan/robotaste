@@ -29,6 +29,7 @@ Provides endpoints for the moderator and subject to:
 
 import uuid
 import logging
+import numpy as np
 
 from fastapi import APIRouter, HTTPException
 
@@ -63,7 +64,7 @@ from robotaste.data.session_repo import get_session_info
 from robotaste.data.protocol_repo import get_protocol_by_id
 from robotaste.core.moderator_metrics import get_current_mode_info
 from robotaste.config.bo_config import get_default_bo_config
-from robotaste.core.bo_integration import get_bo_suggestion_for_session
+from robotaste.core.bo_integration import get_bo_suggestion_for_session, get_ingredient_range
 from robotaste.core.bo_engine import train_bo_model
 from robotaste.core.trials import prepare_cycle_sample
 from robotaste.core.phase_engine import PhaseEngine
@@ -574,6 +575,7 @@ def submit_selection(session_id: str, request: SelectionRequest):
     config["_pending_concentrations"][str(cycle_number)] = {
         "concentrations": request.concentrations,
         "selection_mode": request.selection_mode,
+        "selection_data": request.selection_data,
     }
     from robotaste.data.database import get_database_connection
     with get_database_connection() as conn:
@@ -672,6 +674,24 @@ def get_bo_suggestion(session_id: str):
     return suggestion or {}
 
 
+# ─── GET BO STATUS / CONVERGENCE ───────────────────────────────────────────
+@router.get("/{session_id}/bo-status")
+def get_bo_status_endpoint(session_id: str):
+    """
+    Get Bayesian Optimization progress/convergence metrics for the moderator
+    monitoring view: per-cycle acquisition values, predicted values,
+    uncertainties, and best-observed-so-far, computed from persisted
+    samples.selection_data (see get_convergence_metrics).
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    from robotaste.core.bo_utils import get_convergence_metrics
+
+    return get_convergence_metrics(session_id)
+
+
 # ─── SUBMIT RESPONSE ───────────────────────────────────────────────────────
 @router.post("/{session_id}/response")
 def submit_response(session_id: str, request: ResponseRequest):
@@ -703,21 +723,35 @@ def submit_response(session_id: str, request: ResponseRequest):
     if pending:
         concentrations = pending["concentrations"]
         selection_mode = pending.get("selection_mode", "user_selected")
+        selection_data = pending.get("selection_data")
     else:
         try:
             cycle_info = prepare_cycle_sample(session_id, cycle_number)
             concentrations = cycle_info.get("concentrations", {})
             selection_mode = cycle_info.get("mode", "user_selected")
+            selection_data = cycle_info.get("selection_data")
         except Exception as e:
             logger.warning(f"Could not get cycle info for concentrations: {e}")
             concentrations = {}
             selection_mode = "user_selected"
+            selection_data = None
+
+    # Safety net: a bo_selected cycle should always carry its acquisition data
+    # (predicted_value/uncertainty/acquisition_value) so the BO monitoring
+    # graphs and convergence checks have something to read. If it's missing
+    # (e.g. an older pending selection from before this was wired up),
+    # re-derive it rather than persisting NULLs.
+    if selection_mode == "bo_selected" and not selection_data:
+        try:
+            selection_data = prepare_cycle_sample(session_id, cycle_number).get("selection_data")
+        except Exception as e:
+            logger.warning(f"Could not re-derive BO selection_data: {e}")
 
     save_sample_cycle(
         session_id,
         cycle_number,
         concentrations,
-        {},
+        selection_data or {},
         request.answers,
         request.is_final,
         selection_mode,
@@ -748,12 +782,20 @@ def submit_response(session_id: str, request: ResponseRequest):
 
 
 # ─── GET BO MODEL ──────────────────────────────────────────────────────────
+GP_GRID_SIZE = 25  # points per dimension for the visualization grid (2D → 625 candidates)
+GP_GRID_1D_SIZE = GP_GRID_SIZE * GP_GRID_SIZE  # finer line for the 1D case
+
+
 @router.get("/{session_id}/bo-model")
 def get_bo_model(session_id: str):
     """
-    Get GP model predictions for BO visualization.
+    Get GP model predictions for the BO response-surface visualization
+    (BOVisualization1D / BOVisualization2D on the frontend).
 
-    Returns trained model predictions, observations, and current suggestion.
+    Trains the same GP used for suggestions, then samples it over a grid
+    spanning each ingredient's concentration range to produce the
+    mean/uncertainty/acquisition surfaces those components render, in the
+    shape defined by BOModel / BOModel2D (frontend/src/types/index.ts).
     """
     session = get_session(session_id)
     if not session:
@@ -773,8 +815,13 @@ def get_bo_model(session_id: str):
 
         ingredients = experiment_config.get("ingredients", [])
         ingredient_names = [ing.get("name", "") for ing in ingredients]
+        # Target column is whatever get_training_data actually produced (last
+        # column, matching the protocol's inline questionnaire bayesian_target)
+        # rather than a hardcoded name — inline questionnaires can target any
+        # variable (e.g. "sweetness"), not just "overall_liking".
+        target_column = training_data.columns[-1]
+
         bo_config = get_bo_config(session_id)
-        target_column = bo_config.get("target_column", "overall_liking")
 
         model = train_bo_model(
             training_data, ingredient_names, target_column, bo_config=bo_config
@@ -786,29 +833,100 @@ def get_bo_model(session_id: str):
                 "predictions": [],
             }
 
-        # Extract observations from training data
-        observations = []
-        for _, row in training_data.iterrows():
-            obs = {
-                "concentrations": {
-                    name: float(row.get(name, 0)) for name in ingredient_names
-                },
-                "target": float(row.get(target_column, 0)),
-            }
-            observations.append(obs)
+        acquisition_fn_name = bo_config.get("acquisition_function", "ei")
 
-        # Get current suggestion
+        def acquisition(candidates: np.ndarray) -> np.ndarray:
+            if acquisition_fn_name == "ucb":
+                return model.upper_confidence_bound(candidates)
+            return model.expected_improvement(candidates)
+
         user_id = session.get("user_id", "")
         suggestion = get_bo_suggestion_for_session(session_id, user_id or "")
 
-        return {
-            "status": "ready",
-            "observations": observations,
-            "suggestion": suggestion,
-            "ingredient_names": ingredient_names,
-            "target_column": target_column,
-        }
+        if len(ingredient_names) == 2:
+            name_x, name_y = ingredient_names[0], ingredient_names[1]
+            range_x = get_ingredient_range(ingredients[0])
+            range_y = get_ingredient_range(ingredients[1])
+
+            x_vals = np.linspace(range_x[0], range_x[1], GP_GRID_SIZE)
+            # y descending so row 0 of the grid is the top of the rendered
+            # heatmap (max y), matching HeatmapPanel's row-major rendering.
+            y_vals = np.linspace(range_y[1], range_y[0], GP_GRID_SIZE)
+            xv, yv = np.meshgrid(x_vals, y_vals)
+            candidates = np.column_stack([xv.ravel(), yv.ravel()])
+
+            mu, sigma = model.predict(candidates, return_std=True)
+            acq = acquisition(candidates)
+
+            predictions = {
+                "x": x_vals.tolist(),
+                "y": y_vals.tolist(),
+                "mean": mu.reshape(GP_GRID_SIZE, GP_GRID_SIZE).tolist(),
+                "std": sigma.reshape(GP_GRID_SIZE, GP_GRID_SIZE).tolist(),
+                "acquisition": acq.reshape(GP_GRID_SIZE, GP_GRID_SIZE).tolist(),
+            }
+            observations = {
+                "x": training_data[name_x].tolist(),
+                "y": training_data[name_y].tolist(),
+                "z": training_data[target_column].tolist(),
+            }
+            suggestion_out = None
+            if suggestion and suggestion.get("concentrations"):
+                sconc = suggestion["concentrations"]
+                suggestion_out = {
+                    "x": sconc.get(name_x),
+                    "y": sconc.get(name_y),
+                    "predicted_value": suggestion.get("predicted_value"),
+                }
+
+            return {
+                "status": "ready",
+                "predictions": predictions,
+                "observations": observations,
+                "suggestion": suggestion_out,
+                "ingredient_names": [name_x, name_y],
+                "target_column": target_column,
+            }
+
+        else:
+            name_x = ingredient_names[0]
+            range_x = get_ingredient_range(ingredients[0])
+            x_vals = np.linspace(range_x[0], range_x[1], GP_GRID_1D_SIZE)
+            candidates = x_vals.reshape(-1, 1)
+
+            mu, sigma = model.predict(candidates, return_std=True)
+            acq = acquisition(candidates)
+
+            predictions = {
+                "x": x_vals.tolist(),
+                "mean": mu.tolist(),
+                "std": sigma.tolist(),
+                "acquisition": acq.tolist(),
+            }
+            observations = {
+                "x": training_data[name_x].tolist(),
+                "y": training_data[target_column].tolist(),
+            }
+            suggestion_out = None
+            if suggestion and suggestion.get("concentrations"):
+                sconc = suggestion["concentrations"]
+                suggestion_out = {
+                    "x": sconc.get(name_x),
+                    "predicted_value": suggestion.get("predicted_value"),
+                    "uncertainty": suggestion.get("uncertainty"),
+                }
+
+            return {
+                "status": "ready",
+                "predictions": predictions,
+                "observations": observations,
+                "suggestion": suggestion_out,
+                "ingredient_name": name_x,
+                "target_column": target_column,
+            }
+
     except Exception as e:
+        logger.error(f"Error building BO model for session {session_id}: {e}", exc_info=True)
         return {
             "status": "error",
             "observations": [],

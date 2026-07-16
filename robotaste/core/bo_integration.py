@@ -18,7 +18,7 @@ CANVAS_SIZE = 500  # Default canvas size for coordinate mapping
 logger = logging.getLogger(__name__)
 
 
-def _ingredient_range(ing: Dict[str, Any]) -> tuple:
+def get_ingredient_range(ing: Dict[str, Any]) -> tuple:
     """
     Get (min, max) concentration for an ingredient dict.
 
@@ -129,7 +129,7 @@ def get_bo_suggestion_for_session(
         if num_ingredients == 2:
             # 2D Grid interface - use grid sampling
             ingredient_ranges = {
-                ing["name"]: _ingredient_range(ing) for ing in ingredients
+                ing["name"]: get_ingredient_range(ing) for ing in ingredients
             }
 
             # Get concentration ranges for the two ingredients
@@ -142,7 +142,7 @@ def get_bo_suggestion_for_session(
         else:
             # Slider interface - use Latin Hypercube Sampling
             ingredient_ranges = {
-                ing["name"]: _ingredient_range(ing) for ing in ingredients
+                ing["name"]: get_ingredient_range(ing) for ing in ingredients
             }
             candidates = generate_candidates_latin_hypercube(
                 ranges=ingredient_ranges,
@@ -201,7 +201,7 @@ def get_bo_suggestion_for_session(
 
             # Get concentration ranges
             ingredient_ranges_dict = {
-                ing["name"]: _ingredient_range(ing) for ing in ingredients
+                ing["name"]: get_ingredient_range(ing) for ing in ingredients
             }
             sugar_range = ingredient_ranges_dict[ingredient_names[0]]
             salt_range = ingredient_ranges_dict[ingredient_names[1]]
@@ -229,7 +229,7 @@ def get_bo_suggestion_for_session(
             for ing in ingredients:
                 ing_name = ing["name"]
                 conc = concentrations.get(ing_name, 0)
-                min_conc, max_conc = _ingredient_range(ing)
+                min_conc, max_conc = get_ingredient_range(ing)
 
                 # Convert to percentage (0-100)
                 if max_conc > min_conc:

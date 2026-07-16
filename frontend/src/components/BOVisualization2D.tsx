@@ -181,7 +181,7 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
         api.get(`/sessions/${sessionId}/samples`),
       ]);
       setModel(modelRes.data);
-      setSamples(samplesRes.data);
+      setSamples(samplesRes.data.samples || []);
       setError(null);
     } catch (err) {
       setError('Failed to load BO model data');

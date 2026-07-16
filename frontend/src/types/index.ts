@@ -358,6 +358,25 @@ export interface BOSuggestion {
 }
 
 
+// ─── BO STATUS / CONVERGENCE ────────────────────────────────────────────────
+// Per-cycle BO progress metrics, from GET /sessions/{id}/bo-status
+// (backed by get_convergence_metrics in robotaste/core/bo_utils.py)
+
+export interface BOStatus {
+  current_cycle: number;
+  n_samples: number;
+  n_bo_samples: number;
+  acquisition_values: number[];
+  predicted_values: number[];
+  uncertainties: number[];
+  best_values: number[];
+  max_acquisition: number | null;
+  recent_stability: number | null;
+  improvement_rate: number | null;
+  has_sufficient_data: boolean;
+}
+
+
 // ─── CUSTOM PHASE ──────────────────────────────────────────────────────────
 // Protocol-defined custom phase configuration
 

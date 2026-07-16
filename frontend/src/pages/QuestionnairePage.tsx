@@ -400,6 +400,7 @@ export default function QuestionnairePage() {
         const selRes = await api.post(`/sessions/${sessionId}/selection`, {
           concentrations: cycleInfo.concentrations,
           selection_mode: mode,
+          selection_data: cycleInfo.selection_data,
         });
         const pumpEnabled = selRes.data.pump_enabled;
         navigate(pumpEnabled

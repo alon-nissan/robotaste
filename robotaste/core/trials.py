@@ -117,6 +117,7 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
         result = {
             "mode": normalized_mode,
             "concentrations": None,
+            "selection_data": None,  # Full BO payload for persistence (bo_selected only)
             "metadata": {
                 "is_predetermined": False,
                 "allows_override": False,
@@ -231,6 +232,11 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
                     result["metadata"]["acquisition_params"] = bo_suggestion.get("acquisition_params", {})
                     result["metadata"]["predicted_value"] = bo_suggestion.get("predicted_value")
                     result["metadata"]["uncertainty"] = bo_suggestion.get("uncertainty")
+                    result["metadata"]["acquisition_value"] = bo_suggestion.get("acquisition_value")
+
+                    # Full BO payload, for persistence into samples.selection_data
+                    # (see save_sample_cycle's acquisition_* extraction).
+                    result["selection_data"] = bo_suggestion
 
                     logger.info(f"BO suggestion for cycle {cycle_number}: {result['concentrations']}")
                 else:

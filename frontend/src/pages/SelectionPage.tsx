@@ -181,6 +181,7 @@ export default function SelectionPage() {
           const selRes = await api.post(`/sessions/${sessionId}/selection`, {
             concentrations: cycleInfo.concentrations,
             selection_mode: cycleInfo.mode,
+            selection_data: cycleInfo.selection_data,
           });
           const pumpEnabled = selRes.data.pump_enabled;
           navigate(pumpEnabled
