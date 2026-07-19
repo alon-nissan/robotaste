@@ -152,6 +152,69 @@ def validate_bo_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return validated
 
 
+def resolve_stopping_criteria(
+    experiment_config: Dict[str, Any], num_ingredients: int
+) -> Dict[str, Any]:
+    """
+    Resolve the effective BO stopping-criteria dict for a session.
+
+    Two independent shapes can both be present in a protocol:
+      - the FLAT `experiment_config["stopping_criteria"]` (what the Protocol
+        Wizard writes: `max_cycles`, `min_cycles`, `ei_threshold`,
+        `stability_threshold`, `mode`, `convergence_detection`), which drives
+        overall experiment length via `phase_engine._should_stop_experiment`; and
+      - the NESTED, dimensionality-split
+        `experiment_config["bayesian_optimization"]["stopping_criteria"]`
+        (`min_cycles_1d/2d`, `max_cycles_1d/2d`, `ei_threshold`,
+        `stability_threshold`, `stopping_mode`, `enabled`) that the BO engine
+        (adaptive acquisition horizon + `bo_utils.check_convergence`) actually
+        reads.
+
+    Without this bridge, a protocol that only sets the flat shape (e.g. any
+    wizard-built protocol) silently falls back to `DEFAULT_BO_CONFIG`'s
+    hardcoded values (`max_cycles_2d=50`, etc.), decoupling the actual
+    experiment length from the BO exploration/exploitation horizon and from
+    convergence detection.
+
+    Resolution order (later wins): `DEFAULT_BO_CONFIG["stopping_criteria"]` →
+    nested `bayesian_optimization.stopping_criteria` (if present) → flat
+    `experiment_config.stopping_criteria`, mapped onto the dimensionality
+    keys for `num_ingredients`. The flat shape wins because it's what the
+    experiment will actually stop at — the BO horizon should match it.
+
+    Args:
+        experiment_config: Session's full experiment configuration.
+        num_ingredients: Number of tunable ingredients (2 → `_2d` keys, else `_1d`).
+
+    Returns:
+        A stopping-criteria dict using the nested (`_1d`/`_2d`) shape.
+    """
+    resolved = get_default_bo_config()["stopping_criteria"].copy()
+
+    bo_section = experiment_config.get("bayesian_optimization") or {}
+    nested = bo_section.get("stopping_criteria")
+    if isinstance(nested, dict):
+        resolved.update(nested)
+
+    flat = experiment_config.get("stopping_criteria")
+    if isinstance(flat, dict):
+        suffix = "2d" if num_ingredients >= 2 else "1d"
+        if flat.get("max_cycles") is not None:
+            resolved[f"max_cycles_{suffix}"] = flat["max_cycles"]
+        if flat.get("min_cycles") is not None:
+            resolved[f"min_cycles_{suffix}"] = flat["min_cycles"]
+        if flat.get("ei_threshold") is not None:
+            resolved["ei_threshold"] = flat["ei_threshold"]
+        if flat.get("stability_threshold") is not None:
+            resolved["stability_threshold"] = flat["stability_threshold"]
+        if flat.get("mode") is not None:
+            resolved["stopping_mode"] = flat["mode"]
+        if flat.get("convergence_detection") is not None:
+            resolved["enabled"] = flat["convergence_detection"]
+
+    return resolved
+
+
 def get_bo_config_from_experiment(experiment_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract BO configuration from experiment config.

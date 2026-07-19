@@ -1,0 +1,182 @@
+{
+  "protocol_id": "proto_sucrose_nacl_sweetness_bo",
+  "name": "Sucrose-NaCl Sweetness Enhancement (2D BO, 8 samples)",
+  "description": "2D Bayesian-optimized mapping of NaCl's effect on perceived sweetness. Sucrose is held to a narrow suprathreshold band (110-130 mM); NaCl spans a wide range (0-20 mM) covering the sub-threshold enhancement zone through where saltiness starts to dominate. Objective: maximize sweetness_intensity. 3 space-filling seed samples + 5 UCB-driven BO samples (8 cycles total).",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "tags": ["sucrose", "nacl", "sweetness-enhancement", "bayesian-optimization", "2d"],
+  "ingredients": [
+    {
+      "name": "Sucrose",
+      "min_concentration": 110.0,
+      "max_concentration": 130.0,
+      "unit": "mM",
+      "molecular_weight": 342.3,
+      "stock_concentration_mM": 200.0
+    },
+    {
+      "name": "NaCl",
+      "min_concentration": 0.0,
+      "max_concentration": 20.0,
+      "unit": "mM",
+      "molecular_weight": 58.44,
+      "stock_concentration_mM": 100.0
+    },
+    {
+      "name": "Water",
+      "min_concentration": 0.0,
+      "max_concentration": 0.0,
+      "unit": "mM",
+      "is_diluent": true,
+      "stock_concentration_mM": 0.0
+    }
+  ],
+  "pump_config": {
+    "enabled": true,
+    "serial_port": "/dev/cu.PL2303G-USBtoUART120",
+    "baud_rate": 19200,
+    "pumps": [
+      {
+        "address": 0,
+        "ingredient": "Sucrose",
+        "syringe_diameter_mm": 26.7,
+        "max_rate_ul_min": 100000,
+        "stock_concentration_mM": 200.0,
+        "description": "BD 60mL syringe, 200 mM sucrose stock. 110-130 mM target -> 5500-6500 uL dispensed (55-65% of cup)."
+      },
+      {
+        "address": 1,
+        "ingredient": "NaCl",
+        "syringe_diameter_mm": 26.7,
+        "max_rate_ul_min": 100000,
+        "stock_concentration_mM": 100.0,
+        "description": "BD 60mL syringe, 100 mM NaCl stock. 0-20 mM target -> 0-2000 uL dispensed."
+      },
+      {
+        "address": 2,
+        "ingredient": "Water",
+        "syringe_diameter_mm": 26.7,
+        "max_rate_ul_min": 100000,
+        "description": "Fills remaining volume to total_volume_ml after Sucrose + NaCl are dispensed."
+      }
+    ],
+    "total_volume_ml": 10.0,
+    "dispensing_rate_ul_min": 60000,
+    "simultaneous_dispensing": true,
+    "use_burst_mode": true
+  },
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Sweetness Study**\n\nYou will taste 8 short samples of sugar water, some also containing a small amount of salt.\n\nFor each sample, rate how sweet it tastes on the scale provided. Please rinse your mouth with water between samples.",
+    "confirm_label": "I understand the instructions.",
+    "button_label": "Start Experiment"
+  },
+  "sample_selection_schedule": [
+    {
+      "cycle_range": {"start": 1, "end": 3},
+      "mode": "predetermined",
+      "predetermined_samples": [
+        {"cycle": 1, "concentrations": {"Sucrose": 110.0, "NaCl": 0.0}},
+        {"cycle": 2, "concentrations": {"Sucrose": 130.0, "NaCl": 10.0}},
+        {"cycle": 3, "concentrations": {"Sucrose": 120.0, "NaCl": 20.0}}
+      ]
+    },
+    {
+      "cycle_range": {"start": 4, "end": 8},
+      "mode": "bo_selected",
+      "config": {
+        "show_bo_suggestion": true,
+        "allow_override": false,
+        "auto_accept_suggestion": true
+      }
+    }
+  ],
+  "questionnaire": {
+    "name": "Sweetness Intensity",
+    "description": "Single-item sweetness intensity rating used as the Bayesian optimization target.",
+    "version": "1.0",
+    "questions": [
+      {
+        "id": "sweetness_intensity",
+        "type": "slider",
+        "label": "How sweet is this sample?",
+        "help_text": "Rate the sweetness intensity from 1 (not sweet at all) to 9 (extremely sweet).",
+        "min": 1.0,
+        "max": 9.0,
+        "default": 5.0,
+        "step": 0.1,
+        "required": true,
+        "display_type": "slider_continuous"
+      }
+    ],
+    "bayesian_target": {
+      "variable": "sweetness_intensity",
+      "transform": "identity",
+      "higher_is_better": true,
+      "description": "Maximize perceived sweetness intensity (1-9 scale).",
+      "expected_range": [1.0, 9.0]
+    }
+  },
+  "bayesian_optimization": {
+    "enabled": true,
+    "min_samples_for_bo": 3,
+    "acquisition_function": "ucb",
+    "ei_xi": 0.01,
+    "ucb_kappa": 3.0,
+    "adaptive_acquisition": true,
+    "exploration_budget": 0.5,
+    "xi_exploration": 0.1,
+    "xi_exploitation": 0.01,
+    "kappa_exploration": 4.0,
+    "kappa_exploitation": 1.5,
+    "kernel_nu": 2.5,
+    "alpha": 0.001,
+    "n_restarts_optimizer": 10,
+    "stopping_criteria": {
+      "enabled": true,
+      "min_cycles_2d": 3,
+      "max_cycles_2d": 8,
+      "ei_threshold": 0.001,
+      "ucb_threshold": 0.01,
+      "stability_window": 3,
+      "stability_threshold": 0.05,
+      "consecutive_required": 2,
+      "stopping_mode": "manual_only"
+    }
+  },
+  "phase_sequence": {
+    "phases": [
+      {"phase_id": "registration", "phase_type": "builtin", "required": true},
+      {"phase_id": "instructions", "phase_type": "builtin", "required": true},
+      {"phase_id": "experiment_loop", "phase_type": "loop", "required": true},
+      {"phase_id": "completion", "phase_type": "builtin", "required": true}
+    ]
+  },
+  "stopping_criteria": {
+    "mode": "manual_only",
+    "min_cycles": 3,
+    "max_cycles": 8,
+    "convergence_detection": true,
+    "early_termination_allowed": false,
+    "ei_threshold": 0.001,
+    "stability_threshold": 0.05
+  },
+  "loading_screen": {
+    "message": "Please rinse your mouth with water.",
+    "duration_seconds": 8,
+    "show_progress": true,
+    "show_cycle_info": true
+  },
+  "presentation": {
+    "randomize_start": false,
+    "show_cycle_counter": true,
+    "show_convergence_indicator": false,
+    "display_bo_predictions": true
+  },
+  "data_collection": {
+    "track_trajectory": true,
+    "track_interaction_times": true,
+    "collect_demographics": false,
+    "custom_metadata": {}
+  }
+}

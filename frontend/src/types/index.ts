@@ -353,7 +353,6 @@ export interface BOSuggestion {
   concentrations: Record<string, number>;
   predicted_value?: number;
   uncertainty?: number;
-  grid_coordinates?: { x: number; y: number };
   slider_values?: Record<string, number>;
 }
 

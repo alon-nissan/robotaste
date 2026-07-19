@@ -11,8 +11,6 @@ import logging
 from typing import Optional, Dict, Any
 
 from robotaste.data import database as sql
-from robotaste.core.calculations import ConcentrationMapper
-CANVAS_SIZE = 500  # Default canvas size for coordinate mapping
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -62,7 +60,7 @@ def get_bo_suggestion_for_session(
 
     This function checks if BO should be active (cycle >= 3), trains the BO model
     from existing data, generates candidate samples, and returns the best suggestion
-    with interface-specific coordinates.
+    with interface-specific values.
 
     Args:
         session_id: Session identifier for database queries
@@ -75,7 +73,6 @@ def get_bo_suggestion_for_session(
             "predicted_value": 7.8,
             "uncertainty": 0.5,
             "acquisition_value": 0.0234,
-            "grid_coordinates": {"x": 250, "y": 300},  # For 2D grid only
             "slider_values": {"Sugar": 65, "Salt": 42, ...},  # For sliders only
             "mode": "bayesian_optimization",
             "is_protocol_driven": bool,  # True if from protocol bo_selected mode
@@ -150,12 +147,20 @@ def get_bo_suggestion_for_session(
                 random_state=bo_config.get("random_state", 42),
             )
 
-        # Determine max_cycles based on dimensionality
-        stopping_criteria = bo_config.get("stopping_criteria", {})
+        # Determine max_cycles based on dimensionality. Bridges the flat
+        # protocol.stopping_criteria (wizard-authored, drives overall
+        # experiment length via phase_engine) with the nested
+        # bayesian_optimization.stopping_criteria shape the BO engine expects
+        # — see resolve_stopping_criteria() for why this is needed.
+        from robotaste.config.bo_config import resolve_stopping_criteria
+
+        resolved_stopping_criteria = resolve_stopping_criteria(
+            experiment_config, num_ingredients
+        )
         if num_ingredients == 2:
-            max_cycles = stopping_criteria.get("max_cycles_2d", 50)
+            max_cycles = resolved_stopping_criteria.get("max_cycles_2d", 50)
         else:
-            max_cycles = stopping_criteria.get("max_cycles_1d", 30)
+            max_cycles = resolved_stopping_criteria.get("max_cycles_1d", 30)
 
         # Get BO suggestion with adaptive acquisition parameters
         suggestion = bo_model.suggest_next_sample(
@@ -189,41 +194,13 @@ def get_bo_suggestion_for_session(
             "mode": "bayesian_optimization",
         }
 
-        # Convert to interface-specific coordinates
-        if num_ingredients == 2:
-            # Convert concentrations to grid coordinates (x, y)
-            ingredient_names = list(concentrations.keys())
-            sugar_conc = concentrations[ingredient_names[0]]
-            salt_conc = concentrations[ingredient_names[1]]
-
-            # Get the mapping method from config
-            method = experiment_config.get("method", "logarithmic")
-
-            # Get concentration ranges
-            ingredient_ranges_dict = {
-                ing["name"]: get_ingredient_range(ing) for ing in ingredients
-            }
-            sugar_range = ingredient_ranges_dict[ingredient_names[0]]
-            salt_range = ingredient_ranges_dict[ingredient_names[1]]
-
-            # Use ConcentrationMapper to convert back to coordinates
-            x, y = ConcentrationMapper.map_concentrations_to_coordinates(
-                sugar_mm=sugar_conc,
-                salt_mm=salt_conc,
-                method=method,
-                sugar_range=sugar_range,
-                salt_range=salt_range,
-                canvas_size=CANVAS_SIZE,
-            )
-
-            # Clamp coordinates to canvas bounds [0, CANVAS_SIZE-1] to ensure visibility
-            # Canvas is 0-indexed, so valid range is [0, 499] not [0, 500]
-            result["grid_coordinates"] = {
-                "x": max(0, min(CANVAS_SIZE - 1, int(x))),
-                "y": max(0, min(CANVAS_SIZE - 1, int(y))),
-            }
-
-        else:
+        # Convert to interface-specific values. The 2D grid interface positions
+        # itself from `result["concentrations"]` directly (see Grid2D in
+        # SelectionPage.tsx, which does its own linear pixel<->concentration
+        # mapping from the ingredients' min/max) — it never needed a
+        # server-computed pixel coordinate, so there is no 2D-specific
+        # conversion here. Only the N-D slider interface needs a derived value.
+        if num_ingredients != 2:
             # Convert concentrations to slider percentages (0-100)
             slider_values = {}
             for ing in ingredients:
@@ -244,8 +221,7 @@ def get_bo_suggestion_for_session(
         try:
             from robotaste.core.bo_utils import check_convergence
 
-            stopping_criteria = bo_config.get("stopping_criteria")
-            convergence = check_convergence(session_id, stopping_criteria)
+            convergence = check_convergence(session_id, resolved_stopping_criteria)
 
             # Add convergence info to result for subject interface
             result["convergence"] = {
