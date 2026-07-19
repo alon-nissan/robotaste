@@ -7,7 +7,7 @@
  * Data flow:
  *   1. GET /sessions/{id}/status  → cycle, phase, mode
  *   2. GET /sessions/{id}         → experiment_config with ingredients
- *   3. GET /sessions/{id}/bo-suggestion (if bo_selected mode)
+ *   3. GET /sessions/{id}/cycle-info (for system-selected cycles incl. BO auto-accept)
  *   4. POST /sessions/{id}/selection   → submit chosen concentrations
  *   5. GET /sessions/{id}/samples      → previous selections history
  */
@@ -19,7 +19,6 @@ import type {
   Session,
   SessionStatus,
   Ingredient,
-  BOSuggestion,
   Sample,
 } from '../types';
 
@@ -65,13 +64,12 @@ export default function SelectionPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [boSuggestion, setBoSuggestion] = useState<BOSuggestion | null>(null);
   const [selectedConcentrations, setSelectedConcentrations] = useState<Record<string, number>>({});
   const [samples, setSamples] = useState<Sample[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [autoSubmitAttempt, setAutoSubmitAttempt] = useState(0);
 
   // ─── FETCH DATA ─────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -106,11 +104,6 @@ export default function SelectionPage() {
         }
         return defaults;
       });
-
-      // BO cycles auto-apply the optimizer's suggestion (see auto-submit effect
-      // below) rather than showing it for manual override, so no separate
-      // /bo-suggestion fetch is needed here.
-      setBoSuggestion(null);
 
       setError(null);
     } catch (err) {
@@ -153,6 +146,20 @@ export default function SelectionPage() {
     || ((session?.experiment_config as Record<string, Record<string, number>> | undefined)
         ?.stopping_criteria?.max_cycles)
     || 0;
+  const currentScheduleBlock = (() => {
+    if (!status || !session) return undefined;
+    const config = session.experiment_config as Record<string, unknown> | undefined;
+    const schedule = config?.sample_selection_schedule as Array<{
+      cycle_range: { start: number; end: number };
+      mode: string;
+      config?: { auto_accept_suggestion?: boolean; allow_override?: boolean };
+    }> | undefined;
+    if (!schedule) return undefined;
+    const cycle = status.current_cycle;
+    return schedule.find((block) => cycle >= block.cycle_range.start && cycle <= block.cycle_range.end);
+  })();
+  const boAutoAccept = currentMode === 'bo_selected'
+    && Boolean(currentScheduleBlock?.config?.auto_accept_suggestion);
 
   // ─── AUTO-SUBMIT FOR PREDETERMINED / BO MODE ─────────────────────────────
   // Both modes are system-selected: predetermined concentrations come from the
@@ -189,9 +196,18 @@ export default function SelectionPage() {
             : `/subject/${sessionId}/questionnaire`
           );
         } else if (isBO) {
-          // BO genuinely not ready (not enough samples yet, or training
-          // failed) — let the subject pick manually instead of erroring out.
-          console.warn('BO suggestion not available yet; falling back to manual selection');
+          const isAutoAccept = Boolean(
+            cycleInfo?.metadata?.auto_accept_suggestion ?? boAutoAccept
+          );
+          if (isAutoAccept) {
+            setError('Preparing optimized sample. Please wait...');
+            autoSubmitDone.current = false;
+            window.setTimeout(() => setAutoSubmitAttempt((n) => n + 1), 1000);
+          } else {
+            // BO genuinely not ready (not enough samples yet, or training
+            // failed) — let the subject pick manually instead of erroring out.
+            console.warn('BO suggestion not available yet; falling back to manual selection');
+          }
         } else {
           setError('Failed to auto-submit predetermined selection');
           autoSubmitDone.current = false;
@@ -199,14 +215,20 @@ export default function SelectionPage() {
       } catch (err) {
         console.error('Auto-submit failed:', err);
         if (isBO) {
-          console.warn('BO auto-submit failed; falling back to manual selection');
+          if (boAutoAccept) {
+            setError('Preparing optimized sample. Please wait...');
+            autoSubmitDone.current = false;
+            window.setTimeout(() => setAutoSubmitAttempt((n) => n + 1), 1000);
+          } else {
+            console.warn('BO auto-submit failed; falling back to manual selection');
+          }
         } else {
           setError('Failed to auto-submit predetermined selection');
           autoSubmitDone.current = false;
         }
       }
     })();
-  }, [sessionId, session, status, loading, currentMode, navigate]);
+  }, [sessionId, session, status, loading, currentMode, boAutoAccept, autoSubmitAttempt, navigate]);
 
 
   // ─── CONFIRM SELECTION ──────────────────────────────────────────────────
@@ -235,15 +257,6 @@ export default function SelectionPage() {
       setSubmitting(false);
     }
   }
-
-
-  // ─── USE BO SUGGESTION ─────────────────────────────────────────────────
-  function applySuggestion() {
-    if (!boSuggestion?.concentrations) return;
-    setSelectedConcentrations({ ...boSuggestion.concentrations });
-    setSuggestionDismissed(true);
-  }
-
 
   // ─── LOADING / ERROR STATES ─────────────────────────────────────────────
   if (loading) {
@@ -286,34 +299,8 @@ export default function SelectionPage() {
             </span>
           </div>
 
-          {/* BO Suggestion box */}
-          {currentMode === 'bo_selected' && boSuggestion?.concentrations && !suggestionDismissed && (
-            <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-lg mb-6">
-              <p className="text-sm font-medium text-blue-800 mb-2">
-                🤖 The algorithm suggests:{' '}
-                {Object.entries(boSuggestion.concentrations)
-                  .map(([name, val]) => `${name} ${(val as number).toFixed(1)} mM`)
-                  .join(', ')}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={applySuggestion}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >
-                  Use Suggestion
-                </button>
-                <button
-                  onClick={() => setSuggestionDismissed(true)}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium bg-white text-blue-700 border border-blue-300 hover:bg-blue-50 transition-colors"
-                >
-                  Choose My Own
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Render slider or grid */}
-          {ingredients.length === 1 ? (
+          {!boAutoAccept && ingredients.length === 1 ? (
             <SingleSlider
               ingredient={ingredients[0]}
               value={selectedConcentrations[ingredients[0].name] ?? 0}
@@ -321,7 +308,7 @@ export default function SelectionPage() {
                 setSelectedConcentrations(prev => ({ ...prev, [ingredients[0].name]: val }))
               }
             />
-          ) : ingredients.length >= 2 ? (
+          ) : !boAutoAccept && ingredients.length >= 2 ? (
             <Grid2D
               ingredientX={ingredients[0]}
               ingredientY={ingredients[1]}
@@ -336,6 +323,15 @@ export default function SelectionPage() {
               }
               previousSamples={samples}
             />
+          ) : boAutoAccept ? (
+            <div className="text-center py-8 space-y-2">
+              <p className="text-base font-medium text-text-primary">
+                Preparing optimized sample...
+              </p>
+              <p className="text-sm text-text-secondary">
+                Concentrations are selected automatically for this cycle.
+              </p>
+            </div>
           ) : (
             <p className="text-base text-text-secondary text-center py-8">
               No ingredients configured for this experiment.
@@ -350,7 +346,7 @@ export default function SelectionPage() {
           )}
 
           {/* Confirm button */}
-          {ingredients.length > 0 && (
+          {!boAutoAccept && ingredients.length > 0 && (
             <div className="flex justify-center mt-6">
               <button
                 onClick={handleConfirm}

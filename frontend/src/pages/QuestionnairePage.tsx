@@ -5,6 +5,12 @@ import { phaseToPath } from '../utils/phases';
 import type { QuestionConfig, QuestionnaireConfig } from '../types';
 import PageLayout from '../components/PageLayout';
 
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 const DEFAULT_QUESTIONS: QuestionConfig[] = [
   {
     id: 'overall_liking',
@@ -394,6 +400,7 @@ export default function QuestionnairePage() {
       const mode: string = cycleInfo.mode || 'user_selected';
       const isPredetermined = mode.startsWith('predetermined');
       const isBO = mode === 'bo_selected';
+      const isBOAutoAccept = isBO && Boolean(cycleInfo?.metadata?.auto_accept_suggestion);
 
       if ((isPredetermined || isBO) && cycleInfo.concentrations) {
         // Auto-submit the system-selected concentrations
@@ -407,6 +414,32 @@ export default function QuestionnairePage() {
           ? `/subject/${sessionId}/cup-ready`
           : `/subject/${sessionId}/questionnaire`
         );
+      } else if (isBOAutoAccept) {
+        // Auto-accept BO mode should not expose manual selection.
+        // Retry briefly, then hand off to selection page which keeps auto-retrying.
+        let prepared = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          await delay(1000);
+          const retryCycleRes = await api.get(`/sessions/${sessionId}/cycle-info`);
+          const retryCycleInfo = retryCycleRes.data;
+          if (retryCycleInfo?.concentrations) {
+            const selRes = await api.post(`/sessions/${sessionId}/selection`, {
+              concentrations: retryCycleInfo.concentrations,
+              selection_mode: retryCycleInfo.mode,
+              selection_data: retryCycleInfo.selection_data,
+            });
+            const pumpEnabled = selRes.data.pump_enabled;
+            navigate(pumpEnabled
+              ? `/subject/${sessionId}/cup-ready`
+              : `/subject/${sessionId}/questionnaire`
+            );
+            prepared = true;
+            break;
+          }
+        }
+        if (!prepared) {
+          navigate(`/subject/${sessionId}/select`);
+        }
       } else {
         navigate(phaseToPath(nextPhase, sessionId!));
       }

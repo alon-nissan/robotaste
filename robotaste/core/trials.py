@@ -121,7 +121,8 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
             "metadata": {
                 "is_predetermined": False,
                 "allows_override": False,
-                "show_suggestion": False
+                "show_suggestion": False,
+                "auto_accept_suggestion": False,
             }
         }
 
@@ -209,23 +210,32 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
 
             session = sql.get_session(session_id)
             if session:
+                experiment_config = session.get("experiment_config", {})
+                schedule = experiment_config.get("sample_selection_schedule", [])
+                auto_accept_suggestion = False
+                allows_override = True
+
+                for entry in schedule:
+                    cycle_range = entry.get("cycle_range", {})
+                    if cycle_range.get("start", 0) <= cycle_number <= cycle_range.get("end", 0):
+                        config = entry.get("config", {})
+                        auto_accept_suggestion = bool(config.get("auto_accept_suggestion", False))
+                        allows_override = bool(config.get("allow_override", True))
+                        break
+
+                if auto_accept_suggestion:
+                    # Auto-accept mode is system-selected; never expose manual override.
+                    allows_override = False
+
+                result["metadata"]["auto_accept_suggestion"] = auto_accept_suggestion
+                result["metadata"]["allows_override"] = allows_override
+                result["metadata"]["show_suggestion"] = not auto_accept_suggestion
+
                 participant_id = session.get("user_id", "unknown")
                 bo_suggestion = get_bo_suggestion_for_session(session_id, participant_id)
 
                 if bo_suggestion:
                     result["concentrations"] = bo_suggestion.get("concentrations")
-                    result["metadata"]["show_suggestion"] = True
-
-                    # Check protocol config for allow_override
-                    experiment_config = session.get("experiment_config", {})
-                    schedule = experiment_config.get("sample_selection_schedule", [])
-
-                    for entry in schedule:
-                        cycle_range = entry.get("cycle_range", {})
-                        if cycle_range.get("start", 0) <= cycle_number <= cycle_range.get("end", 0):
-                            config = entry.get("config", {})
-                            result["metadata"]["allows_override"] = config.get("allow_override", True)
-                            break
 
                     # Include BO metadata
                     result["metadata"]["acquisition_function"] = bo_suggestion.get("acquisition_function")
@@ -240,8 +250,14 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
 
                     logger.info(f"BO suggestion for cycle {cycle_number}: {result['concentrations']}")
                 else:
-                    logger.info(f"BO not ready for cycle {cycle_number}, falling back to user selection")
-                    result["mode"] = "user_selected"
+                    if auto_accept_suggestion:
+                        logger.info(
+                            f"BO not ready for cycle {cycle_number}; staying in bo_selected "
+                            "auto-accept mode without manual override"
+                        )
+                    else:
+                        logger.info(f"BO not ready for cycle {cycle_number}, falling back to user selection")
+                        result["mode"] = "user_selected"
 
         else:  # user_selected
             # No concentrations needed, user chooses
