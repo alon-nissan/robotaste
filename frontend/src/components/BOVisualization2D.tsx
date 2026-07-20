@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import Plot from 'react-plotly.js';
 import { api } from '../api/client';
 import type { BOModel2D, Sample } from '../types';
 
@@ -13,7 +14,6 @@ const ACQ_SIZE = 320;
 const ACQ_PAD = { top: 30, right: 20, bottom: 48, left: 52 };
 const ACQ_W = ACQ_SIZE - ACQ_PAD.left - ACQ_PAD.right;
 const ACQ_H = ACQ_SIZE - ACQ_PAD.top - ACQ_PAD.bottom;
-const SURFACE_W = 420;
 const SURFACE_H = 320;
 
 function lerp(a: number, b: number, t: number): number {
@@ -192,96 +192,73 @@ function SurfacePanel({
   observations,
   suggestion,
 }: SurfacePanelProps) {
-  const xMin = Math.min(...xVals);
-  const xMax = Math.max(...xVals);
-  const yMin = Math.min(...yVals);
-  const yMax = Math.max(...yVals);
-
-  const xSpan = xMax - xMin || 1;
-  const ySpan = yMax - yMin || 1;
-  const zSpan = zMax - zMin || 1;
-
-  const centerX = SURFACE_W * 0.5;
-  const baseY = SURFACE_H * 0.82;
-  const xScale = 120;
-  const yScale = 75;
-  const zScale = 95;
-
-  const project = (x: number, y: number, z: number) => {
-    const nx = (x - xMin) / xSpan;
-    const ny = (y - yMin) / ySpan;
-    const nz = (z - zMin) / zSpan;
-
-    return {
-      x: centerX + (nx - ny) * xScale,
-      y: baseY - (nx + ny) * yScale - nz * zScale,
-    };
-  };
-
-  const quads: {
-    key: string;
-    points: string;
-    fill: string;
-    depth: number;
-  }[] = [];
-
-  for (let yi = 0; yi < yVals.length - 1; yi++) {
-    for (let xi = 0; xi < xVals.length - 1; xi++) {
-      const p1 = project(xVals[xi], yVals[yi], mean[yi][xi]);
-      const p2 = project(xVals[xi + 1], yVals[yi], mean[yi][xi + 1]);
-      const p3 = project(xVals[xi + 1], yVals[yi + 1], mean[yi + 1][xi + 1]);
-      const p4 = project(xVals[xi], yVals[yi + 1], mean[yi + 1][xi]);
-      const avgZ = (mean[yi][xi] + mean[yi][xi + 1] + mean[yi + 1][xi + 1] + mean[yi + 1][xi]) / 4;
-
-      quads.push({
-        key: `${yi}-${xi}`,
-        points: `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`,
-        fill: valueToColor(avgZ, zMin, zMax, 'viridis'),
-        depth: yi + xi,
-      });
-    }
-  }
-
-  quads.sort((a, b) => a.depth - b.depth);
-  const pathPoints = observations.map((obs) => project(obs.x, obs.y, obs.z));
-  const suggestionPoint = suggestion ? project(suggestion.x, suggestion.y, suggestion.z) : null;
-
+  const pathLabels = observations.map((_, i) => `C${i + 1}`);
   return (
-    <svg viewBox={`0 0 ${SURFACE_W} ${SURFACE_H}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-      <line x1={centerX - xScale} y1={baseY} x2={centerX + xScale} y2={baseY - yScale} stroke="#9ca3af" strokeWidth={1} />
-      <line x1={centerX + xScale} y1={baseY - yScale} x2={centerX} y2={baseY - 2 * yScale} stroke="#9ca3af" strokeWidth={1} />
-      <line x1={centerX - xScale} y1={baseY} x2={centerX} y2={baseY - 2 * yScale} stroke="#9ca3af" strokeWidth={1} />
-      <line x1={centerX} y1={baseY - 2 * yScale} x2={centerX} y2={baseY - 2 * yScale - zScale * 0.85} stroke="#9ca3af" strokeWidth={1} />
-
-      {quads.map((quad) => (
-        <polygon key={quad.key} points={quad.points} fill={quad.fill} stroke="rgba(255,255,255,0.35)" strokeWidth={0.6} />
-      ))}
-
-      {pathPoints.length > 1 && (
-        <path d={buildPath(pathPoints)} fill="none" stroke={PRIMARY} strokeWidth={2.5} />
-      )}
-
-      {pathPoints.map((point, i) => (
-        <g key={`surface-point-${i}`}>
-          <circle cx={point.x} cy={point.y} r={4.5} fill={PRIMARY} stroke="#fff" strokeWidth={1.5} />
-          <text x={point.x} y={point.y - 8} textAnchor="middle" fontSize={8} fill="#374151">
-            C{i + 1}
-          </text>
-        </g>
-      ))}
-
-      {suggestionPoint && <StarMarker cx={suggestionPoint.x} cy={suggestionPoint.y} r={8} fill={ACCENT} />}
-
-      <text x={centerX - xScale - 8} y={baseY + 10} textAnchor="end" fontSize={11} fill="#6b7280">
-        {xLabel}
-      </text>
-      <text x={centerX + xScale + 10} y={baseY - yScale - 3} textAnchor="start" fontSize={11} fill="#6b7280">
-        {yLabel}
-      </text>
-      <text x={centerX + 8} y={baseY - 2 * yScale - zScale * 0.85 - 5} textAnchor="start" fontSize={11} fill="#6b7280">
-        Response
-      </text>
-    </svg>
+    <Plot
+      data={[
+        {
+          type: 'surface',
+          x: xVals,
+          y: yVals,
+          z: mean,
+          colorscale: 'Viridis',
+          cmin: zMin,
+          cmax: zMax,
+          showscale: true,
+          opacity: 0.9,
+          contours: {
+            z: { show: true, usecolormap: true, width: 1 },
+          },
+          hovertemplate: `${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Predicted: %{z:.3f}<extra></extra>`,
+        },
+        {
+          type: 'scatter3d',
+          mode: 'lines+markers+text',
+          x: observations.map((p) => p.x),
+          y: observations.map((p) => p.y),
+          z: observations.map((p) => p.z),
+          text: pathLabels,
+          textposition: 'top center',
+          line: { color: PRIMARY, width: 8 },
+          marker: { color: PRIMARY, size: 5, line: { color: '#ffffff', width: 2 } },
+          hovertemplate: `Cycle %{text}<br>${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Observed: %{z:.3f}<extra></extra>`,
+          showlegend: false,
+        },
+        ...(suggestion
+          ? [
+              {
+                type: 'scatter3d',
+                mode: 'markers',
+                x: [suggestion.x],
+                y: [suggestion.y],
+                z: [suggestion.z],
+                marker: {
+                  color: ACCENT,
+                  size: 8,
+                  symbol: 'diamond',
+                  line: { color: '#ffffff', width: 1.5 },
+                },
+                hovertemplate: `Next suggestion<br>${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Predicted: %{z:.3f}<extra></extra>`,
+                showlegend: false,
+              },
+            ]
+          : []),
+      ]}
+      layout={{
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { l: 0, r: 0, t: 10, b: 0 },
+        height: SURFACE_H,
+        scene: {
+          xaxis: { title: xLabel, gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
+          yaxis: { title: yLabel, gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
+          zaxis: { title: 'Response', gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
+          camera: { eye: { x: 1.35, y: 1.35, z: 0.85 } },
+        },
+      }}
+      style={{ width: '100%', height: `${SURFACE_H}px` }}
+      config={{ displayModeBar: false, responsive: true }}
+    />
   );
 }
 
