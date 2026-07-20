@@ -10,9 +10,10 @@ Version: 3.0 (Refactored Architecture)
 import numpy as np
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
-from robotaste.core.bo_engine import RoboTasteBO
+from robotaste.core.bo_engine import RoboTasteBO, infer_range_with_padding
+from robotaste.core.bo_integration import get_ingredient_range
 from robotaste.config.bo_config import (
     get_default_bo_config,
     validate_bo_config,
@@ -26,6 +27,80 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Model Training
 # ============================================================================
+
+
+def get_ingredient_ranges_for_training(
+    session_id: str, ingredient_names: List[str], X: np.ndarray
+) -> Dict[str, Tuple[float, float]]:
+    """
+    Resolve the normalization range for each ingredient used to train the GP.
+
+    IMPORTANT: this is the SAME frame that candidates are generated over in
+    bo_integration.py (via get_ingredient_range()). Training and candidates
+    must share one normalization frame, or the GP is fit on one coordinate
+    system and asked to score candidates in another — candidates can then
+    fall outside the [0,1] box the GP was trained on (extrapolation), and
+    since data-inferred ranges grow with each cycle, the frame would
+    otherwise shift from cycle to cycle even without any real change.
+
+    Primary source: the protocol's configured `ingredients` (min/max), looked
+    up by name so column order/alignment is untouched. This keeps the frame
+    fixed for the whole session and identical to the candidate grid/LHS.
+
+    Fallback (only when an ingredient has no configured range, or the
+    configured range is degenerate, e.g. min >= max): derive a range from the
+    observed data with a fixed *additive* pad, not the old multiplicative
+    `x0.8/x1.2` scheme — additive padding can't collapse a tight cluster of
+    points into a near-zero-width sliver, and it can't invert into an empty
+    range when the data sits near a magnitude-dependent boundary. A constant
+    column (span 0, e.g. an ingredient pinned at 0 mM in early cycles) still
+    gets a non-zero span instead of tripping the `min_c >= max_c` guard in
+    RoboTasteBO.__init__.
+
+    Args:
+        session_id: Session identifier (used to load the protocol's configured
+            ingredient ranges).
+        ingredient_names: Ordered ingredient/column names as used for training.
+        X: (n_samples, n_ingredients) array aligned with ingredient_names.
+
+    Returns:
+        Dict mapping ingredient name -> (min, max), one entry per name in
+        ingredient_names, each with min < max.
+    """
+    configured_ranges: Dict[str, Tuple[float, float]] = {}
+    try:
+        session = sql.get_session(session_id)
+        if session:
+            experiment_config = session.get("experiment_config", {})
+            for ing in experiment_config.get("ingredients", []):
+                name = ing.get("name")
+                if name:
+                    configured_ranges[name] = get_ingredient_range(ing)
+    except Exception as e:
+        logger.warning(
+            f"Could not load configured ingredient ranges for session {session_id}: {e}"
+        )
+
+    ranges: Dict[str, Tuple[float, float]] = {}
+    for i, name in enumerate(ingredient_names):
+        min_c, max_c = configured_ranges.get(name, (None, None))
+        if min_c is not None and max_c is not None and min_c < max_c:
+            ranges[name] = (float(min_c), float(max_c))
+            logger.debug(
+                f"{name} range: [{min_c:.3f}, {max_c:.3f}] mM (protocol-configured)"
+            )
+            continue
+
+        # Fallback: fixed additive pad from observed data. Never zero-span.
+        lo, hi = infer_range_with_padding(X[:, i])
+        ranges[name] = (lo, hi)
+        logger.warning(
+            f"{name}: no valid configured range, falling back to data-derived "
+            f"range [{lo:.3f}, {hi:.3f}] mM (observed "
+            f"[{np.min(X[:, i]):.3f}, {np.max(X[:, i]):.3f}])"
+        )
+
+    return ranges
 
 
 def train_bo_model_for_participant(
@@ -126,13 +201,15 @@ def train_bo_model_for_participant(
         X = np.array(X_list)
         y = np.array(y_list)
 
-        # Infer concentration ranges from data (with 20% padding)
-        ranges = {}
-        for i, name in enumerate(ingredient_names):  # type: ignore
-            min_c = max(0.001, np.min(X[:, i]) * 0.8)  # Pad 20%, min 0.001
-            max_c = np.max(X[:, i]) * 1.2
-            ranges[name] = (min_c, max_c)
-            logger.debug(f"{name} range: [{min_c:.3f}, {max_c:.3f}] mM")
+        # Normalization frame: use the PROTOCOL'S CONFIGURED ranges, not ranges
+        # inferred from observed data. Candidates (in bo_integration.py) are also
+        # generated over the configured ranges, so training and candidates must
+        # share this same frame or the GP ends up scoring candidates that fall
+        # outside the [0,1] box it was fit on (extrapolation), and the frame
+        # would otherwise shift every cycle as more data arrives.
+        ranges = get_ingredient_ranges_for_training(
+            session_id, ingredient_names, X  # type: ignore
+        )
 
         # Train model with config
         bo = RoboTasteBO(ingredient_names, ranges, config=config)  # type: ignore

@@ -511,6 +511,34 @@ class RoboTasteBO:
         return result
 
 
+def infer_range_with_padding(values: np.ndarray) -> Tuple[float, float]:
+    """
+    Derive a (min, max) normalization range from observed values with a fixed
+    additive pad.
+
+    Used ONLY as a fallback when a real protocol-configured range isn't
+    available (see get_ingredient_ranges_for_training in bo_utils.py, which is
+    the primary path — training and candidate generation should normally
+    share the protocol's configured ranges, not data-inferred ones).
+
+    Deliberately additive rather than the old multiplicative `x0.8/x1.2`
+    scheme: multiplicative padding scales with magnitude, so it can crush a
+    tightly-clustered set of points into a near-zero-width slice of [0,1],
+    and it degenerates to a zero-width (or inverted) range for a column
+    that's constant at 0. Additive padding avoids both failure modes.
+
+    Args:
+        values: 1D array of observed concentrations for one ingredient.
+
+    Returns:
+        (min, max) with min < max guaranteed (never zero-span).
+    """
+    data_min, data_max = float(np.min(values)), float(np.max(values))
+    span = data_max - data_min
+    pad = max(1e-6, 0.05 * span) if span > 0 else max(1e-6, abs(data_min) * 0.05, 1.0)
+    return (data_min - pad, data_max + pad)
+
+
 # ============================================================================
 # TRAINING FUNCTION (REFACTORED - SQL-FREE)
 # ============================================================================
@@ -534,8 +562,14 @@ def train_bo_model(
         ingredient_names: List of ingredient column names (in correct order)
         target_column: Name of the target variable column
         bo_config: BO configuration dict (uses defaults if None)
-        infer_ranges: If True, infer concentration ranges from data (recommended)
-        concentration_ranges: Optional manual ranges {ingredient: (min, max)}
+        infer_ranges: If True, fall back to inferring a range from data (with a
+            fixed additive pad) for any ingredient not covered by
+            concentration_ranges. If False, every ingredient must be present
+            in concentration_ranges.
+        concentration_ranges: Manual ranges {ingredient: (min, max)}, e.g. the
+            protocol's configured min/max. Takes precedence over inference —
+            prefer this so training normalizes in the same frame as candidate
+            generation (bo_integration.py uses configured ranges too).
 
     Returns:
         Trained RoboTasteBO instance or None if insufficient data
@@ -590,20 +624,28 @@ def train_bo_model(
         X = np.array(X_list)
         y = np.array(y_list)
 
-        # Determine concentration ranges
-        if infer_ranges:
-            ranges = {}
-            for i, name in enumerate(ingredient_names):
-                min_c = max(0.001, np.min(X[:, i]) * 0.8)  # Pad 20%, min 0.001
-                max_c = np.max(X[:, i]) * 1.2
-                ranges[name] = (min_c, max_c)
-                logger.debug(f"{name} range: [{min_c:.3f}, {max_c:.3f}] mM")
-        else:
-            if concentration_ranges is None:
+        # Determine concentration ranges. Prefer explicitly supplied ranges
+        # (e.g. the protocol's configured min/max) over inferring from data —
+        # candidates are generated over configured ranges elsewhere
+        # (bo_integration.py), so training should normalize in that same
+        # frame. Only fall back to data-inference for ingredients with no
+        # supplied range, and only if infer_ranges allows it.
+        ranges = dict(concentration_ranges) if concentration_ranges else {}
+        missing = [name for name in ingredient_names if name not in ranges]
+        if missing:
+            if not infer_ranges:
                 raise ValueError(
-                    "Must provide concentration_ranges if infer_ranges=False"
+                    f"Missing concentration_ranges for {missing} and "
+                    "infer_ranges=False"
                 )
-            ranges = concentration_ranges
+            for i, name in enumerate(ingredient_names):
+                if name in ranges:
+                    continue
+                min_c, max_c = infer_range_with_padding(X[:, i])
+                ranges[name] = (min_c, max_c)
+                logger.debug(
+                    f"{name} range: [{min_c:.3f}, {max_c:.3f}] mM (inferred fallback)"
+                )
 
         # Train model
         bo = RoboTasteBO(ingredient_names, ranges, config=config)
