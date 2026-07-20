@@ -9,57 +9,11 @@ interface BOVisualization2DProps {
 
 const PRIMARY = '#521924';
 const ACCENT = '#fda50f';
-
-const ACQ_SIZE = 320;
-const ACQ_PAD = { top: 30, right: 20, bottom: 48, left: 52 };
-const ACQ_W = ACQ_SIZE - ACQ_PAD.left - ACQ_PAD.right;
-const ACQ_H = ACQ_SIZE - ACQ_PAD.top - ACQ_PAD.bottom;
 const SURFACE_H = 320;
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-  return `#${[r, g, b].map((v) => clamp(v).toString(16).padStart(2, '0')).join('')}`;
-}
-
-function valueToColor(value: number, min: number, max: number, palette: 'viridis' | 'amber'): string {
-  const t = max === min ? 0.5 : (value - min) / (max - min);
-
-  if (palette === 'viridis') {
-    if (t < 0.33) {
-      const s = t / 0.33;
-      return rgbToHex(lerp(68, 49, s), lerp(1, 163, s), lerp(84, 84, s));
-    }
-    if (t < 0.66) {
-      const s = (t - 0.33) / 0.33;
-      return rgbToHex(lerp(49, 253, s), lerp(163, 231, s), lerp(84, 37, s));
-    }
-    const s = (t - 0.66) / 0.34;
-    return rgbToHex(lerp(253, 220, s), lerp(231, 50, s), lerp(37, 32, s));
-  }
-
-  return rgbToHex(lerp(248, 253, t), lerp(249, 165, t), lerp(250, 15, t));
-}
-
-function buildPath(points: { x: number; y: number }[]): string {
-  if (!points.length) return '';
-  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-}
-
-function StarMarker({ cx, cy, r, fill }: { cx: number; cy: number; r: number; fill: string }) {
-  const points: string[] = [];
-  for (let i = 0; i < 10; i++) {
-    const angle = (Math.PI / 5) * i - Math.PI / 2;
-    const radius = i % 2 === 0 ? r : r * 0.4;
-    points.push(`${cx + radius * Math.cos(angle)},${cy + radius * Math.sin(angle)}`);
-  }
-  return <polygon points={points.join(' ')} fill={fill} stroke="#fff" strokeWidth={1.5} />;
-}
-
 interface AcquisitionPanelProps {
+  xVals: number[];
+  yVals: number[];
   grid: number[][];
   min: number;
   max: number;
@@ -69,9 +23,12 @@ interface AcquisitionPanelProps {
   yRange: [number, number];
   observations: { x: number; y: number }[];
   suggestion?: { x: number; y: number };
+  sessionId: string;
 }
 
 function AcquisitionPanel({
+  xVals,
+  yVals,
   grid,
   min,
   max,
@@ -81,91 +38,89 @@ function AcquisitionPanel({
   yRange,
   observations,
   suggestion,
+  sessionId,
 }: AcquisitionPanelProps) {
-  const rows = grid.length;
-  const cols = rows > 0 ? grid[0].length : 0;
-  const cellW = ACQ_W / cols;
-  const cellH = ACQ_H / rows;
-
-  const toSvgX = (val: number) =>
-    xRange[1] === xRange[0]
-      ? ACQ_PAD.left + ACQ_W / 2
-      : ((val - xRange[0]) / (xRange[1] - xRange[0])) * ACQ_W + ACQ_PAD.left;
-
-  const toSvgY = (val: number) =>
-    yRange[1] === yRange[0]
-      ? ACQ_PAD.top + ACQ_H / 2
-      : ACQ_H - ((val - yRange[0]) / (yRange[1] - yRange[0])) * ACQ_H + ACQ_PAD.top;
-
-  const xTicks = [xRange[0], (xRange[0] + xRange[1]) / 2, xRange[1]];
-  const yTicks = [yRange[0], (yRange[0] + yRange[1]) / 2, yRange[1]];
-  const pathPoints = observations.map((obs) => ({ x: toSvgX(obs.x), y: toSvgY(obs.y) }));
+  const pathLabels = observations.map((_, i) => `C${i + 1}`);
+  const yValsAsc = [...yVals].reverse();
+  const gridAsc = [...grid].reverse();
 
   return (
-    <svg viewBox={`0 0 ${ACQ_SIZE} ${ACQ_SIZE}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <marker id="bo-path-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3.5" orient="auto">
-          <polygon points="0 0, 7 3.5, 0 7" fill={PRIMARY} />
-        </marker>
-      </defs>
-
-      {grid.map((row, ri) =>
-        row.map((val, ci) => (
-          <rect
-            key={`${ri}-${ci}`}
-            x={ACQ_PAD.left + ci * cellW}
-            y={ACQ_PAD.top + ri * cellH}
-            width={cellW + 0.5}
-            height={cellH + 0.5}
-            fill={valueToColor(val, min, max, 'amber')}
-          />
-        )),
-      )}
-
-      <rect x={ACQ_PAD.left} y={ACQ_PAD.top} width={ACQ_W} height={ACQ_H} fill="none" stroke="#9ca3af" strokeWidth={0.5} />
-
-      {xTicks.map((v, i) => (
-        <text key={`x-${i}`} x={toSvgX(v)} y={ACQ_SIZE - ACQ_PAD.bottom + 16} textAnchor="middle" fontSize={10} fill="#6b7280">
-          {v.toFixed(0)}
-        </text>
-      ))}
-
-      {yTicks.map((v, i) => (
-        <text key={`y-${i}`} x={ACQ_PAD.left - 8} y={toSvgY(v)} textAnchor="end" dominantBaseline="central" fontSize={10} fill="#6b7280">
-          {v.toFixed(0)}
-        </text>
-      ))}
-
-      <text x={ACQ_PAD.left + ACQ_W / 2} y={ACQ_SIZE - 6} textAnchor="middle" fontSize={11} fill="#6b7280">
-        {xLabel}
-      </text>
-      <text
-        x={14}
-        y={ACQ_PAD.top + ACQ_H / 2}
-        textAnchor="middle"
-        dominantBaseline="central"
-        transform={`rotate(-90, 14, ${ACQ_PAD.top + ACQ_H / 2})`}
-        fontSize={11}
-        fill="#6b7280"
-      >
-        {yLabel}
-      </text>
-
-      {pathPoints.length > 1 && (
-        <path d={buildPath(pathPoints)} fill="none" stroke={PRIMARY} strokeWidth={2.5} markerEnd="url(#bo-path-arrow)" />
-      )}
-
-      {pathPoints.map((point, i) => (
-        <g key={`path-${i}`}>
-          <circle cx={point.x} cy={point.y} r={4.5} fill={PRIMARY} stroke="#fff" strokeWidth={1.5} />
-          <text x={point.x} y={point.y - 8} textAnchor="middle" fontSize={8} fill="#374151">
-            C{i + 1}
-          </text>
-        </g>
-      ))}
-
-      {suggestion && <StarMarker cx={toSvgX(suggestion.x)} cy={toSvgY(suggestion.y)} r={7} fill={ACCENT} />}
-    </svg>
+    <Plot
+      data={[
+        {
+          type: 'heatmap',
+          x: xVals,
+          y: yValsAsc,
+          z: gridAsc,
+          colorscale: [
+            [0, '#f8f9fa'],
+            [1, '#fda50f'],
+          ],
+          zmin: min,
+          zmax: max,
+          showscale: true,
+          hovertemplate: `${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Acquisition: %{z:.3f}<extra></extra>`,
+          colorbar: {
+            thickness: 15,
+            len: 0.8,
+            tickfont: { size: 10, color: '#6b7280' },
+          },
+        },
+        {
+          type: 'scatter',
+          mode: 'lines+markers+text',
+          x: observations.map((p) => p.x),
+          y: observations.map((p) => p.y),
+          text: pathLabels,
+          textposition: 'top center',
+          line: { color: PRIMARY, width: 3 },
+          marker: { color: PRIMARY, size: 8, line: { color: '#ffffff', width: 1.5 } },
+          hovertemplate: `Cycle %{text}<br>${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<extra></extra>`,
+          showlegend: false,
+        },
+        ...(suggestion
+          ? [
+              {
+                type: 'scatter',
+                mode: 'markers',
+                x: [suggestion.x],
+                y: [suggestion.y],
+                marker: {
+                  color: ACCENT,
+                  size: 12,
+                  symbol: 'star',
+                  line: { color: '#ffffff', width: 1.5 },
+                },
+                hovertemplate: `Next suggestion<br>${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<extra></extra>`,
+                showlegend: false,
+              },
+            ]
+          : []),
+      ]}
+      layout={{
+        uirevision: sessionId,
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { l: 50, r: 10, t: 10, b: 40 },
+        height: SURFACE_H,
+        xaxis: {
+          title: { text: xLabel, font: { size: 11, color: '#6b7280' } },
+          gridcolor: '#E5E7EB',
+          zerolinecolor: '#D1D5DB',
+          range: xRange,
+          tickfont: { size: 10, color: '#6b7280' },
+        },
+        yaxis: {
+          title: { text: yLabel, font: { size: 11, color: '#6b7280' } },
+          gridcolor: '#E5E7EB',
+          zerolinecolor: '#D1D5DB',
+          range: yRange,
+          tickfont: { size: 10, color: '#6b7280' },
+        },
+      }}
+      style={{ width: '100%', height: `${SURFACE_H}px` }}
+      config={{ displayModeBar: false, responsive: true }}
+    />
   );
 }
 
@@ -179,6 +134,7 @@ interface SurfacePanelProps {
   yLabel: string;
   observations: { x: number; y: number; z: number }[];
   suggestion?: { x: number; y: number; z: number };
+  sessionId: string;
 }
 
 function SurfacePanel({
@@ -191,16 +147,20 @@ function SurfacePanel({
   yLabel,
   observations,
   suggestion,
+  sessionId,
 }: SurfacePanelProps) {
   const pathLabels = observations.map((_, i) => `C${i + 1}`);
+  const yValsAsc = [...yVals].reverse();
+  const meanAsc = [...mean].reverse();
+
   return (
     <Plot
       data={[
         {
           type: 'surface',
           x: xVals,
-          y: yVals,
-          z: mean,
+          y: yValsAsc,
+          z: meanAsc,
           colorscale: 'Viridis',
           cmin: zMin,
           cmax: zMax,
@@ -210,6 +170,11 @@ function SurfacePanel({
             z: { show: true, usecolormap: true, width: 1 },
           },
           hovertemplate: `${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Predicted: %{z:.3f}<extra></extra>`,
+          colorbar: {
+            thickness: 15,
+            len: 0.8,
+            tickfont: { size: 10, color: '#6b7280' },
+          },
         },
         {
           type: 'scatter3d',
@@ -245,14 +210,30 @@ function SurfacePanel({
           : []),
       ]}
       layout={{
+        uirevision: sessionId,
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
         margin: { l: 0, r: 0, t: 10, b: 0 },
         height: SURFACE_H,
         scene: {
-          xaxis: { title: xLabel, gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
-          yaxis: { title: yLabel, gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
-          zaxis: { title: 'Response', gridcolor: '#E5E7EB', zerolinecolor: '#D1D5DB' },
+          xaxis: {
+            title: { text: xLabel, font: { size: 11, color: '#6b7280' } },
+            gridcolor: '#E5E7EB',
+            zerolinecolor: '#D1D5DB',
+            tickfont: { size: 10, color: '#6b7280' },
+          },
+          yaxis: {
+            title: { text: yLabel, font: { size: 11, color: '#6b7280' } },
+            gridcolor: '#E5E7EB',
+            zerolinecolor: '#D1D5DB',
+            tickfont: { size: 10, color: '#6b7280' },
+          },
+          zaxis: {
+            title: { text: 'Response', font: { size: 11, color: '#6b7280' } },
+            gridcolor: '#E5E7EB',
+            zerolinecolor: '#D1D5DB',
+            tickfont: { size: 10, color: '#6b7280' },
+          },
           camera: { eye: { x: 1.35, y: 1.35, z: 0.85 } },
         },
       }}
@@ -361,6 +342,7 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
             yLabel={ingredient_names[1]}
             observations={obsPoints}
             suggestion={suggestionPoint}
+            sessionId={sessionId}
           />
         </div>
 
@@ -369,6 +351,8 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
             Acquisition Heatmap + Search Trajectory
           </p>
           <AcquisitionPanel
+            xVals={xVals}
+            yVals={yVals}
             grid={acquisition}
             min={Math.min(...flatAcq)}
             max={Math.max(...flatAcq)}
@@ -378,6 +362,7 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
             yRange={yRange}
             observations={obsPoints.map(({ x, y }) => ({ x, y }))}
             suggestion={suggestionPoint ? { x: suggestionPoint.x, y: suggestionPoint.y } : undefined}
+            sessionId={sessionId}
           />
         </div>
       </div>
@@ -407,7 +392,7 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
           BO suggestion
         </span>
         <span className="inline-flex items-center">
-          <span className="inline-block w-3 h-1 mr-1.5" style={{ backgroundColor: '#f59e0b' }} />
+          <span className="inline-block w-3 h-1 mr-1.5" style={{ backgroundColor: '#fda50f' }} />
           Acquisition intensity
         </span>
       </div>
