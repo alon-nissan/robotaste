@@ -36,11 +36,32 @@ DEFAULT_BO_CONFIG = {
     "kappa_exploitation": 1.0,  # UCB kappa during exploitation phase (low exploration)
     # Gaussian Process kernel parameters
     "kernel_nu": 2.5,  # Matern smoothness: 0.5, 1.5, 2.5, or inf
-    "length_scale_initial": 1.0,
-    "length_scale_bounds": [0.01, 10.0],
+    # length_scale_initial / length_scale_bounds: with only 3-7 noisy human
+    # ratings (typical seed count before BO activates), the length scale is
+    # NOT reliably identifiable by maximum likelihood — near-duplicate inputs
+    # with conflicting ratings make a spiky, near-zero length scale the
+    # statistically "preferred" fit, which collapses predictive uncertainty
+    # to near-zero everywhere except right next to existing samples and
+    # confines acquisition to a tiny cluster instead of exploring the
+    # configured range. A floor of 0.01 (default sklearn-ish choice) is too
+    # permissive for this regime. 0.3 keeps the GP admitting "sweetness
+    # varies over ~30% of the range" as the smallest structure it will fit,
+    # which was verified (see robotaste/core/bo_utils.py / the BO field
+    # guide) to restore genuine space-filling exploration on real session
+    # data without the runaway uncertainty seen from raising the floor alone.
+    "length_scale_initial": 0.5,
+    "length_scale_bounds": [0.3, 10.0],
     "constant_kernel_bounds": [1e-3, 1e3],
     # GP training parameters
-    "alpha": 1e-3,  # Noise/regularization (changed from 1e-6 to 1e-3 for human data)
+    # alpha: observation noise added to the covariance diagonal. Raised from
+    # 1e-6 to 1e-3 previously "for human data", then to 0.15 here — NOT
+    # because alpha controls the length-scale collapse above (raising alpha
+    # alone from 1e-3 to 0.4 barely moved the maximum-likelihood length scale
+    # in testing), but because a wider length-scale floor without more noise
+    # tolerance lets predictive uncertainty blow up unboundedly between
+    # samples. Together, the floor and this alpha were validated to produce
+    # bounded, sensible exploration on real session data.
+    "alpha": 0.15,
     "n_restarts_optimizer": 10,
     "normalize_y": True,
     "random_state": 42,
@@ -142,12 +163,40 @@ def validate_bo_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # Validate length scale bounds
     if len(validated.get("length_scale_bounds", [])) != 2:
-        validated["length_scale_bounds"] = [0.01, 10.0]
+        validated["length_scale_bounds"] = [0.3, 10.0]
     else:
-        bounds = validated["length_scale_bounds"]
+        bounds = list(validated["length_scale_bounds"])
         if bounds[0] >= bounds[1]:
-            logger.warning("Invalid length_scale_bounds, using defaults [0.01, 10.0]")
-            validated["length_scale_bounds"] = [0.01, 10.0]
+            logger.warning("Invalid length_scale_bounds, using defaults [0.3, 10.0]")
+            bounds = [0.3, 10.0]
+
+        # Hard safety floor: a protocol may intentionally choose a smaller
+        # floor than the default (e.g. for a high-sample-count session where
+        # the length scale IS identifiable), but a near-zero floor is what
+        # let the length scale collapse to a spike in the first place (see
+        # DEFAULT_BO_CONFIG comment above). 0.05 is looser than the 0.3
+        # default so it doesn't fight a deliberate override, but still blocks
+        # the pathological case.
+        if bounds[0] < 0.05:
+            logger.warning(
+                f"length_scale_bounds floor {bounds[0]} is below the safety "
+                "minimum (0.05) and can let the GP's length scale collapse "
+                "to a spike on small/noisy datasets; clamping floor to 0.05"
+            )
+            bounds[0] = 0.05
+
+        validated["length_scale_bounds"] = bounds
+
+    # Validate length_scale_initial falls within the (now-validated) bounds
+    lo, hi = validated["length_scale_bounds"]
+    initial = validated.get("length_scale_initial", 0.5)
+    if initial < lo or initial > hi:
+        clamped = float(np.clip(initial, lo, hi))
+        logger.warning(
+            f"length_scale_initial {initial} outside length_scale_bounds "
+            f"[{lo}, {hi}], clamping to {clamped}"
+        )
+        validated["length_scale_initial"] = clamped
 
     return validated
 

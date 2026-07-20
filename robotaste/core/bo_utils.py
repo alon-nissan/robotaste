@@ -100,6 +100,27 @@ def get_ingredient_ranges_for_training(
             f"[{np.min(X[:, i]):.3f}, {np.max(X[:, i]):.3f}])"
         )
 
+    # Diagnostic: a GP's length scale isn't reliably estimable from seed
+    # samples that all cluster in a small slice of the range, no matter how
+    # the kernel is configured (see the length-scale comment in
+    # bo_config.py's DEFAULT_BO_CONFIG). This doesn't change any behavior —
+    # it just surfaces the problem in logs instead of quietly producing BO
+    # suggestions that never leave that slice.
+    for i, name in enumerate(ingredient_names):
+        lo, hi = ranges[name]
+        width = hi - lo
+        if width <= 0:
+            continue
+        observed_span = float(np.max(X[:, i]) - np.min(X[:, i]))
+        coverage = observed_span / width
+        if coverage < 0.2:
+            logger.warning(
+                f"{name}: seed samples span only {observed_span:.2f} of the "
+                f"{width:.2f}-wide range ({coverage:.0%} coverage) - BO's "
+                "length-scale estimate will be unreliable until seed samples "
+                "spread further across the range"
+            )
+
     return ranges
 
 
