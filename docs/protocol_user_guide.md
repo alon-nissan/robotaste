@@ -245,7 +245,8 @@ This is where you define **when to use each selection mode**.
 
 4. For **BO Mode:**
    - Configure acquisition function (default: UCB)
-   - Set `allow_override` if subjects can reject suggestions
+   - For automated BO flow, set `auto_accept_suggestion=true` and `allow_override=false`
+   - Only set `allow_override=true` when you intentionally want manual override UI
 
 **Example Schedule:**
 
@@ -407,8 +408,8 @@ The protocol controls:
 
 **Cycle 6+ (BO Selected):**
 - BO suggests next sample based on previous responses
-- Suggestion shown to participant
-- If `allow_override=true`, participant can reject and choose manually
+- With `auto_accept_suggestion=true`, sample selection is automatic (same UX as predetermined cycles)
+- If `auto_accept_suggestion=false` and `allow_override=true`, participant can reject and choose manually
 - Participant tastes and answers questionnaire
 
 ### Monitoring Session Progress

@@ -568,6 +568,22 @@ def submit_selection(session_id: str, request: SelectionRequest):
         f"mode={request.selection_mode}, concentrations={request.concentrations}"
     )
 
+    if request.selection_mode == "bo_selected":
+        cycle_info = prepare_cycle_sample(session_id, cycle_number)
+        auto_accept = bool(cycle_info.get("metadata", {}).get("auto_accept_suggestion", False))
+        if auto_accept:
+            expected = cycle_info.get("concentrations")
+            if not expected:
+                raise HTTPException(
+                    status_code=409,
+                    detail="BO sample not ready yet for auto-accept cycle"
+                )
+            if request.concentrations != expected:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Manual BO override is disabled for this cycle"
+                )
+
     # Persist concentrations in experiment_config for response-time retrieval
     config = session.get("experiment_config", {})
     if "_pending_concentrations" not in config:

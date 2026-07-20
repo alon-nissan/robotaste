@@ -134,7 +134,8 @@ Defines which selection mode to use for each cycle range.
       "cycle_range": {"start": 6, "end": 10},
       "mode": "bo_selected",
       "config": {
-        "allow_override": true
+        "allow_override": false,
+        "auto_accept_suggestion": true
       }
     }
   ]
@@ -197,13 +198,16 @@ BO algorithm suggests next sample based on previous responses.
 {
   "mode": "bo_selected",
   "config": {
-    "allow_override": true
+    "allow_override": false,
+    "auto_accept_suggestion": true
   }
 }
 ```
 
 **Config options:**
-- `allow_override` (boolean): Allow subject to reject BO suggestion
+- `auto_accept_suggestion` (boolean): When true, BO cycles are system-selected and auto-advance without manual selection UI
+- `allow_override` (boolean): Allow subject to reject BO suggestion (used only when `auto_accept_suggestion=false`)
+- `show_bo_suggestion` (boolean): Show BO suggestion details in subject UI (used only when `auto_accept_suggestion=false`)
 
 ### Validation Rules
 
