@@ -128,8 +128,9 @@ interface SurfacePanelProps {
   xVals: number[];
   yVals: number[];
   mean: number[][];
-  zMin: number;
-  zMax: number;
+  std: number[][];
+  stdMin: number;
+  stdMax: number;
   xLabel: string;
   yLabel: string;
   observations: { x: number; y: number; z: number }[];
@@ -141,8 +142,9 @@ function SurfacePanel({
   xVals,
   yVals,
   mean,
-  zMin,
-  zMax,
+  std,
+  stdMin,
+  stdMax,
   xLabel,
   yLabel,
   observations,
@@ -152,6 +154,7 @@ function SurfacePanel({
   const pathLabels = observations.map((_, i) => `C${i + 1}`);
   const yValsAsc = [...yVals].reverse();
   const meanAsc = [...mean].reverse();
+  const stdAsc = [...std].reverse();
 
   return (
     <Plot
@@ -161,16 +164,18 @@ function SurfacePanel({
           x: xVals,
           y: yValsAsc,
           z: meanAsc,
-          colorscale: 'Viridis',
-          cmin: zMin,
-          cmax: zMax,
+          surfacecolor: stdAsc,
+          colorscale: 'YlOrRd',
+          cmin: stdMin,
+          cmax: stdMax,
           showscale: true,
           opacity: 0.9,
           contours: {
             z: { show: true, usecolormap: true, width: 1 },
           },
-          hovertemplate: `${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Predicted: %{z:.3f}<extra></extra>`,
+          hovertemplate: `${xLabel}: %{x:.2f}<br>${yLabel}: %{y:.2f}<br>Predicted: %{z:.3f}<br>Uncertainty (σ): %{surfacecolor:.3f}<extra></extra>`,
           colorbar: {
+            title: { text: 'σ', font: { size: 11, color: '#6b7280' } },
             thickness: 15,
             len: 0.8,
             tickfont: { size: 10, color: '#6b7280' },
@@ -306,7 +311,6 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
   const xRange: [number, number] = [Math.min(...xVals), Math.max(...xVals)];
   const yRange: [number, number] = [Math.min(...yVals), Math.max(...yVals)];
 
-  const flatMean = mean.flat();
   const flatStd = std.flat();
   const flatAcq = acquisition.flat();
 
@@ -315,8 +319,8 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
     ? { x: suggestion.x, y: suggestion.y, z: suggestion.predicted_value }
     : undefined;
 
-  const zMin = Math.min(...flatMean, ...observations.z);
-  const zMax = Math.max(...flatMean, ...observations.z);
+  const stdMin = Math.min(...flatStd);
+  const stdMax = Math.max(...flatStd);
   const latestObservation = obsPoints[obsPoints.length - 1];
   const latestValue = observations.z[observations.z.length - 1];
   const stdMean = flatStd.reduce((acc, value) => acc + value, 0) / (flatStd.length || 1);
@@ -336,8 +340,9 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
             xVals={xVals}
             yVals={yVals}
             mean={mean}
-            zMin={zMin}
-            zMax={zMax}
+            std={std}
+            stdMin={stdMin}
+            stdMax={stdMax}
             xLabel={ingredient_names[0]}
             yLabel={ingredient_names[1]}
             observations={obsPoints}
@@ -390,6 +395,13 @@ export default function BOVisualization2D({ sessionId }: BOVisualization2DProps)
         <span className="inline-flex items-center mr-4">
           <span className="inline-block mr-1.5" style={{ color: ACCENT }}>★</span>
           BO suggestion
+        </span>
+        <span className="inline-flex items-center mr-4">
+          <span
+            className="inline-block w-3 h-1 mr-1.5"
+            style={{ background: 'linear-gradient(to right, #ffffb2, #bd0026)' }}
+          />
+          Surface color = uncertainty (σ)
         </span>
         <span className="inline-flex items-center">
           <span className="inline-block w-3 h-1 mr-1.5" style={{ backgroundColor: '#fda50f' }} />
