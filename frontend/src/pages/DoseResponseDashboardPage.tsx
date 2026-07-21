@@ -18,6 +18,7 @@ import DoseResponseChart, { type ProtocolSeries } from '../components/doseRespon
 import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/ChartTypeSelector';
 import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
 import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
+import { groupStatsByConcentration } from '../components/doseResponse/stats';
 
 // ─── FORMATTERS ─────────────────────────────────────────────────────────────
 
@@ -147,29 +148,15 @@ export default function DoseResponseDashboardPage() {
       }));
   }, [data, filteredForChart, sessionProtocol, selectedProtocols, protocolColor]);
 
-  // Aggregated mean curve with error bars — used for the Summary Statistics table
+  // Summary Statistics table: one group of rows per selected protocol (not merged),
+  // so two protocols can be compared directly — mirrors the per-protocol chart series.
   const meanCurveData = useMemo(() => {
     if (!selectedIngredient || !selectedVariable) return [];
-    const groups = new Map<number, number[]>();
-    for (const dp of filteredForChart) {
-      const c = dp.concentrations[selectedIngredient];
-      const v = Number(dp.responses[selectedVariable]);
-      if (c === undefined || !Number.isFinite(v)) continue;
-      const arr = groups.get(c) ?? [];
-      arr.push(v);
-      groups.set(c, arr);
-    }
-    return Array.from(groups.entries())
-      .map(([concentration, vals]) => {
-        const n = vals.length;
-        const mean = vals.reduce((a, b) => a + b, 0) / n;
-        const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
-        const std = Math.sqrt(variance);
-        const sem = n > 1 ? std / Math.sqrt(n) : 0;
-        return { concentration, mean, sem, std, n, min: Math.min(...vals), max: Math.max(...vals) };
-      })
-      .sort((a, b) => a.concentration - b.concentration);
-  }, [filteredForChart, selectedIngredient, selectedVariable]);
+    return series.flatMap(s =>
+      groupStatsByConcentration(s.points, selectedIngredient, selectedVariable)
+        .map(row => ({ ...row, protocolId: s.protocolId, protocolLabel: s.label, protocolColor: s.color })),
+    );
+  }, [series, selectedIngredient, selectedVariable]);
 
   // ─── SUBJECT / PROTOCOL TOGGLES ─────────────────────────────────────────
 
@@ -386,12 +373,13 @@ export default function DoseResponseDashboardPage() {
             {/* Summary Statistics Table */}
             <div className="lg:col-span-2 p-6 bg-surface rounded-xl border border-border">
               <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-                Summary Statistics {series.length > 1 ? '(all selected protocols combined)' : ''}
+                Summary Statistics
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
+                      <th className="text-left p-2 text-text-secondary font-medium">Protocol</th>
                       <th className="text-left p-2 text-text-secondary font-medium">
                         {selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration'}
                       </th>
@@ -406,6 +394,12 @@ export default function DoseResponseDashboardPage() {
                   <tbody>
                     {meanCurveData.map((row, i) => (
                       <tr key={i} className="border-b border-border/50">
+                        <td className="p-2">
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: row.protocolColor }} />
+                            {row.protocolLabel}
+                          </span>
+                        </td>
                         <td className="p-2 font-medium">{formatConc(row.concentration)}</td>
                         <td className="p-2 text-right">{row.n}</td>
                         <td className="p-2 text-right">{row.mean.toFixed(2)}</td>

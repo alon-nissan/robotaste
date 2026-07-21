@@ -17,6 +17,7 @@ import DoseResponseChart, { type ProtocolSeries } from '../components/doseRespon
 import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/ChartTypeSelector';
 import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
 import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
+import { groupStatsByConcentration } from '../components/doseResponse/stats';
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 
@@ -387,45 +388,36 @@ function DoseResponseTab() {
       }));
   }, [data, filteredForChart, sessionProtocol, selectedProtocols, protocolColor]);
 
-  // Summary stats + per-subject table use the 1D ingredient/variable selection, combined
-  // across all selected protocols.
+  // Summary stats: one group of rows per selected protocol (not merged), so two
+  // protocols can be compared directly — mirrors the per-protocol chart series.
   const meanCurveData = useMemo(() => {
     if (!selectedIngredient || !selectedVariable) return [];
-    const groups = new Map<number, number[]>();
-    for (const dp of filteredForChart) {
-      const c = dp.concentrations[selectedIngredient];
-      const v = Number(dp.responses[selectedVariable]);
-      if (c === undefined || !Number.isFinite(v)) continue;
-      const arr = groups.get(c) ?? [];
-      arr.push(v);
-      groups.set(c, arr);
-    }
-    return Array.from(groups.entries())
-      .map(([concentration, vals]) => {
-        const n = vals.length;
-        const mean = vals.reduce((a, b) => a + b, 0) / n;
-        const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
-        const std = Math.sqrt(variance);
-        const sem = n > 1 ? std / Math.sqrt(n) : 0;
-        return { concentration, mean, std, sem, n, min: Math.min(...vals), max: Math.max(...vals) };
-      })
-      .sort((a, b) => a.concentration - b.concentration);
-  }, [filteredForChart, selectedIngredient, selectedVariable]);
+    return series.flatMap(s =>
+      groupStatsByConcentration(s.points, selectedIngredient, selectedVariable)
+        .map(row => ({ ...row, protocolId: s.protocolId, protocolLabel: s.label, protocolColor: s.color })),
+    );
+  }, [series, selectedIngredient, selectedVariable]);
 
-  // Per-subject raw data table (all data points for selected filters)
+  // Per-subject raw data table (all data points for selected filters), tagged with
+  // each row's protocol so it's readable alongside the per-protocol summary table.
   const perSubjectRows = useMemo(() => {
     if (!data || !selectedIngredient || !selectedVariable) return [];
     return filteredForChart
       .filter(dp => dp.concentrations[selectedIngredient] !== undefined && dp.responses[selectedVariable] !== undefined)
-      .map(dp => ({
-        subject:       dp.subject_name || dp.session_code,
-        session_code:  dp.session_code,
-        cycle:         dp.cycle_number,
-        concentration: dp.concentrations[selectedIngredient],
-        response:      dp.responses[selectedVariable],
-      }))
-      .sort((a, b) => a.subject.localeCompare(b.subject) || a.concentration - b.concentration);
-  }, [data, filteredForChart, selectedIngredient, selectedVariable]);
+      .map(dp => {
+        const pid = sessionProtocol.get(dp.session_id);
+        return {
+          subject:       dp.subject_name || dp.session_code,
+          session_code:  dp.session_code,
+          cycle:         dp.cycle_number,
+          concentration: dp.concentrations[selectedIngredient],
+          response:      dp.responses[selectedVariable],
+          protocolLabel: (pid && data.protocols.find(p => p.protocol_id === pid)?.name) || '—',
+          protocolColor: pid ? protocolColor(pid) : '#9ca3af',
+        };
+      })
+      .sort((a, b) => a.protocolLabel.localeCompare(b.protocolLabel) || a.subject.localeCompare(b.subject) || a.concentration - b.concentration);
+  }, [data, filteredForChart, selectedIngredient, selectedVariable, sessionProtocol, protocolColor]);
 
   function toggleSubject(id: string) {
     setSelectedSubjects(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -639,12 +631,13 @@ function DoseResponseTab() {
           {/* Summary stats */}
           <div className="p-6 bg-surface rounded-xl border border-border mb-6">
             <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-              Summary Statistics {series.length > 1 ? '(all selected protocols combined)' : ''}
+              Summary Statistics
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="text-left p-2 text-text-secondary font-medium">Protocol</th>
                     <th className="text-left p-2 text-text-secondary font-medium">{xLabel}</th>
                     <th className="text-right p-2 text-text-secondary font-medium">n</th>
                     <th className="text-right p-2 text-text-secondary font-medium">Mean</th>
@@ -657,6 +650,12 @@ function DoseResponseTab() {
                 <tbody>
                   {meanCurveData.map((row, i) => (
                     <tr key={i} className="border-b border-border/50">
+                      <td className="p-2">
+                        <span className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: row.protocolColor }} />
+                          {row.protocolLabel}
+                        </span>
+                      </td>
                       <td className="p-2 font-medium">{fmtConc(row.concentration)}</td>
                       <td className="p-2 text-right">{row.n}</td>
                       <td className="p-2 text-right">{row.mean.toFixed(2)}</td>
@@ -683,6 +682,7 @@ function DoseResponseTab() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-surface">
                   <tr className="border-b border-border">
+                    <th className="text-left p-2 text-text-secondary font-medium">Protocol</th>
                     <th className="text-left p-2 text-text-secondary font-medium">Subject</th>
                     <th className="text-left p-2 text-text-secondary font-medium">Session</th>
                     <th className="text-right p-2 text-text-secondary font-medium">Cycle</th>
@@ -693,6 +693,12 @@ function DoseResponseTab() {
                 <tbody>
                   {perSubjectRows.map((row, i) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-gray-50">
+                      <td className="p-2">
+                        <span className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: row.protocolColor }} />
+                          {row.protocolLabel}
+                        </span>
+                      </td>
                       <td className="p-2">{row.subject}</td>
                       <td className="p-2 font-mono text-xs text-text-secondary">{row.session_code}</td>
                       <td className="p-2 text-right">{row.cycle}</td>

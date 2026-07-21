@@ -3,6 +3,7 @@ import type { Data, Layout } from 'plotly.js';
 import type { DRDataPoint } from '../../types';
 import { PLOTLY_CONFIG, TRANSPARENT_LAYOUT, axisStyle, hexToRgba } from './plotlyTheme';
 import type { DRChartType } from './ChartTypeSelector';
+import { groupStatsByConcentration } from './stats';
 
 export type { DRChartType };
 
@@ -49,27 +50,6 @@ function sortedConcentrationLabels(series: ProtocolSeries[], ingredient: string)
   return Array.from(vals).sort((a, b) => a - b).map(fmtConc);
 }
 
-function meanByConcentration(points: DRDataPoint[], ingredient: string, variable: string) {
-  const groups = new Map<number, number[]>();
-  for (const dp of points) {
-    const c = dp.concentrations[ingredient];
-    const v = Number(dp.responses[variable]);
-    if (c === undefined || !Number.isFinite(v)) continue;
-    const arr = groups.get(c) ?? [];
-    arr.push(v);
-    groups.set(c, arr);
-  }
-  return Array.from(groups.entries())
-    .map(([concentration, vals]) => {
-      const n = vals.length;
-      const mean = vals.reduce((a, b) => a + b, 0) / n;
-      const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
-      const sem = n > 1 ? Math.sqrt(variance) / Math.sqrt(n) : 0;
-      return { concentration, mean, sem, n };
-    })
-    .sort((a, b) => a.concentration - b.concentration);
-}
-
 function meanBy2D(points: DRDataPoint[], xIng: string, yIng: string, variable: string) {
   const groups = new Map<string, { x: number; y: number; vals: number[] }>();
   for (const dp of points) {
@@ -90,7 +70,7 @@ function meanBy2D(points: DRDataPoint[], xIng: string, yIng: string, variable: s
 function buildMeanTraces(series: ProtocolSeries[], ingredient: string, variable: string, label: string): Data[] {
   const traces: Data[] = [];
   for (const s of series) {
-    const rows = meanByConcentration(s.points, ingredient, variable);
+    const rows = groupStatsByConcentration(s.points, ingredient, variable);
     if (rows.length === 0) continue;
     const x = rows.map(r => fmtConc(r.concentration));
     traces.push(
