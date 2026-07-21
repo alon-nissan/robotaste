@@ -394,14 +394,17 @@ def _validate_sample_selection_schedule(protocol: Dict[str, Any]) -> List[str]:
                         f"Schedule entry {i+1}: invalid design_type '{bank['design_type']}' (must be 'randomized' or 'latin_square')"
                     )
 
-                # Warn if bank size doesn't match cycle count
+                # A bank larger than the cycle count is a valid "K of N" balanced draw
+                # (e.g. 1 cycle drawn from a 4-sample Latin square set) — only warn when
+                # there are fewer distinct samples than cycles, which forces repeats and
+                # conflicts with ensure_all_used_before_repeat.
                 if "samples" in bank and bank["samples"]:
                     bank_size = len(bank["samples"])
                     cycle_count = end - start + 1
-                    if bank_size != cycle_count:
+                    if bank_size < cycle_count:
                         logger.warning(
                             f"Schedule entry {i+1}: sample_bank size ({bank_size}) "
-                            f"doesn't match cycle count ({cycle_count})"
+                            f"is smaller than cycle count ({cycle_count}); samples will repeat"
                         )
 
     # Check for gaps in cycle coverage (warn only)

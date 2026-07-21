@@ -187,7 +187,53 @@ Subject manually selects sample via UI (grid or sliders).
 }
 ```
 
-#### 3. **bo_selected** - Bayesian Optimization
+#### 3. **predetermined_randomized** - Draw from a Sample Bank
+
+Presents a bank of pre-defined samples over the block's cycles, order (and, if the
+bank has more samples than cycles, *which* samples) chosen per participant. With
+`design_type: "latin_square"`, the draw is **counterbalanced**: each session gets a
+cyclic rotation of the bank based on a per-protocol session number, so the first
+`cycle_count` samples of that rotation are used. This means the bank does **not**
+need to match the cycle count — a 1-cycle block over a 4-sample bank draws exactly
+one sample per participant, balanced so each bank sample is used roughly equally
+across participants (subject 1→A, 2→B, 3→C, 4→D, 5→A, …).
+
+**Use case:** Counterbalanced corner/reference samples, drawing 1-of-N (or K-of-N)
+from a candidate set without introducing selection bias.
+
+**Example — 1 sample drawn from a 4-sample set, counterbalanced:**
+```json
+{
+  "cycle_range": {"start": 3, "end": 3},
+  "mode": "predetermined_randomized",
+  "sample_bank": {
+    "samples": [
+      {"id": "A", "concentrations": {"Sugar": 12.2, "Salt": 1.2}},
+      {"id": "B", "concentrations": {"Sugar": 11.8, "Salt": 1.2}},
+      {"id": "C", "concentrations": {"Sugar": 12.2, "Salt": 0.8}},
+      {"id": "D", "concentrations": {"Sugar": 11.8, "Salt": 0.8}}
+    ],
+    "design_type": "latin_square",
+    "constraints": {
+      "prevent_consecutive_repeats": true,
+      "ensure_all_used_before_repeat": true
+    }
+  }
+}
+```
+
+**`sample_bank` fields:**
+- `samples` (array, required): Each entry needs a unique `id` and `concentrations`; `label` is optional.
+- `design_type` (`"latin_square"` | `"randomized"`, required): `latin_square` balances the draw across
+  participants; `randomized` shuffles independently per participant (can clump on small N).
+- `constraints.prevent_consecutive_repeats` (boolean): No sample repeats back-to-back within a session.
+- `constraints.ensure_all_used_before_repeat` (boolean): Don't repeat a sample within a session until
+  all bank samples have been used once.
+
+**Validation:** `bank_size >= cycle_count` is valid (K-of-N draw). A warning is logged only when
+`bank_size < cycle_count`, since that forces repeats within a session.
+
+#### 4. **bo_selected** - Bayesian Optimization
 
 BO algorithm suggests next sample based on previous responses.
 

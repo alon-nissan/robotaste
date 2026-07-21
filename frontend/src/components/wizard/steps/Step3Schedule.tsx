@@ -20,7 +20,7 @@ const MODE_LABELS: Record<SelectionMode, { label: string; description: string }>
   },
   predetermined_randomized: {
     label: 'Randomized from Sample Set',
-    description: 'You provide a pool of samples; the order is randomized per participant (e.g., Latin Square).',
+    description: 'You provide a pool of samples; each participant gets some or all of them, counterbalanced (e.g. Latin Square) — useful for drawing 1 of N or a balanced subset.',
   },
   user_selected: {
     label: 'Participant Chooses',
@@ -470,11 +470,30 @@ function SampleBankEditor({
     });
   }
 
+  const bankSize = bank.samples.length;
+  const cycleCount = block.cycle_range.end - block.cycle_range.start + 1;
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-500">
         Sample values are ingredient concentrations (not percentages). Use the unit shown per column.
       </p>
+
+      {bankSize > 0 && (
+        <p
+          className={`text-xs rounded-md px-2 py-1.5 ${
+            bankSize < cycleCount
+              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+              : 'bg-blue-50 text-blue-700 border border-blue-100'
+          }`}
+        >
+          {bankSize < cycleCount
+            ? `Only ${bankSize} sample${bankSize === 1 ? '' : 's'} for ${cycleCount} cycles — some samples will repeat.`
+            : bankSize === cycleCount
+              ? `All ${bankSize} samples shown per participant, in randomized order.`
+              : `Each participant is shown ${cycleCount} of ${bankSize} samples, counterbalanced${bank.design_type === 'latin_square' ? ' (Latin square)' : ''}.`}
+        </p>
+      )}
 
       {/* Design type */}
       <div className="flex gap-4">
