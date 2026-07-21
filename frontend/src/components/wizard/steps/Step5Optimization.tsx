@@ -417,6 +417,69 @@ export default function Step5Optimization() {
                       More restarts = better-fit GP kernel, slower training. Default: 10.
                     </p>
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Initial Length Scale
+                    </label>
+                    <input
+                      type="number"
+                      value={bo.length_scale_initial ?? 1.0}
+                      onChange={(e) =>
+                        updateBo({
+                          length_scale_initial: parseFloat(e.target.value) || 1.0,
+                        })
+                      }
+                      min={0.001}
+                      step={0.1}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      Starting GP smoothness. Default: 1.0. Most users leave this.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Length-Scale Bound (min)
+                    </label>
+                    <input
+                      type="number"
+                      value={(bo.length_scale_bounds ?? [0.01, 10.0])[0]}
+                      onChange={(e) =>
+                        updateBo({
+                          length_scale_bounds: [
+                            parseFloat(e.target.value) || 0.01,
+                            (bo.length_scale_bounds ?? [0.01, 10.0])[1],
+                          ],
+                        })
+                      }
+                      min={0.0001}
+                      step={0.01}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Length-Scale Bound (max)
+                    </label>
+                    <input
+                      type="number"
+                      value={(bo.length_scale_bounds ?? [0.01, 10.0])[1]}
+                      onChange={(e) =>
+                        updateBo({
+                          length_scale_bounds: [
+                            (bo.length_scale_bounds ?? [0.01, 10.0])[0],
+                            parseFloat(e.target.value) || 10.0,
+                          ],
+                        })
+                      }
+                      min={0.001}
+                      step={0.1}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      Range the GP may fit its length scale within. Default: 0.01–10.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

@@ -349,51 +349,10 @@ DEFAULT_INGREDIENT_CONFIG = [
 # BAYESIAN OPTIMIZATION CONFIGURATION
 # ============================================================================
 
-DEFAULT_BO_CONFIG = {
-    # Core BO parameters
-    "enabled": True,
-    "min_samples_for_bo": 3,
-    "acquisition_function": "ei",  # "ei" or "ucb"
-    # Acquisition function parameters
-    "ei_xi": 0.01,  # Exploration parameter for EI (static, overridden if adaptive enabled)
-    "ucb_kappa": 2.0,  # Exploration parameter for UCB (static, overridden if adaptive enabled)
-    # Adaptive acquisition parameters (time-varying exploration/exploitation)
-    "adaptive_acquisition": True,  # Enable time-varying xi/kappa
-    "exploration_budget": 0.25,  # Fraction of cycles for high exploration (0.25 = first 25%)
-    "xi_exploration": 0.1,  # EI xi during exploration phase (high exploration)
-    "xi_exploitation": 0.01,  # EI xi during exploitation phase (low exploration)
-    "kappa_exploration": 3.0,  # UCB kappa during exploration phase (high exploration)
-    "kappa_exploitation": 1.0,  # UCB kappa during exploitation phase (low exploration)
-    # Gaussian Process kernel parameters
-    "kernel_nu": 2.5,  # Matern smoothness: 0.5, 1.5, 2.5, or inf
-    "length_scale_initial": 1.0,
-    "length_scale_bounds": [0.1, 10.0],
-    "constant_kernel_bounds": [1e-3, 1e3],
-    # GP training parameters
-    "alpha": 1e-3,  # Noise/regularization (changed from 1e-6 to 1e-3 for human data)
-    "n_restarts_optimizer": 10,
-    "normalize_y": True,
-    "random_state": 42,
-    # Advanced parameters
-    "only_final_responses": True,  # Use only final responses for training
-    "candidate_sampling_method": "auto",  # "grid", "lhs", or "auto"
-    "n_candidates_grid": 400,  # For 2D grid (20*20)
-    "n_candidates_lhs": 1000,  # For N-D Latin Hypercube
-    # Stopping criteria (for session ending logic)
-    "stopping_criteria": {
-        "enabled": True,  # Enable convergence detection
-        "min_cycles_1d": 10,  # Minimum cycles for 1D optimization
-        "min_cycles_2d": 15,  # Minimum cycles for 2D optimization
-        "max_cycles_1d": 30,  # Maximum cycles for 1D optimization
-        "max_cycles_2d": 50,  # Maximum cycles for 2D optimization
-        "ei_threshold": 0.001,  # EI below this indicates convergence
-        "ucb_threshold": 0.01,  # UCB decrease threshold
-        "stability_window": 5,  # Number of recent cycles to check for stability
-        "stability_threshold": 0.05,  # Std dev of best values for stability
-        "consecutive_required": 2,  # Require N consecutive converged detections
-        "stopping_mode": "suggest_auto",  # "manual_only", "suggest_auto", "auto_with_minimum"
-    },
-}
+# Single source of truth for BO defaults lives in robotaste/config/bo_config.py.
+# Re-exported here for backward compatibility; do NOT redefine the literal — a
+# second copy drifts out of sync (it previously did: length_scale_bounds).
+from robotaste.config.bo_config import DEFAULT_BO_CONFIG  # noqa: E402,F401
 
 
 # ============================================================================

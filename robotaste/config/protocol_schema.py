@@ -297,6 +297,19 @@ PROTOCOL_JSON_SCHEMA = {
                 "kernel_nu": {"type": "number", "enum": [0.5, 1.5, 2.5, float("inf")]},
                 "alpha": {"type": "number", "minimum": 0, "maximum": 1},
                 "n_restarts_optimizer": {"type": "integer", "minimum": 1},
+                "length_scale_initial": {"type": "number", "minimum": 0},
+                "length_scale_bounds": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
+                "constant_kernel_bounds": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
             },
         },
         # ===== Phase Sequence (CUSTOM PHASES) =====
