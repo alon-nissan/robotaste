@@ -163,8 +163,10 @@ def train_bo_model_for_participant(
         only_final = config.get("only_final_responses", True)
         min_samples = config.get("min_samples_for_bo", 3)
 
-        # Get training data from database (using new API)
-        df = get_training_data(session_id, only_final=False)
+        # Get training data from database (using new API).
+        # Honor the configured only_final_responses flag (default True) instead
+        # of always pulling every response.
+        df = get_training_data(session_id, only_final=only_final)
 
         # Comprehensive logging for debugging
         logger.info(f"BO Training Debug - Session: {session_id}")
@@ -432,9 +434,25 @@ def get_convergence_metrics(session_id: str) -> Dict[str, Any]:
         >>> if metrics["max_acquisition"] < 0.001:
         ...     print("Low expected improvement - nearing convergence")
     """
-    from robotaste.data.database import get_database_connection, get_training_data, get_current_cycle
+    from robotaste.data.database import (
+        get_database_connection,
+        get_training_data,
+        get_current_cycle,
+        get_session,
+    )
+    from robotaste.config.bo_config import resolve_stopping_criteria
 
     try:
+        # Resolve the configured stability window (default 5) for this session so
+        # convergence stability/improvement use the same window the stopping
+        # logic checks against, instead of a hardcoded value.
+        session = get_session(session_id)
+        experiment_config = session.get("experiment_config", {}) if session else {}
+        num_ingredients = len(experiment_config.get("ingredients", []))
+        stability_window = resolve_stopping_criteria(
+            experiment_config, num_ingredients
+        ).get("stability_window", 5)
+
         # Get all samples with BO metadata
         with get_database_connection() as conn:
             cursor = conn.cursor()
@@ -504,16 +522,16 @@ def get_convergence_metrics(session_id: str) -> Dict[str, Any]:
         # Max acquisition (most recent if available)
         max_acquisition = acquisition_values[-1] if acquisition_values else None
 
-        # Stability: std dev of recent best values
+        # Stability: std dev of recent best values (window from config)
         recent_stability = None
-        if len(best_values) >= 5:
-            recent_best = best_values[-5:]
+        if len(best_values) >= stability_window:
+            recent_best = best_values[-stability_window:]
             recent_stability = float(np.std(recent_best))
 
         # Improvement rate: change in best value over recent cycles
         improvement_rate = None
-        if len(best_values) >= 5:
-            recent_best = best_values[-5:]
+        if len(best_values) >= stability_window:
+            recent_best = best_values[-stability_window:]
             improvement_rate = float(recent_best[-1] - recent_best[0])
 
         return {

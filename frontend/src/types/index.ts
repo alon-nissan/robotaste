@@ -446,6 +446,9 @@ export interface BayesianOptimizationConfig {
   kernel_nu?: 0.5 | 1.5 | 2.5;  // Matern kernel smoothness
   alpha?: number;                // Noise parameter (0, 1]
   n_restarts_optimizer?: number;
+  length_scale_initial?: number;             // GP kernel initial length scale
+  length_scale_bounds?: [number, number];    // GP kernel length-scale bounds [min, max]
+  constant_kernel_bounds?: [number, number]; // ConstantKernel bounds [min, max]
 }
 
 

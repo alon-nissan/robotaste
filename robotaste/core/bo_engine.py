@@ -424,8 +424,10 @@ class RoboTasteBO:
         if acquisition is None:
             acquisition = self.config.get("acquisition_function", "ei")
 
-        # Compute adaptive acquisition parameters if enabled
-        adaptive_enabled = self.config.get("adaptive_acquisition", False)
+        # Compute adaptive acquisition parameters if enabled.
+        # Fallback matches DEFAULT_BO_CONFIG (True) so an un-merged config dict
+        # doesn't silently disable the adaptive schedule.
+        adaptive_enabled = self.config.get("adaptive_acquisition", True)
         if adaptive_enabled and current_cycle is not None and max_cycles is not None:
             exploration_budget = self.config.get("exploration_budget", 0.25)
 

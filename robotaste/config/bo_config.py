@@ -161,6 +161,10 @@ def validate_bo_config(config: Dict[str, Any]) -> Dict[str, Any]:
     if validated.get("n_restarts_optimizer", 0) < 1:
         validated["n_restarts_optimizer"] = 1
 
+    if validated.get("length_scale_initial", 1.0) <= 0:
+        logger.warning("length_scale_initial must be > 0, using 1.0")
+        validated["length_scale_initial"] = 1.0
+
     # Validate length scale bounds
     if len(validated.get("length_scale_bounds", [])) != 2:
         validated["length_scale_bounds"] = [0.3, 10.0]

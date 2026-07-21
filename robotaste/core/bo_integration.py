@@ -8,9 +8,11 @@ Version: 3.0 (Refactored Architecture)
 """
 
 import logging
+import math
 from typing import Optional, Dict, Any
 
 from robotaste.data import database as sql
+from robotaste.config.bo_config import get_bo_config_from_experiment
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -95,7 +97,10 @@ def get_bo_suggestion_for_session(
             return None
 
         experiment_config = session.get("experiment_config", {})
-        bo_config = experiment_config.get("bayesian_optimization", {})
+        # Use the merged + validated BO config (defaults <- protocol override)
+        # so candidate/gate params come from the same source of truth as the
+        # engine, instead of the raw, un-merged protocol section.
+        bo_config = get_bo_config_from_experiment(experiment_config)
 
         # Check if BO is enabled
         if not bo_config.get("enabled", True):
@@ -131,10 +136,14 @@ def get_bo_suggestion_for_session(
 
             # Get concentration ranges for the two ingredients
             ranges_list = list(ingredient_ranges.values())
+            # n_candidates_grid is the TOTAL grid size (e.g. 400 = 20x20);
+            # generate_candidate_grid_2d takes points-per-axis, so take the
+            # square root. Prevents a total like 400 exploding to 400x400.
+            n_points = int(round(math.sqrt(bo_config.get("n_candidates_grid", 400))))
             candidates = generate_candidate_grid_2d(
                 sugar_range=ranges_list[0],
                 salt_range=ranges_list[1],
-                n_points=bo_config.get("n_candidates_grid", 20),
+                n_points=n_points,
             )
         else:
             # Slider interface - use Latin Hypercube Sampling
