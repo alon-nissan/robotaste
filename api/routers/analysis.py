@@ -93,6 +93,11 @@ def get_dose_response_data(
         for row in rows:
             conc = json.loads(row["ingredient_concentration"]) if isinstance(row["ingredient_concentration"], str) else row["ingredient_concentration"]
             answer = json.loads(row["questionnaire_answer"]) if isinstance(row["questionnaire_answer"], str) else row["questionnaire_answer"]
+            # Defensive: a handful of legacy/orphaned samples have a literal JSON "null"
+            # (not an object) in one of these columns. Skip them rather than 500ing the
+            # whole multi-protocol query over one bad row.
+            if not isinstance(conc, dict) or not isinstance(answer, dict):
+                continue
 
             # Track protocols
             pid = row["protocol_id"]

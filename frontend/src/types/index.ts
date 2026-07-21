@@ -252,6 +252,60 @@ export interface Sample {
 }
 
 
+// ─── DOSE RESPONSE ─────────────────────────────────────────────────────────
+// Shape returned by GET /api/analysis/dose-response. Shared by AnalysisHubPage's
+// Dose Response tab and the standalone DoseResponseDashboardPage.
+
+export interface DRProtocolInfo {
+  protocol_id: string;
+  name: string;
+}
+
+export interface DRSubjectInfo {
+  session_id: string;
+  session_code: string;
+  subject_name: string;
+  protocol_id: string;
+}
+
+export interface DRDataPoint {
+  session_id: string;
+  session_code: string;
+  subject_name: string;
+  cycle_number: number;
+  concentrations: Record<string, number>;
+  responses: Record<string, number>;
+  sample_temperature_c?: number;
+  created_at?: string;
+}
+
+export interface DRStatEntry {
+  mean: number;
+  std: number;
+  sem: number;
+  min: number;
+  max: number;
+  n: number;
+}
+
+export interface DRAggregatedEntry {
+  concentrations: Record<string, number>;
+  n: number;
+  stats: Record<string, DRStatEntry>;
+}
+
+export interface DoseResponseData {
+  protocols: DRProtocolInfo[];
+  subjects: DRSubjectInfo[];
+  data_points: DRDataPoint[];
+  aggregated: DRAggregatedEntry[];
+  ingredients: string[];
+  response_variables: string[];
+  ingredient_units: Record<string, string>;
+  sample_temperatures_c?: number[];
+}
+
+
 // ─── MODE INFO ─────────────────────────────────────────────────────────────
 // Current mode information for monitoring
 

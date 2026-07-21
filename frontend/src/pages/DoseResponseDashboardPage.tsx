@@ -1,69 +1,23 @@
 /**
  * DoseResponseDashboardPage — Visualize dose-response curves from experiment data.
  *
- * Shows:
- * - Individual subject dose-response curves (scatter + line)
- * - Aggregated mean curve with error bars (SEM)
+ * Shows (via the shared doseResponse components, Plotly-backed):
+ * - Mean ± SEM curve, individual subject curves, per-dose distribution, or a
+ *   3D response surface for mixture protocols
+ * - Multi-protocol comparison (overlaid, colored by protocol)
  * - Summary statistics table
- * - Filters for protocol, ingredient, and response variable
+ * - Filters for protocols, subjects, ingredient, and response variable
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
-import {
-  Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ComposedChart, Area,
-} from 'recharts';
-
-// ─── TYPES ──────────────────────────────────────────────────────────────────
-
-interface ProtocolInfo {
-  protocol_id: string;
-  name: string;
-}
-
-interface SubjectInfo {
-  session_id: string;
-  session_code: string;
-  subject_name: string;
-  protocol_id: string;
-}
-
-interface DataPoint {
-  session_id: string;
-  session_code: string;
-  subject_name: string;
-  cycle_number: number;
-  concentrations: Record<string, number>;
-  responses: Record<string, number>;
-}
-
-interface StatEntry {
-  mean: number;
-  std: number;
-  sem: number;
-  min: number;
-  max: number;
-  n: number;
-}
-
-interface AggregatedEntry {
-  concentrations: Record<string, number>;
-  n: number;
-  stats: Record<string, StatEntry>;
-}
-
-interface DoseResponseData {
-  protocols: ProtocolInfo[];
-  subjects: SubjectInfo[];
-  data_points: DataPoint[];
-  aggregated: AggregatedEntry[];
-  ingredients: string[];
-  response_variables: string[];
-  ingredient_units: Record<string, string>;
-}
+import type { DoseResponseData } from '../types';
+import DoseResponseChart, { type ProtocolSeries } from '../components/doseResponse/DoseResponseChart';
+import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/ChartTypeSelector';
+import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
+import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
 
 // ─── FORMATTERS ─────────────────────────────────────────────────────────────
 
@@ -98,29 +52,30 @@ export default function DoseResponseDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [selectedProtocol, setSelectedProtocol] = useState<string>('');
+  const [selectedProtocols, setSelectedProtocols] = useState<Set<string>>(new Set());
+  const [chartType, setChartType] = useState<DRChartType>('mean');
   const [selectedIngredient, setSelectedIngredient] = useState<string>('');
+  const [ingredientX, setIngredientX] = useState<string>('');
+  const [ingredientY, setIngredientY] = useState<string>('');
   const [selectedVariable, setSelectedVariable] = useState<string>('');
   const [selectedSubjects, setSelectedSubjects] = useState<Set<string>>(new Set());
 
-  // Fetch data
+  // Fetch once — this endpoint already returns every protocol's data in one payload,
+  // so comparing protocols is done client-side; no protocol_id filter is sent.
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
-      if (selectedProtocol) params.protocol_id = selectedProtocol;
-      const res = await api.get('/analysis/dose-response', { params });
+      const res = await api.get('/analysis/dose-response');
       const d: DoseResponseData = res.data;
       setData(d);
 
-      // Auto-select first ingredient and variable if not set
-      if (!selectedIngredient && d.ingredients.length > 0) {
-        setSelectedIngredient(d.ingredients[0]);
+      if (!selectedIngredient && d.ingredients.length > 0) setSelectedIngredient(d.ingredients[0]);
+      if (!ingredientX && d.ingredients.length > 0) setIngredientX(d.ingredients[0]);
+      if (!ingredientY && d.ingredients.length > 1) setIngredientY(d.ingredients[1]);
+      if (!selectedVariable && d.response_variables.length > 0) setSelectedVariable(d.response_variables[0]);
+      if (selectedProtocols.size === 0 && d.protocols.length > 0) {
+        setSelectedProtocols(new Set(d.protocols.map(p => p.protocol_id)));
       }
-      if (!selectedVariable && d.response_variables.length > 0) {
-        setSelectedVariable(d.response_variables[0]);
-      }
-      // Select all subjects by default
       if (selectedSubjects.size === 0 && d.subjects.length > 0) {
         setSelectedSubjects(new Set(d.subjects.map(s => s.session_id)));
       }
@@ -132,7 +87,7 @@ export default function DoseResponseDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProtocol]); // Only re-fetch when protocol filter changes
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -140,67 +95,83 @@ export default function DoseResponseDashboardPage() {
 
   // ─── DERIVED DATA ───────────────────────────────────────────────────────
 
-  // Per-subject chart data: [{ concentration, response, subject }]
-  const subjectChartData = useMemo(() => {
-    if (!data || !selectedIngredient || !selectedVariable) return [];
+  const sessionProtocol = useMemo(() => {
+    const m = new Map<string, string>();
+    data?.subjects.forEach(s => m.set(s.session_id, s.protocol_id));
+    return m;
+  }, [data]);
 
-    return data.data_points
-      .filter(dp => selectedSubjects.has(dp.session_id))
-      .filter(dp => dp.concentrations[selectedIngredient] !== undefined)
-      .filter(dp => dp.responses[selectedVariable] !== undefined)
-      .map(dp => ({
-        concentration: dp.concentrations[selectedIngredient],
-        response: dp.responses[selectedVariable],
-        subject: dp.subject_name,
-        session_id: dp.session_id,
-      }))
-      .sort((a, b) => a.concentration - b.concentration);
-  }, [data, selectedIngredient, selectedVariable, selectedSubjects]);
+  const protocolColor = useCallback(
+    (protocolId: string) => {
+      const idx = data?.protocols.findIndex(p => p.protocol_id === protocolId) ?? -1;
+      return PROTOCOL_COLORS[Math.max(idx, 0) % PROTOCOL_COLORS.length];
+    },
+    [data],
+  );
 
-  // Per-subject line data grouped by subject
-  const subjectLines = useMemo(() => {
-    const grouped: Record<string, { concentration: number; response: number }[]> = {};
-    for (const dp of subjectChartData) {
-      if (!grouped[dp.subject]) grouped[dp.subject] = [];
-      grouped[dp.subject].push({ concentration: dp.concentration, response: dp.response });
-    }
-    // Sort each subject's data by concentration
-    for (const key in grouped) {
-      grouped[key].sort((a, b) => a.concentration - b.concentration);
-    }
-    return grouped;
-  }, [subjectChartData]);
+  const visibleSubjects = useMemo(
+    () => data?.subjects.filter(s => selectedProtocols.has(s.protocol_id)) ?? [],
+    [data, selectedProtocols],
+  );
 
-  // Aggregated mean curve with error bars
-  const meanCurveData = useMemo(() => {
-    if (!data || !selectedIngredient || !selectedVariable) return [];
-
-    return data.aggregated
-      .filter(agg => agg.stats[selectedVariable])
-      .map(agg => ({
-        concentration: agg.concentrations[selectedIngredient] ?? 0,
-        mean: agg.stats[selectedVariable].mean,
-        sem: agg.stats[selectedVariable].sem,
-        std: agg.stats[selectedVariable].std,
-        n: agg.stats[selectedVariable].n,
-        min: agg.stats[selectedVariable].min,
-        max: agg.stats[selectedVariable].max,
-        upper: agg.stats[selectedVariable].mean + agg.stats[selectedVariable].sem,
-        lower: agg.stats[selectedVariable].mean - agg.stats[selectedVariable].sem,
-      }))
-      .sort((a, b) => a.concentration - b.concentration);
-  }, [data, selectedIngredient, selectedVariable]);
-
-  // Subject color map
   const subjectColorMap = useMemo(() => {
     const map: Record<string, string> = {};
-    data?.subjects.forEach((s, i) => {
-      map[s.subject_name || s.session_code] = SUBJECT_COLORS[i % SUBJECT_COLORS.length];
-    });
+    data?.subjects.forEach((s, i) => { map[s.session_id] = SUBJECT_COLORS[i % SUBJECT_COLORS.length]; });
     return map;
   }, [data]);
 
-  // ─── SUBJECT TOGGLE ─────────────────────────────────────────────────────
+  const filteredForChart = useMemo(() => {
+    if (!data) return [];
+    return data.data_points.filter(dp => {
+      const pid = sessionProtocol.get(dp.session_id);
+      if (!pid || !selectedProtocols.has(pid)) return false;
+      return selectedSubjects.has(dp.session_id);
+    });
+  }, [data, sessionProtocol, selectedProtocols, selectedSubjects]);
+
+  const series: ProtocolSeries[] = useMemo(() => {
+    if (!data) return [];
+    const byProtocol = new Map<string, typeof filteredForChart>();
+    for (const dp of filteredForChart) {
+      const pid = sessionProtocol.get(dp.session_id);
+      if (!pid) continue;
+      const arr = byProtocol.get(pid) ?? [];
+      arr.push(dp);
+      byProtocol.set(pid, arr);
+    }
+    return data.protocols
+      .filter(p => selectedProtocols.has(p.protocol_id))
+      .map(p => ({
+        protocolId: p.protocol_id, label: p.name, color: protocolColor(p.protocol_id),
+        points: byProtocol.get(p.protocol_id) ?? [],
+      }));
+  }, [data, filteredForChart, sessionProtocol, selectedProtocols, protocolColor]);
+
+  // Aggregated mean curve with error bars — used for the Summary Statistics table
+  const meanCurveData = useMemo(() => {
+    if (!selectedIngredient || !selectedVariable) return [];
+    const groups = new Map<number, number[]>();
+    for (const dp of filteredForChart) {
+      const c = dp.concentrations[selectedIngredient];
+      const v = Number(dp.responses[selectedVariable]);
+      if (c === undefined || !Number.isFinite(v)) continue;
+      const arr = groups.get(c) ?? [];
+      arr.push(v);
+      groups.set(c, arr);
+    }
+    return Array.from(groups.entries())
+      .map(([concentration, vals]) => {
+        const n = vals.length;
+        const mean = vals.reduce((a, b) => a + b, 0) / n;
+        const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
+        const std = Math.sqrt(variance);
+        const sem = n > 1 ? std / Math.sqrt(n) : 0;
+        return { concentration, mean, sem, std, n, min: Math.min(...vals), max: Math.max(...vals) };
+      })
+      .sort((a, b) => a.concentration - b.concentration);
+  }, [filteredForChart, selectedIngredient, selectedVariable]);
+
+  // ─── SUBJECT / PROTOCOL TOGGLES ─────────────────────────────────────────
 
   function toggleSubject(sessionId: string) {
     setSelectedSubjects(prev => {
@@ -212,8 +183,7 @@ export default function DoseResponseDashboardPage() {
   }
 
   function selectAllSubjects() {
-    if (!data) return;
-    setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)));
+    setSelectedSubjects(new Set(visibleSubjects.map(s => s.session_id)));
   }
 
   function clearAllSubjects() {
@@ -250,6 +220,7 @@ export default function DoseResponseDashboardPage() {
   }
 
   const hasData = data && data.data_points.length > 0;
+  const allowSurface3d = (data?.ingredients.length ?? 0) >= 2;
 
   // Axis label strings derived from selected filters + ingredient units
   const xUnit = data?.ingredient_units?.[selectedIngredient] ?? 'mM';
@@ -257,6 +228,7 @@ export default function DoseResponseDashboardPage() {
   const yAxisLabel = selectedVariable
     ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ' (score)'
     : 'Response';
+  const xUnitOf = (ing: string) => data?.ingredient_units?.[ing] ?? 'mM';
 
   // ─── RENDER ─────────────────────────────────────────────────────────────
 
@@ -284,23 +256,7 @@ export default function DoseResponseDashboardPage() {
       ) : (
         <>
           {/* ═══ FILTERS ROW ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Protocol filter */}
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Protocol</label>
-              <select
-                value={selectedProtocol}
-                onChange={e => setSelectedProtocol(e.target.value)}
-                className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              >
-                <option value="">All Protocols</option>
-                {data.protocols.map(p => (
-                  <option key={p.protocol_id} value={p.protocol_id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Ingredient selector */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Ingredient (X-axis)</label>
               <select
@@ -314,7 +270,6 @@ export default function DoseResponseDashboardPage() {
               </select>
             </div>
 
-            {/* Response variable selector */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Response Variable (Y-axis)</label>
               <select
@@ -329,161 +284,109 @@ export default function DoseResponseDashboardPage() {
             </div>
           </div>
 
-          {/* ═══ CHARTS ROW ═══ */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-
-            {/* LEFT: Individual Subject Curves */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-                Individual Subject Curves
+          {/* ═══ CHART ═══ */}
+          <div className="p-6 bg-surface rounded-xl border border-border mb-6">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+                {chartType === 'surface3d' ? `${ingredientX} × ${ingredientY}` : `${yAxisLabel} vs. ${selectedIngredient}`}
               </h3>
-              <div className="h-[360px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart margin={{ top: 10, right: 20, bottom: 30, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis
-                      dataKey="concentration"
-                      type="number"
-                      tickFormatter={formatConc}
-                      label={{ value: xAxisLabel, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }}
-                      allowDuplicatedCategory={false}
-                    />
-                    <YAxis
-                      label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }}
-                    />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }}
-                      formatter={(value) => typeof value === 'number' ? value.toFixed(2) : value}
-                    />
-                    <Legend verticalAlign="top" height={36} />
-                    {Object.entries(subjectLines).map(([subject, points]) => (
-                      <Line
-                        key={subject}
-                        data={points}
-                        dataKey="response"
-                        name={subject}
-                        stroke={subjectColorMap[subject] || '#521924'}
-                        strokeWidth={2}
-                        dot={{ r: 5, fill: subjectColorMap[subject] || '#521924' }}
-                        connectNulls
-                        type="monotone"
-                      />
-                    ))}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+              <ChartTypeSelector value={chartType} onChange={setChartType} allowSurface3d={allowSurface3d} />
             </div>
 
-            {/* RIGHT: Mean Curve with SEM Error Band */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-                Mean Dose-Response Curve (± SEM)
-              </h3>
-              <div className="h-[360px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={meanCurveData} margin={{ top: 10, right: 20, bottom: 30, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                    <XAxis
-                      dataKey="concentration"
-                      type="number"
-                      tickFormatter={formatConc}
-                      label={{ value: xAxisLabel, position: 'bottom', offset: 0, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }}
-                    />
-                    <YAxis
-                      label={{ value: yAxisLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#7F8C8D', fontSize: 13 } }}
-                      tick={{ fill: '#7F8C8D', fontSize: 12 }}
-                    />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 13 }}
-                      formatter={(value, name) => [typeof value === 'number' ? value.toFixed(2) : value, name === 'mean' ? 'Mean' : name]}
-                    />
-                    {/* SEM band */}
-                    <Area
-                      dataKey="upper"
-                      stroke="none"
-                      fill="#521924"
-                      fillOpacity={0.1}
-                      connectNulls
-                      type="monotone"
-                    />
-                    <Area
-                      dataKey="lower"
-                      stroke="none"
-                      fill="#ffffff"
-                      fillOpacity={1}
-                      connectNulls
-                      type="monotone"
-                    />
-                    {/* Mean line */}
-                    <Line
-                      dataKey="mean"
-                      name="Mean"
-                      stroke="#521924"
-                      strokeWidth={3}
-                      dot={{ r: 6, fill: '#521924', stroke: '#fff', strokeWidth: 2 }}
-                      connectNulls
-                      type="monotone"
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+            {chartType === 'surface3d' && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <select value={ingredientX} onChange={e => setIngredientX(e.target.value)}
+                  className="w-full p-2 text-sm border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary">
+                  {data.ingredients.map(ing => <option key={ing} value={ing}>{ing} (X)</option>)}
+                </select>
+                <select value={ingredientY} onChange={e => setIngredientY(e.target.value)}
+                  className="w-full p-2 text-sm border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary">
+                  {data.ingredients.map(ing => <option key={ing} value={ing}>{ing} (Y)</option>)}
+                </select>
               </div>
-            </div>
+            )}
+
+            <DoseResponseChart
+              chartType={chartType}
+              series={series}
+              variable={selectedVariable}
+              responseLabel={yAxisLabel}
+              ingredient={selectedIngredient}
+              ingredientLabel={xAxisLabel}
+              ingredientX={ingredientX}
+              ingredientXLabel={`${ingredientX} (${xUnitOf(ingredientX)})`}
+              ingredientY={ingredientY}
+              ingredientYLabel={`${ingredientY} (${xUnitOf(ingredientY)})`}
+              subjectColor={sid => subjectColorMap[sid] ?? '#521924'}
+              height={420}
+            />
           </div>
 
-          {/* ═══ BOTTOM ROW: Subject Selector + Summary Stats ═══ */}
+          {/* ═══ BOTTOM ROW: Protocols + Subjects + Summary Stats ═══ */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            {/* Subject Selector */}
-            <div className="p-6 bg-surface rounded-xl border border-border">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-                Subjects
-              </h3>
-              <div className="flex gap-2 mb-3">
-                <button
-                  onClick={selectAllSubjects}
-                  className="px-3 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary-light transition-colors"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={clearAllSubjects}
-                  className="px-3 py-1 text-xs bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors"
-                >
-                  Clear All
-                </button>
+            {/* Protocols + Subjects */}
+            <div className="p-6 bg-surface rounded-xl border border-border flex flex-col gap-5">
+              <div>
+                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">
+                  Protocols (compare)
+                </h3>
+                <ProtocolMultiSelect
+                  protocols={data.protocols}
+                  selected={selectedProtocols}
+                  onChange={setSelectedProtocols}
+                  colorFor={protocolColor}
+                />
               </div>
-              <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                {data.subjects.map((s, i) => (
-                  <label
-                    key={s.session_id}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+
+              <div>
+                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">
+                  Subjects
+                </h3>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={selectAllSubjects}
+                    className="px-3 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary-light transition-colors"
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedSubjects.has(s.session_id)}
-                      onChange={() => toggleSubject(s.session_id)}
-                      className="w-4 h-4 rounded accent-primary"
-                    />
-                    <span
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: SUBJECT_COLORS[i % SUBJECT_COLORS.length] }}
-                    />
-                    <span className="text-sm text-text-primary">
-                      {s.subject_name || s.session_code}
-                    </span>
-                    <span className="text-xs text-text-secondary ml-auto">{s.session_code}</span>
-                  </label>
-                ))}
+                    Select All
+                  </button>
+                  <button
+                    onClick={clearAllSubjects}
+                    className="px-3 py-1 text-xs bg-surface text-text-primary rounded-lg border border-border hover:bg-gray-100 transition-colors"
+                  >
+                    Clear All
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {visibleSubjects.map(s => (
+                    <label
+                      key={s.session_id}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSubjects.has(s.session_id)}
+                        onChange={() => toggleSubject(s.session_id)}
+                        className="w-4 h-4 rounded accent-primary"
+                      />
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: subjectColorMap[s.session_id] }}
+                      />
+                      <span className="text-sm text-text-primary">
+                        {s.subject_name || s.session_code}
+                      </span>
+                      <span className="text-xs text-text-secondary ml-auto">{s.session_code}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
 
             {/* Summary Statistics Table */}
             <div className="lg:col-span-2 p-6 bg-surface rounded-xl border border-border">
               <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-                Summary Statistics
+                Summary Statistics {series.length > 1 ? '(all selected protocols combined)' : ''}
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

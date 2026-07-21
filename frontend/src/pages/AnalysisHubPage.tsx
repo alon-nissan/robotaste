@@ -8,33 +8,17 @@
  *   4. Query Builder — Run SQL queries (SELECT by default; write ops in power mode)
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import PageLayout from '../components/PageLayout';
-import {
-  Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ComposedChart, Area,
-} from 'recharts';
+import type { DoseResponseData } from '../types';
+import DoseResponseChart, { type ProtocolSeries } from '../components/doseResponse/DoseResponseChart';
+import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/ChartTypeSelector';
+import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
+import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
-
-interface ProtocolInfo { protocol_id: string; name: string; }
-interface SubjectInfo  { session_id: string; session_code: string; subject_name: string; protocol_id: string; }
-interface DataPoint    {
-  session_id: string; session_code: string; subject_name: string;
-  cycle_number: number; concentrations: Record<string, number>; responses: Record<string, number>;
-  sample_temperature_c?: number;
-  created_at?: string;
-}
-interface StatEntry    { mean: number; std: number; sem: number; min: number; max: number; n: number; }
-interface AggregatedEntry { concentrations: Record<string, number>; n: number; stats: Record<string, StatEntry>; }
-interface DoseResponseData {
-  protocols: ProtocolInfo[]; subjects: SubjectInfo[]; data_points: DataPoint[];
-  aggregated: AggregatedEntry[]; ingredients: string[]; response_variables: string[];
-  ingredient_units: Record<string, string>;
-  sample_temperatures_c?: number[];
-}
 
 interface DashboardProtocol {
   protocol_id: string; protocol_name: string;
@@ -65,14 +49,6 @@ const CS = {
   axisColor:   '#4A5568',
 };
 
-const INTENSITY_LABELS: Record<number, string> = {
-  1: 'Not at all',
-  3: 'Light',
-  5: 'Moderate',
-  7: 'Strong',
-  9: 'Extremely strong',
-};
-
 function fmtConc(val: number): string {
   if (val === 0) return '0';
   if (val < 0.1) return val.toFixed(3);
@@ -92,73 +68,6 @@ async function downloadExcel(request: Promise<{ data: Blob }>, filename: string)
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-async function downloadChartAsPng(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  title: string,
-  subtitle: string,
-  baseName: string,
-) {
-  const svgEl = containerRef.current?.querySelector('svg');
-  if (!svgEl) return;
-  const clone = svgEl.cloneNode(true) as SVGElement;
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-
-  const { width, height } = svgEl.getBoundingClientRect();
-  const scale    = 2;
-  const titleH   = subtitle ? 80 : 50;
-  const footerH  = 32;
-
-  const svgString = new XMLSerializer().serializeToString(clone);
-  const svgBlob   = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-  const url       = URL.createObjectURL(svgBlob);
-
-  const img = new Image();
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = reject;
-    img.src = url;
-  });
-
-  const canvas    = document.createElement('canvas');
-  canvas.width    = Math.round(width  * scale);
-  canvas.height   = Math.round((titleH + height + footerH) * scale);
-  const ctx       = canvas.getContext('2d')!;
-
-  ctx.fillStyle   = CS.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.textAlign   = 'center';
-  ctx.fillStyle   = CS.titleColor;
-  ctx.font        = `bold ${16 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
-  ctx.fillText(title, canvas.width / 2, 26 * scale);
-  if (subtitle) {
-    ctx.font      = `bold ${13 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
-    ctx.fillText(subtitle, canvas.width / 2, 50 * scale);
-  }
-
-  ctx.drawImage(img, 0, titleH * scale, Math.round(width * scale), Math.round(height * scale));
-
-  const ts    = new Date();
-  const stamp = ts.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  ctx.fillStyle   = CS.axisColor;
-  ctx.font        = `${10 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
-  ctx.textAlign   = 'right';
-  ctx.fillText(`Downloaded: ${stamp}`, canvas.width - 10 * scale, canvas.height - 8 * scale);
-
-  URL.revokeObjectURL(url);
-
-  const fileStamp = ts.toISOString().replace(/[:.T]/g, '-').slice(0, 19);
-  canvas.toBlob(blob => {
-    if (!blob) return;
-    const dl = URL.createObjectURL(blob);
-    const a  = document.createElement('a');
-    a.href     = dl;
-    a.download = `${baseName}_${fileStamp}.png`;
-    a.click();
-    URL.revokeObjectURL(dl);
-  }, 'image/png');
 }
 
 // ─── TAB DEFINITIONS ────────────────────────────────────────────────────────
@@ -375,8 +284,11 @@ function DoseResponseTab() {
   const [data, setData]                   = useState<DoseResponseData | null>(null);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState<string | null>(null);
-  const [selectedProtocol, setSelectedProtocol] = useState('');
+  const [selectedProtocols, setSelectedProtocols] = useState<Set<string>>(new Set());
+  const [chartType, setChartType]         = useState<DRChartType>('mean');
   const [selectedIngredient, setSelectedIngredient] = useState('');
+  const [ingredientX, setIngredientX]     = useState('');
+  const [ingredientY, setIngredientY]     = useState('');
   const [selectedVariable, setSelectedVariable]     = useState('');
   const [selectedSubjects, setSelectedSubjects]     = useState<Set<string>>(new Set());
   const [selectedTemps, setSelectedTemps]           = useState<Set<string>>(new Set());
@@ -385,18 +297,21 @@ function DoseResponseTab() {
   const [dateFrom, setDateFrom]                     = useState('');
   const [dateTo, setDateTo]                         = useState('');
 
-  const meanChartRef = useRef<HTMLDivElement>(null);
-
+  // Fetch once — the endpoint already returns every protocol's data in one payload
+  // (each subject/session carries its own protocol_id), so protocol comparison is
+  // done entirely client-side; no protocol_id query param is sent.
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
-      if (selectedProtocol) params.protocol_id = selectedProtocol;
-      const res = await api.get('/analysis/dose-response', { params });
+      const res = await api.get('/analysis/dose-response');
       const d: DoseResponseData = res.data;
       setData(d);
       if (!selectedIngredient && d.ingredients.length > 0) setSelectedIngredient(d.ingredients[0]);
+      if (!ingredientX && d.ingredients.length > 0) setIngredientX(d.ingredients[0]);
+      if (!ingredientY && d.ingredients.length > 1) setIngredientY(d.ingredients[1]);
       if (!selectedVariable  && d.response_variables.length > 0) setSelectedVariable(d.response_variables[0]);
+      if (selectedProtocols.size === 0 && d.protocols.length > 0)
+        setSelectedProtocols(new Set(d.protocols.map(p => p.protocol_id)));
       if (selectedSubjects.size === 0 && d.subjects.length > 0)
         setSelectedSubjects(new Set(d.subjects.map(s => s.session_id)));
       setError(null);
@@ -405,19 +320,42 @@ function DoseResponseTab() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProtocol]);
-  // selectedIngredient, selectedVariable, and selectedSubjects are intentionally omitted:
-  // they filter data client-side from the already-fetched payload; only a protocol change
-  // requires a new API call.
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── Derived data ──
 
+  const sessionProtocol = useMemo(() => {
+    const m = new Map<string, string>();
+    data?.subjects.forEach(s => m.set(s.session_id, s.protocol_id));
+    return m;
+  }, [data]);
+
+  const protocolColor = useCallback(
+    (protocolId: string) => {
+      const idx = data?.protocols.findIndex(p => p.protocol_id === protocolId) ?? -1;
+      return PROTOCOL_COLORS[Math.max(idx, 0) % PROTOCOL_COLORS.length];
+    },
+    [data],
+  );
+
+  const visibleSubjects = useMemo(
+    () => data?.subjects.filter(s => selectedProtocols.has(s.protocol_id)) ?? [],
+    [data, selectedProtocols],
+  );
+
+  const subjectColorMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    data?.subjects.forEach((s, i) => { m[s.session_id] = SUBJECT_COLORS[i % SUBJECT_COLORS.length]; });
+    return m;
+  }, [data]);
 
   const filteredForChart = useMemo(() => {
-    if (!data || !selectedIngredient || !selectedVariable) return [];
+    if (!data) return [];
     return data.data_points.filter(dp => {
+      const pid = sessionProtocol.get(dp.session_id);
+      if (!pid || !selectedProtocols.has(pid)) return false;
       if (!selectedSubjects.has(dp.session_id)) return false;
       if (selectedTemps.size > 0) {
         const t = dp.sample_temperature_c == null ? '' : String(dp.sample_temperature_c);
@@ -427,16 +365,37 @@ function DoseResponseTab() {
       if (cycleMax != null && dp.cycle_number > cycleMax) return false;
       if (dateFrom && dp.created_at && dp.created_at < dateFrom) return false;
       if (dateTo && dp.created_at && dp.created_at > dateTo + 'T23:59:59') return false;
-      return dp.concentrations[selectedIngredient] !== undefined && dp.responses[selectedVariable] != null;
+      return true;
     });
-  }, [data, selectedIngredient, selectedVariable, selectedSubjects, selectedTemps, cycleMin, cycleMax, dateFrom, dateTo]);
+  }, [data, sessionProtocol, selectedProtocols, selectedSubjects, selectedTemps, cycleMin, cycleMax, dateFrom, dateTo]);
 
+  const series: ProtocolSeries[] = useMemo(() => {
+    if (!data) return [];
+    const byProtocol = new Map<string, typeof filteredForChart>();
+    for (const dp of filteredForChart) {
+      const pid = sessionProtocol.get(dp.session_id);
+      if (!pid) continue;
+      const arr = byProtocol.get(pid) ?? [];
+      arr.push(dp);
+      byProtocol.set(pid, arr);
+    }
+    return data.protocols
+      .filter(p => selectedProtocols.has(p.protocol_id))
+      .map(p => ({
+        protocolId: p.protocol_id, label: p.name, color: protocolColor(p.protocol_id),
+        points: byProtocol.get(p.protocol_id) ?? [],
+      }));
+  }, [data, filteredForChart, sessionProtocol, selectedProtocols, protocolColor]);
+
+  // Summary stats + per-subject table use the 1D ingredient/variable selection, combined
+  // across all selected protocols.
   const meanCurveData = useMemo(() => {
+    if (!selectedIngredient || !selectedVariable) return [];
     const groups = new Map<number, number[]>();
     for (const dp of filteredForChart) {
-      const c = dp.concentrations[selectedIngredient] ?? 0;
+      const c = dp.concentrations[selectedIngredient];
       const v = Number(dp.responses[selectedVariable]);
-      if (!Number.isFinite(v)) continue;
+      if (c === undefined || !Number.isFinite(v)) continue;
       const arr = groups.get(c) ?? [];
       arr.push(v);
       groups.set(c, arr);
@@ -448,32 +407,15 @@ function DoseResponseTab() {
         const variance = n > 1 ? vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
         const std = Math.sqrt(variance);
         const sem = n > 1 ? std / Math.sqrt(n) : 0;
-        return {
-          concentration, mean, std, sem, n,
-          min: Math.min(...vals), max: Math.max(...vals),
-          lower: mean - sem, upper: mean + sem,
-        };
+        return { concentration, mean, std, sem, n, min: Math.min(...vals), max: Math.max(...vals) };
       })
       .sort((a, b) => a.concentration - b.concentration);
   }, [filteredForChart, selectedIngredient, selectedVariable]);
 
-  const meanSubjectInfo = useMemo(() => {
-    const n = new Set(filteredForChart.map(dp => dp.session_id)).size;
-    const temps = filteredForChart.map(dp => dp.sample_temperature_c).filter((t): t is number => t != null);
-    const meanTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
-    return { n, meanTempStr: meanTemp != null ? `${meanTemp.toFixed(1)}°C` : '?' };
-  }, [filteredForChart]);
-
-  const meanCurveDataCategorical = useMemo(
-    () => meanCurveData.map(row => ({ ...row, concKey: fmtConc(row.concentration) })),
-    [meanCurveData],
-  );
-
   // Per-subject raw data table (all data points for selected filters)
   const perSubjectRows = useMemo(() => {
     if (!data || !selectedIngredient || !selectedVariable) return [];
-    return data.data_points
-      .filter(dp => selectedSubjects.has(dp.session_id))
+    return filteredForChart
       .filter(dp => dp.concentrations[selectedIngredient] !== undefined && dp.responses[selectedVariable] !== undefined)
       .map(dp => ({
         subject:       dp.subject_name || dp.session_code,
@@ -483,7 +425,7 @@ function DoseResponseTab() {
         response:      dp.responses[selectedVariable],
       }))
       .sort((a, b) => a.subject.localeCompare(b.subject) || a.concentration - b.concentration);
-  }, [data, selectedIngredient, selectedVariable, selectedSubjects]);
+  }, [data, filteredForChart, selectedIngredient, selectedVariable]);
 
   function toggleSubject(id: string) {
     setSelectedSubjects(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -492,13 +434,15 @@ function DoseResponseTab() {
   const xUnit    = data?.ingredient_units?.[selectedIngredient] ?? 'mM';
   const xLabel   = selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration';
   const yLabel   = selectedVariable
-    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' score (1–9 scale)'
-    : 'Response score (1–9 scale)';
+    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' score'
+    : 'Response score';
+  const xUnitOf = (ing: string) => data?.ingredient_units?.[ing] ?? 'mM';
 
   if (loading) return <LoadingState text="Loading dose-response data…" />;
   if (error && !data) return <ErrorState text={error} />;
 
   const hasData = data && data.data_points.length > 0;
+  const allowSurface3d = (data?.ingredients.length ?? 0) >= 2;
 
   return (
     <div>
@@ -509,15 +453,7 @@ function DoseResponseTab() {
       ) : (
         <>
           {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1">Protocol</label>
-              <select value={selectedProtocol} onChange={e => setSelectedProtocol(e.target.value)}
-                className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary">
-                <option value="">All Protocols</option>
-                {data.protocols.map(p => <option key={p.protocol_id} value={p.protocol_id}>{p.name}</option>)}
-              </select>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1">Ingredient (X-axis)</label>
               <select value={selectedIngredient} onChange={e => setSelectedIngredient(e.target.value)}
@@ -538,71 +474,42 @@ function DoseResponseTab() {
 
           {/* Chart + Filters */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            {/* Mean curve — 2/3 width */}
+            {/* Chart — 2/3 width */}
             <div className="lg:col-span-2 p-6 rounded-xl border border-border" style={{ backgroundColor: CS.bg }}>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: CS.titleColor }}>
-                  Mean Dose-Response Curve (± SEM)
+                  {yLabel} vs. {chartType === 'surface3d' ? `${ingredientX} × ${ingredientY}` : selectedIngredient}
                 </h3>
-                <button
-                  onClick={() => void downloadChartAsPng(
-                    meanChartRef,
-                    `${selectedIngredient || 'Concentration'} Dose-Response`,
-                    `Mean ${yLabel}`,
-                    'mean-dose-response',
-                  )}
-                  aria-label="Download mean curve as PNG"
-                  className="text-xs px-2 py-1 rounded border border-border text-text-secondary hover:bg-gray-100 transition-colors">
-                  ↓ PNG
-                </button>
+                <ChartTypeSelector value={chartType} onChange={setChartType} allowSurface3d={allowSurface3d} />
               </div>
-              <div className="h-[420px]" ref={meanChartRef}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={meanCurveDataCategorical} margin={{ top: 10, right: 100, bottom: 50, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CS.grid} />
-                    <XAxis
-                      dataKey="concKey" type="category" allowDuplicatedCategory={false}
-                      label={{ value: xLabel, position: 'bottom', offset: 12, style: { fill: CS.axisColor, fontSize: 13 } }}
-                      tick={{ fill: CS.axisColor, fontSize: 12 }}
-                    />
-                    <YAxis
-                      domain={[1, 9]} ticks={[1,2,3,4,5,6,7,8,9]} allowDecimals={false}
-                      label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 10, style: { fill: CS.axisColor, fontSize: 13 } }}
-                      tick={{ fill: CS.axisColor, fontSize: 12 }}
-                    />
-                    <YAxis
-                      yAxisId="intensity" orientation="right"
-                      domain={[1, 9]} ticks={[1, 3, 5, 7, 9]}
-                      tickFormatter={(v: number) => INTENSITY_LABELS[v] ?? ''}
-                      tick={{ fill: CS.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: CS.grid }} tickLine={{ stroke: CS.grid }} width={100}
-                    />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 8, border: `1px solid ${CS.grid}`, fontSize: 13, backgroundColor: '#fff' }}
-                      formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, name === 'mean' ? 'Mean' : name]}
-                    />
-                    <Legend
-                      verticalAlign="top" height={52}
-                      content={() => (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 12px', fontSize: 13, color: CS.axisColor }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: CS.blueLight, borderRadius: 2, flexShrink: 0 }} />
-                            <span>±SEM band</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ display: 'inline-block', width: 24, height: 3, backgroundColor: CS.blue, borderRadius: 1, flexShrink: 0 }} />
-                            <span>Mean {(selectedVariable || '').replace(/_/g, ' ')} (participants n={meanSubjectInfo.n}, mean temp={meanSubjectInfo.meanTempStr})</span>
-                          </div>
-                        </div>
-                      )}
-                    />
-                    <Area dataKey="upper" stroke="none" fill={CS.blueLight} fillOpacity={0.5} connectNulls type="monotone" legendType="none" />
-                    <Area dataKey="lower" stroke="none" fill={CS.bg}        fillOpacity={1}   connectNulls type="monotone" legendType="none" />
-                    <Line dataKey="mean" stroke={CS.blue} strokeWidth={2.5}
-                      dot={{ r: 7, fill: CS.blue, stroke: '#fff', strokeWidth: 2 }} connectNulls type="monotone" legendType="none" />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+
+              {chartType === 'surface3d' && (
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <select value={ingredientX} onChange={e => setIngredientX(e.target.value)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary">
+                    {data.ingredients.map(ing => <option key={ing} value={ing}>{ing} (X)</option>)}
+                  </select>
+                  <select value={ingredientY} onChange={e => setIngredientY(e.target.value)}
+                    className="w-full p-2 text-sm border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary">
+                    {data.ingredients.map(ing => <option key={ing} value={ing}>{ing} (Y)</option>)}
+                  </select>
+                </div>
+              )}
+
+              <DoseResponseChart
+                chartType={chartType}
+                series={series}
+                variable={selectedVariable}
+                responseLabel={yLabel}
+                ingredient={selectedIngredient}
+                ingredientLabel={xLabel}
+                ingredientX={ingredientX}
+                ingredientXLabel={`${ingredientX} (${xUnitOf(ingredientX)})`}
+                ingredientY={ingredientY}
+                ingredientYLabel={`${ingredientY} (${xUnitOf(ingredientY)})`}
+                subjectColor={sid => subjectColorMap[sid] ?? CS.blue}
+                height={420}
+              />
             </div>
 
             {/* Filters card — 1/3 width */}
@@ -611,6 +518,7 @@ function DoseResponseTab() {
                 <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">Filters</h3>
                 <button
                   onClick={() => {
+                    setSelectedProtocols(new Set(data.protocols.map(p => p.protocol_id)));
                     setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)));
                     setSelectedTemps(new Set());
                     setCycleMin(null);
@@ -623,11 +531,24 @@ function DoseResponseTab() {
                 </button>
               </div>
 
+              {/* Protocols */}
+              <div>
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
+                  Protocols (compare)
+                </div>
+                <ProtocolMultiSelect
+                  protocols={data.protocols}
+                  selected={selectedProtocols}
+                  onChange={setSelectedProtocols}
+                  colorFor={protocolColor}
+                />
+              </div>
+
               {/* Subjects */}
               <div>
                 <div className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Subjects</div>
                 <div className="flex gap-2 mb-2">
-                  <button onClick={() => setSelectedSubjects(new Set(data.subjects.map(s => s.session_id)))}
+                  <button onClick={() => setSelectedSubjects(new Set(visibleSubjects.map(s => s.session_id)))}
                     className="px-2 py-1 text-xs bg-primary text-white rounded hover:bg-primary-light transition-colors">
                     All
                   </button>
@@ -637,11 +558,11 @@ function DoseResponseTab() {
                   </button>
                 </div>
                 <div className="space-y-1 max-h-[160px] overflow-y-auto">
-                  {data.subjects.map((s, i) => (
+                  {visibleSubjects.map(s => (
                     <label key={s.session_id} className="flex items-center gap-2 py-1 px-1 rounded hover:bg-gray-50 cursor-pointer">
                       <input type="checkbox" checked={selectedSubjects.has(s.session_id)}
                         onChange={() => toggleSubject(s.session_id)} className="w-4 h-4 rounded accent-primary" />
-                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: SUBJECT_COLORS[i % SUBJECT_COLORS.length] }} />
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: subjectColorMap[s.session_id] }} />
                       <span className="text-sm text-text-primary truncate">{s.subject_name || s.session_code}</span>
                     </label>
                   ))}
@@ -717,7 +638,9 @@ function DoseResponseTab() {
 
           {/* Summary stats */}
           <div className="p-6 bg-surface rounded-xl border border-border mb-6">
-            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">Summary Statistics</h3>
+            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
+              Summary Statistics {series.length > 1 ? '(all selected protocols combined)' : ''}
+            </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
