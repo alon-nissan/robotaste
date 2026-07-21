@@ -158,8 +158,13 @@ export default function SelectionPage() {
     const cycle = status.current_cycle;
     return schedule.find((block) => cycle >= block.cycle_range.start && cycle <= block.cycle_range.end);
   })();
+  // bo_selected means "the algorithm chooses" — mirror the backend default
+  // (robotaste/core/trials.py) of auto-accept unless a block explicitly opts
+  // out, so a BO block with no `config` at all (e.g. a bare
+  // {"mode": "bo_selected"}) still auto-advances instead of rendering manual
+  // controls.
   const boAutoAccept = currentMode === 'bo_selected'
-    && Boolean(currentScheduleBlock?.config?.auto_accept_suggestion);
+    && currentScheduleBlock?.config?.auto_accept_suggestion !== false;
 
   // ─── AUTO-SUBMIT FOR PREDETERMINED / BO MODE ─────────────────────────────
   // Both modes are system-selected: predetermined concentrations come from the
