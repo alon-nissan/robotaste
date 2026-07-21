@@ -115,6 +115,10 @@ def sample_protocol():
                 "cycle_range": {"start": 6, "end": 10},
                 "mode": "bo_selected",
                 "config": {
+                    # This fixture exercises the manual-confirm/override-capable
+                    # path, so opt out of the (now-default) auto-accept behavior
+                    # explicitly rather than relying on an implicit default.
+                    "auto_accept_suggestion": False,
                     "allow_override": True
                 }
             }

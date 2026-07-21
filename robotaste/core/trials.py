@@ -212,15 +212,19 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
             if session:
                 experiment_config = session.get("experiment_config", {})
                 schedule = experiment_config.get("sample_selection_schedule", [])
-                auto_accept_suggestion = False
-                allows_override = True
+                # bo_selected means "the algorithm chooses" — default to auto-accept
+                # unless a schedule block explicitly opts out, so protocols that don't
+                # set this config (e.g. older/wizard-created ones) still auto-apply
+                # instead of silently stalling on the manual Select page.
+                auto_accept_suggestion = True
+                allows_override = False
 
                 for entry in schedule:
                     cycle_range = entry.get("cycle_range", {})
                     if cycle_range.get("start", 0) <= cycle_number <= cycle_range.get("end", 0):
                         config = entry.get("config", {})
-                        auto_accept_suggestion = bool(config.get("auto_accept_suggestion", False))
-                        allows_override = bool(config.get("allow_override", True))
+                        auto_accept_suggestion = bool(config.get("auto_accept_suggestion", True))
+                        allows_override = bool(config.get("allow_override", not auto_accept_suggestion))
                         break
 
                 if auto_accept_suggestion:

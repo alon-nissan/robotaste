@@ -90,13 +90,20 @@ export default function ReviewStep() {
             label="Cycles"
             value={`${p.stopping_criteria?.min_cycles ?? '?'} - ${p.stopping_criteria?.max_cycles ?? '?'}`}
           />
-          {(p.sample_selection_schedule ?? []).map((block, i) => (
-            <Row
-              key={i}
-              label={`Block ${i + 1}`}
-              value={`Cycles ${block.cycle_range.start}-${block.cycle_range.end}: ${block.mode}`}
-            />
-          ))}
+          {(p.sample_selection_schedule ?? []).map((block, i) => {
+            const boSuffix = block.mode === 'bo_selected'
+              ? (block.config?.auto_accept_suggestion ?? true)
+                ? ' (auto-applied)'
+                : ' (manual confirm)'
+              : '';
+            return (
+              <Row
+                key={i}
+                label={`Block ${i + 1}`}
+                value={`Cycles ${block.cycle_range.start}-${block.cycle_range.end}: ${block.mode}${boSuffix}`}
+              />
+            );
+          })}
         </Section>
 
         <Section

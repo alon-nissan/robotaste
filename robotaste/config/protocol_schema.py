@@ -607,8 +607,8 @@ EXAMPLE_PROTOCOL_MIXED_MODE = {
             "mode": "bo_selected",
             "config": {
                 "show_bo_suggestion": True,
-                "allow_override": True,
-                "auto_accept_suggestion": False,
+                "allow_override": False,
+                "auto_accept_suggestion": True,
             },
         },
     ],

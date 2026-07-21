@@ -241,7 +241,22 @@ function ScheduleBlockEditor({
               <button
                 key={mode}
                 type="button"
-                onClick={() => onChange({ mode })}
+                onClick={() => {
+                  const updates: Partial<ScheduleBlock> = { mode };
+                  // BO means "the algorithm chooses" — default to auto-accept so the
+                  // subject is auto-advanced instead of stalling on a manual confirm
+                  // step. Only set this on the initial switch into bo_selected so we
+                  // don't clobber a config the moderator has already customized.
+                  if (mode === 'bo_selected' && block.config?.auto_accept_suggestion === undefined) {
+                    updates.config = {
+                      ...block.config,
+                      auto_accept_suggestion: true,
+                      allow_override: false,
+                      show_bo_suggestion: true,
+                    };
+                  }
+                  onChange(updates);
+                }}
                 className={`text-left p-3 border rounded-lg transition-colors ${
                   block.mode === mode
                     ? 'border-blue-300 bg-blue-50'
@@ -263,6 +278,51 @@ function ScheduleBlockEditor({
       {block.mode === 'predetermined_randomized' && (
         <SampleBankEditor block={block} ingredients={ingredients} onChange={onChange} />
       )}
+      {block.mode === 'bo_selected' && (
+        <BOSelectionEditor block={block} onChange={onChange} />
+      )}
+    </div>
+  );
+}
+
+
+// ─── BO Selection Editor ────────────────────────────────────────────────────
+
+function BOSelectionEditor({
+  block,
+  onChange,
+}: {
+  block: ScheduleBlock;
+  onChange: (updates: Partial<ScheduleBlock>) => void;
+}) {
+  const autoAccept = block.config?.auto_accept_suggestion ?? true;
+
+  function updateConfig(updates: Partial<NonNullable<ScheduleBlock['config']>>) {
+    onChange({ config: { ...block.config, ...updates } });
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={autoAccept}
+          onChange={(e) =>
+            updateConfig({
+              auto_accept_suggestion: e.target.checked,
+              allow_override: !e.target.checked,
+              show_bo_suggestion: true,
+            })
+          }
+          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        Apply the algorithm's pick automatically
+      </label>
+      <p className="text-xs text-gray-500">
+        {autoAccept
+          ? 'The participant is auto-advanced with the suggested sample — no manual confirmation step.'
+          : 'The participant sees the suggested sample and confirms (or overrides) it manually.'}
+      </p>
     </div>
   );
 }
