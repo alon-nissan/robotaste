@@ -400,6 +400,73 @@ export interface BOModel2D {
 }
 
 
+// ─── BO SURFACES (post-hoc) ─────────────────────────────────────────────────
+// Shapes returned by GET /api/analysis/bo-sessions, /bo-surface/{id},
+// /bo-surface-mean, and /bo-calibration/{id}. Power the Analysis Hub's
+// post-hoc "BO Surfaces" tab (compare, mean, and replay views).
+
+export interface BOSessionSummary {
+  session_id: string;
+  session_code: string;
+  subject_name: string;
+  protocol_id: string;
+  protocol_name: string;
+  ingredient_names: [string, string];
+  target_column: string;
+  n_cycles: number;
+}
+
+export interface BOSurface2D {
+  status: 'ready' | 'insufficient_data' | 'error';
+  predictions: {
+    x: number[];
+    y: number[];
+    mean: number[][];
+    std: number[][];
+    acquisition: number[][];
+  };
+  observations: { x: number[]; y: number[]; z: number[] };
+  ingredient_names: [string, string];
+  target_column: string;
+  n_cycles_total: number;
+  n_cycles_used: number;
+  mean_sigma: number;
+  message?: string;
+}
+
+export interface BOSurfaceMean {
+  status: 'ready' | 'error';
+  predictions: {
+    x: number[];
+    y: number[];
+    mean: number[][];
+    between_subject_std: number[][];
+  };
+  sessions: {
+    session_id: string;
+    session_code: string;
+    observations: { x: number[]; y: number[]; z: number[] };
+    n_cycles_used: number;
+  }[];
+  ingredient_names: [string, string];
+}
+
+export interface BOCalibrationRow {
+  cycle: number;
+  point: Record<string, number>;
+  observed: number;
+  predicted: number;
+  uncertainty: number;
+  abs_error: number;
+}
+
+export interface BOCalibrationData {
+  status: 'ready' | 'insufficient_data' | 'error';
+  rows: BOCalibrationRow[];
+  message?: string;
+}
+
+
 // ─── BO SUGGESTION ─────────────────────────────────────────────────────────
 // BO suggestion for subject selection
 

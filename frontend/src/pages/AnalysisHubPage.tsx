@@ -4,8 +4,11 @@
  * Tabs (sidebar):
  *   1. Dashboard     — Per-protocol session / subject / sample counts
  *   2. Dose Response — Individual & mean dose-response curves + per-subject table
- *   3. Explorer      — Browse database tables
- *   4. Query Builder — Run SQL queries (SELECT by default; write ops in power mode)
+ *   3. BO Surfaces   — Post-hoc Bayesian Optimization analysis: compare participants'
+ *                       response surfaces, view a mean surface, and replay a session's
+ *                       GP model sample-by-sample
+ *   4. Explorer      — Browse database tables
+ *   5. Query Builder — Run SQL queries (SELECT by default; write ops in power mode)
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -18,6 +21,7 @@ import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/
 import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
 import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
 import { groupStatsByConcentration } from '../components/doseResponse/stats';
+import BOSurfacesTab from '../components/boAnalysis/BOSurfacesTab';
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 
@@ -73,11 +77,12 @@ async function downloadExcel(request: Promise<{ data: Blob }>, filename: string)
 
 // ─── TAB DEFINITIONS ────────────────────────────────────────────────────────
 
-type TabId = 'dashboard' | 'dose-response' | 'explorer' | 'query-builder';
+type TabId = 'dashboard' | 'dose-response' | 'bo-surfaces' | 'explorer' | 'query-builder';
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'dashboard',      label: 'Dashboard',     icon: '📊' },
   { id: 'dose-response',  label: 'Dose Response',  icon: '📈' },
+  { id: 'bo-surfaces',    label: 'BO Surfaces',    icon: '🧠' },
   { id: 'explorer',       label: 'Explorer',       icon: '🗂️' },
   { id: 'query-builder',  label: 'Query Builder',  icon: '⌨️'  },
 ];
@@ -138,6 +143,7 @@ export default function AnalysisHubPage() {
         <div className="flex-1 min-w-0">
           {activeTab === 'dashboard'     && <DashboardTab />}
           {activeTab === 'dose-response' && <DoseResponseTab />}
+          {activeTab === 'bo-surfaces'   && <BOSurfacesTab />}
           {activeTab === 'explorer'      && <ExplorerTab />}
           {activeTab === 'query-builder' && <QueryBuilderTab />}
         </div>
