@@ -11,11 +11,13 @@ import logging
 import re
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from robotaste.data.database import get_database_connection
+from robotaste.data.database import get_database_connection, get_session
+from robotaste.core.bo_surface import compute_bo_surface_2d, compute_bo_calibration
 
 logger = logging.getLogger("robotaste.api.analysis")
 router = APIRouter()
@@ -218,6 +220,221 @@ def get_dose_response_data(
     except Exception as e:
         logger.error("Error fetching dose-response data: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── BO SURFACES (post-hoc) ─────────────────────────────────────────────────
+# Powers the Analysis Hub's "BO Surfaces" tab: compare two participants'
+# response surfaces, view a mean surface across participants, and replay a
+# single session's GP sample-by-sample. See robotaste/core/bo_surface.py for
+# the actual GP training/prediction (shared, DataFrame-driven, reusable on
+# any chronological slice of a session's samples).
+
+@router.get("/bo-sessions")
+def list_bo_sessions():
+    """
+    List sessions that are 2-ingredient Bayesian Optimization experiments
+    with enough samples to train a GP surface (>=3 answered samples).
+
+    Powers the participant picker in the post-hoc BO Surfaces tab.
+    """
+    try:
+        with get_database_connection() as conn:
+            rows = conn.execute("""
+                SELECT
+                    ses.session_id,
+                    ses.session_code,
+                    ses.protocol_id,
+                    ses.experiment_config,
+                    u.name AS subject_name,
+                    pl.name AS protocol_name,
+                    COUNT(s.sample_id) AS sample_count
+                FROM sessions ses
+                LEFT JOIN users u ON ses.user_id = u.id
+                LEFT JOIN protocol_library pl ON ses.protocol_id = pl.protocol_id
+                LEFT JOIN samples s ON s.session_id = ses.session_id
+                    AND s.deleted_at IS NULL
+                    AND s.questionnaire_answer IS NOT NULL
+                WHERE ses.deleted_at IS NULL
+                GROUP BY ses.session_id
+                HAVING sample_count >= 3
+                ORDER BY ses.session_code
+            """).fetchall()
+
+        results = []
+        for row in rows:
+            try:
+                config = json.loads(row["experiment_config"]) if row["experiment_config"] else {}
+            except (TypeError, json.JSONDecodeError):
+                continue
+            ingredients = config.get("ingredients", [])
+            if len(ingredients) != 2:
+                continue
+            questionnaire = config.get("questionnaire") or {}
+            target_column = (
+                questionnaire.get("bayesian_target", {}).get("variable") or "target_value"
+            )
+            results.append({
+                "session_id": row["session_id"],
+                "session_code": row["session_code"],
+                "subject_name": row["subject_name"] or row["session_code"],
+                "protocol_id": row["protocol_id"],
+                "protocol_name": row["protocol_name"] or (row["protocol_id"] or "(none)")[:8],
+                "ingredient_names": [ing.get("name") for ing in ingredients],
+                "target_column": target_column,
+                "n_cycles": row["sample_count"],
+            })
+
+        return {"sessions": results}
+    except Exception as e:
+        logger.error("Error listing BO sessions: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bo-surface/{session_id}")
+def get_bo_surface(
+    session_id: str,
+    up_to_cycle: Optional[int] = Query(
+        None, ge=3, description="Train only on the first N chronological samples (post-hoc replay)."
+    ),
+):
+    """
+    Compute a post-hoc 2D GP response surface for one session.
+
+    Pass `up_to_cycle` to get the surface as it existed after only the first
+    N samples — this is what powers the sample-by-sample replay slider.
+    Omit it for the full-session surface (used by Compare and Mean).
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        experiment_config = session.get("experiment_config", {})
+        surface = compute_bo_surface_2d(session_id, experiment_config, up_to_cycle=up_to_cycle)
+    except Exception as e:
+        logger.error("Error computing BO surface for session %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if surface is None:
+        return {
+            "status": "insufficient_data",
+            "predictions": None,
+            "observations": None,
+            "message": "Need a 2-ingredient BO session with >=3 samples.",
+        }
+
+    return {"status": "ready", **surface}
+
+
+@router.get("/bo-surface-mean")
+def get_bo_surface_mean(
+    session_ids: str = Query(
+        ..., description="Comma-separated session IDs to average (must share one protocol)."
+    ),
+):
+    """
+    Compute a mean GP response surface across two or more participants who
+    ran the same protocol, plus the between-subject standard deviation grid
+    (how much participants disagree at each point) and each participant's
+    observation path for overlay.
+    """
+    ids = [s.strip() for s in session_ids.split(",") if s.strip()]
+    if len(ids) < 2:
+        raise HTTPException(status_code=400, detail="Provide at least 2 session_ids to average.")
+
+    entries = []
+    protocol_ids = set()
+    for sid in ids:
+        session = get_session(sid)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {sid} not found.")
+        protocol_ids.add(session.get("protocol_id"))
+        try:
+            experiment_config = session.get("experiment_config", {})
+            surface = compute_bo_surface_2d(sid, experiment_config)
+        except Exception as e:
+            logger.error("Error computing BO surface for session %s: %s", sid, e)
+            raise HTTPException(status_code=500, detail=str(e))
+        if surface is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Session {sid} has insufficient data for a BO surface.",
+            )
+        entries.append((sid, session, surface))
+
+    if len(protocol_ids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected sessions must share one protocol so their response surfaces share one grid.",
+        )
+
+    # Defensive: even within one protocol, a session with no configured range
+    # for an ingredient falls back to a data-derived range in
+    # get_ingredient_ranges_for_training(), which could still drift the grid.
+    first_x = entries[0][2]["predictions"]["x"]
+    first_y = entries[0][2]["predictions"]["y"]
+    for sid, _, surface in entries[1:]:
+        if not np.allclose(surface["predictions"]["x"], first_x) or not np.allclose(
+            surface["predictions"]["y"], first_y
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Session {sid}'s grid does not align with the others — cannot average.",
+            )
+
+    mean_grids = np.array([s["predictions"]["mean"] for _, _, s in entries])
+    grid_mean = mean_grids.mean(axis=0)
+    grid_between_subject_std = mean_grids.std(axis=0)
+
+    return {
+        "status": "ready",
+        "predictions": {
+            "x": first_x,
+            "y": first_y,
+            "mean": grid_mean.tolist(),
+            "between_subject_std": grid_between_subject_std.tolist(),
+        },
+        "sessions": [
+            {
+                "session_id": sid,
+                "session_code": session.get("session_code"),
+                "observations": surface["observations"],
+                "n_cycles_used": surface["n_cycles_used"],
+            }
+            for sid, session, surface in entries
+        ],
+        "ingredient_names": entries[0][2]["ingredient_names"],
+    }
+
+
+@router.get("/bo-calibration/{session_id}")
+def get_bo_calibration(session_id: str):
+    """
+    Walk a session's samples in cycle order, training a GP on cycles 1..N
+    and predicting the response at the point actually sampled at cycle N+1.
+
+    Powers the predicted-vs-observed calibration scatter and the per-cycle
+    summary table in the post-hoc BO Surfaces tab.
+    """
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        experiment_config = session.get("experiment_config", {})
+        rows = compute_bo_calibration(session_id, experiment_config)
+    except Exception as e:
+        logger.error("Error computing BO calibration for session %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if rows is None:
+        return {
+            "status": "insufficient_data",
+            "rows": [],
+            "message": "Need a 2-ingredient BO session with at least one cycle beyond the minimum trainable set.",
+        }
+
+    return {"status": "ready", "rows": rows}
 
 
 # ─── DASHBOARD ──────────────────────────────────────────────────────────────
