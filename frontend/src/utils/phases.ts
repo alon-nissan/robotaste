@@ -4,7 +4,7 @@ const PHASE_URL_MAP: Record<string, string> = {
   instructions: 'instructions',
   selection: 'select',
   questionnaire: 'questionnaire',
-  loading: 'questionnaire',
+  loading: 'tasting',  // no-pump: hand-served sample → tasting screen
   cup_ready: 'cup-ready',
   robot_preparing: 'preparing',
   complete: 'complete',

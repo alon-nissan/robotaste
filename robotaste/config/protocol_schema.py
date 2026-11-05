@@ -132,6 +132,14 @@ PROTOCOL_JSON_SCHEMA = {
                             "required": ["cycle", "concentrations"],
                             "properties": {
                                 "cycle": {"type": "integer"},
+                                "id": {
+                                    "type": "string",
+                                    "description": "Optional cup code shown to the subject (e.g. 'A', '372')",
+                                },
+                                "label": {
+                                    "type": "string",
+                                    "description": "Optional moderator-facing description (never shown to subject)",
+                                },
                                 "concentrations": {
                                     "type": "object",
                                     "additionalProperties": {"type": "number"},
@@ -426,6 +434,36 @@ PROTOCOL_JSON_SCHEMA = {
                     "enum": ["normal", "large", "extra_large"],
                     "description": "Font size for loading message (normal=1.5rem, large=2.5rem, extra_large=3.5rem)",
                     "default": "large",
+                },
+            },
+        },
+        # ===== Tasting Screen (no-pump / hand-served samples) =====
+        "tasting_screen": {
+            "type": "object",
+            "description": "Screen shown before each questionnaire when samples are served by hand (pumps disabled)",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Show the tasting screen (default: true when pumps are disabled)",
+                    "default": True,
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Heading; supports the {sample_id} placeholder",
+                    "default": "Please taste cup {sample_id}",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Body text; supports the {sample_id} placeholder",
+                },
+                "button_label": {
+                    "type": "string",
+                    "default": "Done tasting",
+                },
+                "show_sample_id": {
+                    "type": "boolean",
+                    "description": "Show the cup code to the subject",
+                    "default": True,
                 },
             },
         },
@@ -771,6 +809,39 @@ def get_selection_mode_for_cycle(
     return "user_selected"
 
 
+def get_predetermined_sample_entry(
+    protocol: Dict[str, Any], cycle_number: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Get the full predetermined sample entry for a cycle.
+
+    Returns:
+        Dict with keys "id" (cup code shown to subject, may be None),
+        "label" (moderator-facing description, may be None) and
+        "concentrations", or None if the cycle is not predetermined.
+    """
+    schedule = protocol.get("sample_selection_schedule", [])
+
+    for entry in schedule:
+        if entry.get("mode") not in ["predetermined", "predetermined_absolute"]:
+            continue
+
+        cycle_range = entry.get("cycle_range", {})
+        start = cycle_range.get("start", 0)
+        end = cycle_range.get("end", 0)
+
+        if start <= cycle_number <= end:
+            for sample in entry.get("predetermined_samples", []):
+                if sample.get("cycle") == cycle_number:
+                    return {
+                        "id": sample.get("id"),
+                        "label": sample.get("label"),
+                        "concentrations": sample.get("concentrations"),
+                    }
+
+    return None
+
+
 def get_predetermined_sample(
     protocol: Dict[str, Any], cycle_number: int
 ) -> Optional[Dict[str, float]]:
@@ -784,26 +855,8 @@ def get_predetermined_sample(
     Returns:
         Dict of {ingredient_name: concentration} or None if not predetermined
     """
-    schedule = protocol.get("sample_selection_schedule", [])
-
-    for entry in schedule:
-        mode = entry.get("mode")
-        # Support both old "predetermined" and new "predetermined_absolute"
-        if mode not in ["predetermined", "predetermined_absolute"]:
-            continue
-
-        cycle_range = entry.get("cycle_range", {})
-        start = cycle_range.get("start", 0)
-        end = cycle_range.get("end", 0)
-
-        if start <= cycle_number <= end:
-            # Find the specific sample for this cycle
-            samples = entry.get("predetermined_samples", [])
-            for sample in samples:
-                if sample.get("cycle") == cycle_number:
-                    return sample.get("concentrations")
-
-    return None
+    entry = get_predetermined_sample_entry(protocol, cycle_number)
+    return entry["concentrations"] if entry else None
 
 
 def protocol_to_json(protocol: Dict[str, Any]) -> str:

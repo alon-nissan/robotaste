@@ -30,6 +30,7 @@ Map common tasks to exact file paths (use these before exploring). **There is no
 - **BO monitoring graphs (moderator view)** → `frontend/src/components/BOProgressChart.tsx` (progress line chart), `BOVisualization1D.tsx` / `BOVisualization2D.tsx` (GP response-surface)
 - **Subject selection UI (incl. BO auto-apply)** → `frontend/src/pages/SelectionPage.tsx`
 - **Subject questionnaire UI** → `frontend/src/pages/QuestionnairePage.tsx`
+- **Hand-served / no-pump flow ("Please taste cup X" + moderator serving guide)** → `frontend/src/pages/TastingPage.tsx`, `frontend/src/components/ServingGuideCard.tsx`, `GET /sessions/{id}/serving-plan` in `api/routers/sessions.py`, `resolve_predetermined_entry()` in `robotaste/core/trials.py`
 - **Questionnaires** → `robotaste/config/questionnaire.py`
   - **Note:** Questionnaires support inline configuration in protocols (preferred, incl. `bayesian_target`) or legacy library-based lookup by name (deprecated fallback)
 - **Trials management (per-cycle sample prep)** → `robotaste/core/trials.py` (`prepare_cycle_sample()`)

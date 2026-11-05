@@ -17,6 +17,7 @@ import type {
   ConsentFormConfig,
   InstructionsScreenConfig,
   LoadingScreenConfig,
+  TastingScreenConfig,
   PhaseSequenceConfig,
   DataCollectionConfig,
   StoppingCriteria,
@@ -115,6 +116,7 @@ type WizardAction =
   | { type: 'SET_CONSENT_FORM'; payload: ConsentFormConfig }
   | { type: 'SET_INSTRUCTIONS'; payload: InstructionsScreenConfig }
   | { type: 'SET_LOADING_SCREEN'; payload: LoadingScreenConfig }
+  | { type: 'SET_TASTING_SCREEN'; payload: TastingScreenConfig }
   | { type: 'SET_PHASE_SEQUENCE'; payload: PhaseSequenceConfig }
   | { type: 'LOAD_PROTOCOL'; payload: ProtocolDraft }
   | { type: 'RESET' };
@@ -193,6 +195,12 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
       return {
         ...state,
         protocol: { ...state.protocol, loading_screen: action.payload },
+      };
+
+    case 'SET_TASTING_SCREEN':
+      return {
+        ...state,
+        protocol: { ...state.protocol, tasting_screen: action.payload },
       };
 
     case 'SET_PHASE_SEQUENCE':

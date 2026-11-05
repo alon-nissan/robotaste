@@ -51,6 +51,7 @@ import RefillWizard from '../components/RefillWizard';
 import BOProgressChart from '../components/BOProgressChart';
 import BOVisualization1D from '../components/BOVisualization1D';
 import BOVisualization2D from '../components/BOVisualization2D';
+import ServingGuideCard from '../components/ServingGuideCard';
 
 /**
  * Format a concentration value with enough decimal places to show ~2–3
@@ -231,6 +232,9 @@ export default function ModeratorMonitoringPage() {
     (experimentConfig?.bayesian_optimization as Record<string, unknown> | undefined)?.enabled
   );
   const ingredientCount = ((experimentConfig?.ingredients as unknown[]) || []).length;
+  const pumpEnabled = Boolean(
+    (experimentConfig?.pump_config as Record<string, unknown> | undefined)?.enabled
+  );
 
   // ─── WRAP-UP VIEW (shown when session is complete) ─────────────────────
   if (isComplete) {
@@ -351,6 +355,15 @@ export default function ModeratorMonitoringPage() {
         </div>
       )}
 
+      {/* ═══ SERVING GUIDE (hand-served samples, pumps disabled) ═══ */}
+      {!pumpEnabled && sessionId && (
+        <ServingGuideCard
+          sessionId={sessionId}
+          sessionCode={status?.session_code}
+          formatConcentration={formatConcentration}
+        />
+      )}
+
       {/* ═══ BO MONITORING GRAPHS (only for BO-enabled protocols) ═══ */}
       {boEnabled && sessionId && (
         <div className="space-y-6 mb-6">
@@ -378,6 +391,7 @@ export default function ModeratorMonitoringPage() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left p-2 text-text-secondary font-medium">Cycle</th>
+                  <th className="text-left p-2 text-text-secondary font-medium">Cup</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Concentrations</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Temp (°C)</th>
                   <th className="text-left p-2 text-text-secondary font-medium">Response</th>
@@ -388,6 +402,7 @@ export default function ModeratorMonitoringPage() {
                 {samples.map((sample, i) => (
                   <tr key={i} className="border-b border-border/50">
                     <td className="p-2 font-medium">{sample.cycle_number}</td>
+                    <td className="p-2 font-medium">{String(sample.selection_data?.sample_id ?? '—')}</td>
                     <td className="p-2 text-text-secondary">
                       {Object.entries(sample.ingredient_concentration || {})
                         .map(([name, val]) => `${name}: ${formatConcentration(val as number)}`)

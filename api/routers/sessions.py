@@ -491,6 +491,85 @@ def get_cycle_info(session_id: str):
     return cycle_info
 
 
+# ─── SERVING PLAN (moderator guide for hand-served samples) ────────────────
+@router.get("/{session_id}/serving-plan")
+def get_serving_plan(session_id: str):
+    """
+    Per-cycle list of which solution to serve, for the moderator.
+
+    Predetermined cycles resolve to their cup id/label/concentrations using the
+    same lookup as /cycle-info (sample-bank order is created lazily and is
+    stable per session). BO / user-selected cycles are decided at runtime, so
+    they carry no sample until the selection has been made.
+
+    Returns:
+        {
+            "current_cycle": int,
+            "total_cycles": int,
+            "pump_enabled": bool,
+            "entries": [{cycle, mode, sample_id, sample_label, concentrations,
+                         status: "done" | "current" | "upcoming"}]
+        }
+    """
+    from robotaste.core.trials import _get_session_protocol, resolve_predetermined_entry
+    from robotaste.config.protocol_schema import get_selection_mode_for_cycle, normalize_selection_mode
+
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    config = session.get("experiment_config", {}) or {}
+    protocol = _get_session_protocol(session) or {}
+    schedule = protocol.get("sample_selection_schedule", [])
+
+    max_cycles = (config.get("stopping_criteria") or protocol.get("stopping_criteria") or {}).get("max_cycles")
+    schedule_end = max((e.get("cycle_range", {}).get("end", 0) for e in schedule), default=0)
+    total_cycles = int(max_cycles or schedule_end or 0)
+
+    current_cycle = get_current_cycle(session_id)
+    session_state = session.get("state")
+    done_cycles = {s.get("cycle_number") for s in (get_session_samples(session_id) or [])}
+    pending = config.get("_pending_concentrations", {}) or {}
+
+    pump_config = config.get("pump_config", {})
+    pump_enabled = pump_config.get("enabled", False) if isinstance(pump_config, dict) else False
+
+    entries = []
+    for cycle in range(1, total_cycles + 1):
+        mode = normalize_selection_mode(get_selection_mode_for_cycle(protocol, cycle)) if schedule else "user_selected"
+        entry = None
+        if mode.startswith("predetermined"):
+            entry = resolve_predetermined_entry(session_id, protocol, cycle, mode)
+
+        concentrations = entry.get("concentrations") if entry else None
+        # Runtime-selected cycles: show what was actually chosen once known
+        if concentrations is None and str(cycle) in pending:
+            concentrations = pending[str(cycle)].get("concentrations")
+
+        if cycle in done_cycles:
+            status = "done"
+        elif cycle == current_cycle and session_state != "completed":
+            status = "current"
+        else:
+            status = "upcoming"
+
+        entries.append({
+            "cycle": cycle,
+            "mode": mode,
+            "sample_id": entry.get("id") if entry else None,
+            "sample_label": entry.get("label") if entry else None,
+            "concentrations": concentrations,
+            "status": status,
+        })
+
+    return {
+        "current_cycle": current_cycle,
+        "total_cycles": total_cycles,
+        "pump_enabled": pump_enabled,
+        "entries": entries,
+    }
+
+
 # ─── RECORD CONSENT ────────────────────────────────────────────────────────
 @router.post("/{session_id}/consent")
 def record_consent(session_id: str, request: ConsentRequest):
@@ -757,11 +836,15 @@ def submit_response(session_id: str, request: ResponseRequest):
     # graphs and convergence checks have something to read. If it's missing
     # (e.g. an older pending selection from before this was wired up),
     # re-derive it rather than persisting NULLs.
-    if selection_mode == "bo_selected" and not selection_data:
+    # Same for predetermined cycles: keep the served cup id/label traceable.
+    if (
+        selection_mode == "bo_selected"
+        or str(selection_mode).startswith("predetermined")
+    ) and not selection_data:
         try:
             selection_data = prepare_cycle_sample(session_id, cycle_number).get("selection_data")
         except Exception as e:
-            logger.warning(f"Could not re-derive BO selection_data: {e}")
+            logger.warning(f"Could not re-derive selection_data: {e}")
 
     save_sample_cycle(
         session_id,
@@ -1036,6 +1119,11 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
     loading_screen = protocol.get("loading_screen")
     if loading_screen:
         config["loading_screen"] = loading_screen
+
+    # Add tasting screen (hand-served / no-pump samples) if present
+    tasting_screen = protocol.get("tasting_screen")
+    if tasting_screen:
+        config["tasting_screen"] = tasting_screen
 
     # Add fixed sample temperature if present
     sample_temperature_c = protocol.get("sample_temperature_c")

@@ -97,12 +97,14 @@ export default function InstructionsPage() {
         const selRes = await api.post(`/sessions/${sessionId}/selection`, {
           concentrations: cycleInfo.concentrations,
           selection_mode: mode,
+          selection_data: cycleInfo.selection_data,
         });
         const pumpEnabled = selRes.data.pump_enabled;
         if (pumpEnabled) {
           navigate(`/subject/${sessionId}/cup-ready`);
         } else {
-          navigate(`/subject/${sessionId}/questionnaire`);
+          // Hand-served samples: show "please taste cup X" before the questionnaire
+          navigate(`/subject/${sessionId}/tasting`);
         }
       } else {
         // User-selected or BO mode: go to selection page

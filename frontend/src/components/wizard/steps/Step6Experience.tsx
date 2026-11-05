@@ -9,6 +9,7 @@ import type {
   ConsentFormConfig,
   InstructionsScreenConfig,
   LoadingScreenConfig,
+  TastingScreenConfig,
 } from '../../../types';
 
 const BUILTIN_PHASES: { id: string; label: string; description: string; alwaysOn?: boolean }[] = [
@@ -84,6 +85,16 @@ export default function Step6Experience() {
 
   function updateInstructions(updates: Partial<InstructionsScreenConfig>) {
     dispatch({ type: 'SET_INSTRUCTIONS', payload: { ...instructions, ...updates } });
+  }
+
+  const tasting: TastingScreenConfig = state.protocol.tasting_screen ?? {
+    enabled: true,
+    show_sample_id: true,
+  };
+  const pumpEnabled = Boolean(state.protocol.pump_config?.enabled);
+
+  function updateTasting(updates: Partial<TastingScreenConfig>) {
+    dispatch({ type: 'SET_TASTING_SCREEN', payload: { ...tasting, ...updates } });
   }
 
   function updateLoading(updates: Partial<LoadingScreenConfig>) {
@@ -268,6 +279,71 @@ export default function Step6Experience() {
           </div>
         </div>
       )}
+
+      {/* Tasting screen (hand-served samples) */}
+      <div className="border-t border-gray-200 pt-6">
+        <h3 className="text-sm font-medium text-gray-700 mb-1">Tasting Screen (hand-served samples)</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          {pumpEnabled
+            ? 'Used only when pumps are disabled.'
+            : 'Shown before each questionnaire when you serve pre-prepared solutions by hand.'}{' '}
+          Use <code>{'{sample_id}'}</code> in the title or text to insert the cup code.
+        </p>
+        <div className="space-y-4">
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tasting.enabled ?? true}
+                onChange={(e) => updateTasting({ enabled: e.target.checked })}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Show tasting screen
+            </label>
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tasting.show_sample_id ?? true}
+                onChange={(e) => updateTasting({ show_sample_id: e.target.checked })}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Show cup code to participant
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Title</label>
+              <input
+                type="text"
+                value={tasting.title ?? ''}
+                onChange={(e) => updateTasting({ title: e.target.value || undefined })}
+                placeholder="Please taste cup {sample_id}"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Button label</label>
+              <input
+                type="text"
+                value={tasting.button_label ?? ''}
+                onChange={(e) => updateTasting({ button_label: e.target.value || undefined })}
+                placeholder="Done tasting"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Text</label>
+            <textarea
+              value={tasting.text ?? ''}
+              onChange={(e) => updateTasting({ text: e.target.value || undefined })}
+              placeholder="Take a sip and evaluate the sample carefully. Press the button when you are done tasting."
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Loading screen */}
       <div className="border-t border-gray-200 pt-6">
