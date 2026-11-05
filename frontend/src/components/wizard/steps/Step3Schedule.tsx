@@ -13,8 +13,14 @@ import type {
   Ingredient,
 } from '../../../types';
 
-const MODE_LABELS: Record<SelectionMode, { label: string; description: string }> = {
-  predetermined: {
+// 'predetermined' is the legacy alias of 'predetermined_absolute'; the picker
+// only offers the canonical name but still recognizes the alias when loading.
+type PickerMode = Exclude<SelectionMode, 'predetermined'>;
+const normalizeMode = (mode: SelectionMode): PickerMode =>
+  mode === 'predetermined' ? 'predetermined_absolute' : mode;
+
+const MODE_LABELS: Record<PickerMode, { label: string; description: string }> = {
+  predetermined_absolute: {
     label: 'Fixed Samples',
     description: 'You define exactly what each participant tastes in each cycle.',
   },
@@ -236,7 +242,7 @@ function ScheduleBlockEditor({
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-2">Sample Selection Mode</label>
         <div className="grid grid-cols-2 gap-2">
-          {(Object.entries(MODE_LABELS) as [SelectionMode, { label: string; description: string }][]).map(
+          {(Object.entries(MODE_LABELS) as [PickerMode, { label: string; description: string }][]).map(
             ([mode, info]) => (
               <button
                 key={mode}
@@ -258,7 +264,7 @@ function ScheduleBlockEditor({
                   onChange(updates);
                 }}
                 className={`text-left p-3 border rounded-lg transition-colors ${
-                  block.mode === mode
+                  normalizeMode(block.mode) === mode
                     ? 'border-blue-300 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
@@ -272,7 +278,7 @@ function ScheduleBlockEditor({
       </div>
 
       {/* Mode-specific editors */}
-      {block.mode === 'predetermined' && (
+      {normalizeMode(block.mode) === 'predetermined_absolute' && (
         <PredeterminedEditor block={block} ingredients={ingredients} onChange={onChange} />
       )}
       {block.mode === 'predetermined_randomized' && (
@@ -358,7 +364,7 @@ function PredeterminedEditor({
       ingredients.forEach((ing) => {
         concentrations[ing.name] = existing?.concentrations[ing.name] ?? 0;
       });
-      result.push({ cycle: c, concentrations });
+      result.push({ cycle: c, concentrations, id: existing?.id, label: existing?.label });
     }
     return result;
   }
@@ -372,6 +378,13 @@ function PredeterminedEditor({
     onChange({ predetermined_samples: updated });
   }
 
+  function updateMeta(cycleIndex: number, field: 'id' | 'label', value: string) {
+    const updated = rows.map((r, i) =>
+      i === cycleIndex ? { ...r, [field]: value || undefined } : r
+    );
+    onChange({ predetermined_samples: updated });
+  }
+
   return (
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-2">
@@ -379,12 +392,15 @@ function PredeterminedEditor({
       </label>
       <p className="text-xs text-gray-500 mb-2">
         Enter ingredient concentrations (not percentages). Units are shown in each column header.
+        Optional: a cup code (shown to the participant) and a description (moderator only).
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-gray-200">
               <th className="text-left text-xs font-medium text-gray-500 py-1.5 pr-3">Cycle</th>
+              <th className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">Cup code</th>
+              <th className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">Description</th>
               {ingredients.map((ing) => (
                 <th key={ing.name} className="text-left text-xs font-medium text-gray-500 py-1.5 px-2">
                   {ing.name} ({ing.unit ?? 'mM'})
@@ -396,6 +412,24 @@ function PredeterminedEditor({
             {rows.map((row, ri) => (
               <tr key={row.cycle} className="border-b border-gray-100">
                 <td className="py-1.5 pr-3 text-gray-500">{row.cycle}</td>
+                <td className="py-1.5 px-2">
+                  <input
+                    type="text"
+                    value={row.id ?? ''}
+                    onChange={(e) => updateMeta(ri, 'id', e.target.value)}
+                    placeholder="e.g. A"
+                    className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </td>
+                <td className="py-1.5 px-2">
+                  <input
+                    type="text"
+                    value={row.label ?? ''}
+                    onChange={(e) => updateMeta(ri, 'label', e.target.value)}
+                    placeholder="e.g. Low sugar"
+                    className="w-32 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </td>
                 {ingredients.map((ing) => (
                   <td key={ing.name} className="py-1.5 px-2">
                     <input

@@ -8,12 +8,12 @@ Version: 4.0 (React + API Architecture)
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from robotaste.data import database as sql
 from robotaste.config.protocol_schema import (
     get_selection_mode_for_cycle,
-    get_predetermined_sample,
+    get_predetermined_sample_entry,
     get_sample_bank_config,
     get_schedule_index_for_cycle,
     normalize_selection_mode,
@@ -80,6 +80,60 @@ def get_selection_mode_for_cycle_runtime(session_id: str, cycle_number: int) -> 
         return "user_selected"
 
 
+def _get_session_protocol(session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return the protocol dict for a session (embedded config or protocol_repo lookup)."""
+    experiment_config = session.get("experiment_config", {}) or {}
+    if "sample_selection_schedule" in experiment_config:
+        return experiment_config
+    protocol_id = experiment_config.get("protocol_id")
+    if protocol_id:
+        from robotaste.data import protocol_repo
+        protocol_obj = protocol_repo.get_protocol_by_id(protocol_id)
+        if protocol_obj:
+            return protocol_obj.get("protocol_json", {})
+    return None
+
+
+def resolve_predetermined_entry(
+    session_id: str,
+    protocol: Dict[str, Any],
+    cycle_number: int,
+    mode: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Resolve the predetermined sample for a cycle as {"id", "label", "concentrations"}.
+
+    Handles both predetermined_absolute (fixed per cycle) and
+    predetermined_randomized (sample bank; order is created lazily and is
+    idempotent per session). Returns None for non-predetermined cycles.
+    """
+    if mode is None:
+        mode = get_selection_mode_for_cycle(protocol, cycle_number)
+    mode = normalize_selection_mode(mode)
+
+    if mode == "predetermined_absolute":
+        return get_predetermined_sample_entry(protocol, cycle_number)
+
+    if mode == "predetermined_randomized":
+        from robotaste.core.sample_bank import get_next_sample_entry_from_bank
+
+        bank_config = get_sample_bank_config(protocol, cycle_number)
+        schedule_index = get_schedule_index_for_cycle(protocol, cycle_number)
+        if not bank_config or schedule_index < 0:
+            return None
+        schedule = protocol.get("sample_selection_schedule", [])
+        cycle_range_start = schedule[schedule_index].get("cycle_range", {}).get("start", 1)
+        try:
+            return get_next_sample_entry_from_bank(
+                session_id, schedule_index, bank_config, cycle_number, cycle_range_start
+            )
+        except Exception as e:
+            logger.error(f"Error getting sample from bank: {e}", exc_info=True)
+            return None
+
+    return None
+
+
 def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
     """
     Unified function to prepare sample for any cycle based on protocol.
@@ -127,82 +181,31 @@ def prepare_cycle_sample(session_id: str, cycle_number: int) -> Dict[str, Any]:
         }
 
         # Handle each mode
-        if normalized_mode == "predetermined_absolute":
-            # Get predetermined concentrations from protocol
+        if normalized_mode.startswith("predetermined"):
             session = sql.get_session(session_id)
-            if session:
-                experiment_config = session.get("experiment_config", {})
-                protocol = None
-
-                # Get protocol (same logic as get_selection_mode_for_cycle_runtime)
-                if "sample_selection_schedule" in experiment_config:
-                    protocol = experiment_config
-                else:
-                    from robotaste.data import protocol_repo
-                    protocol_id_from_session = experiment_config.get("protocol_id")
-                    if protocol_id_from_session:
-                        protocol_obj = protocol_repo.get_protocol_by_id(protocol_id_from_session)
-                        if protocol_obj:
-                            protocol = protocol_obj.get("protocol_json", {})
-
-                if protocol:
-                    concentrations = get_predetermined_sample(protocol, cycle_number)
-                    if concentrations:
-                        result["concentrations"] = concentrations
-                        result["metadata"]["is_predetermined"] = True
-                        logger.info(f"Predetermined sample for cycle {cycle_number}: {concentrations}")
-                    else:
-                        logger.warning(f"No predetermined sample found for cycle {cycle_number}")
-
-        elif normalized_mode == "predetermined_randomized":
-            # Get sample from randomized bank
-            from robotaste.core.sample_bank import get_next_sample_from_bank
-
-            session = sql.get_session(session_id)
-            if session:
-                experiment_config = session.get("experiment_config", {})
-                protocol = None
-
-                # Get protocol (same logic as predetermined_absolute)
-                if "sample_selection_schedule" in experiment_config:
-                    protocol = experiment_config
-                else:
-                    from robotaste.data import protocol_repo
-                    protocol_id_from_session = experiment_config.get("protocol_id")
-                    if protocol_id_from_session:
-                        protocol_obj = protocol_repo.get_protocol_by_id(protocol_id_from_session)
-                        if protocol_obj:
-                            protocol = protocol_obj.get("protocol_json", {})
-
-                if protocol:
-                    # Get sample bank config and schedule index
-                    bank_config = get_sample_bank_config(protocol, cycle_number)
-                    schedule_index = get_schedule_index_for_cycle(protocol, cycle_number)
-
-                    if bank_config and schedule_index >= 0:
-                        try:
-                            # Get cycle_range_start from the schedule entry
-                            schedule = protocol.get("sample_selection_schedule", [])
-                            cycle_range_start = 1  # Default
-                            if schedule_index < len(schedule):
-                                cycle_range = schedule[schedule_index].get("cycle_range", {})
-                                cycle_range_start = cycle_range.get("start", 1)
-
-                            concentrations = get_next_sample_from_bank(
-                                session_id,
-                                schedule_index,
-                                bank_config,
-                                cycle_number,
-                                cycle_range_start
-                            )
-                            result["concentrations"] = concentrations
-                            result["metadata"]["is_predetermined"] = True
-                            result["metadata"]["from_bank"] = True
-                            logger.info(f"Sample from bank for cycle {cycle_number}: {concentrations}")
-                        except Exception as e:
-                            logger.error(f"Error getting sample from bank: {e}", exc_info=True)
-                    else:
-                        logger.warning(f"No sample bank config found for cycle {cycle_number}")
+            protocol = _get_session_protocol(session) if session else None
+            entry = (
+                resolve_predetermined_entry(session_id, protocol, cycle_number, normalized_mode)
+                if protocol else None
+            )
+            if entry and entry.get("concentrations"):
+                result["concentrations"] = entry["concentrations"]
+                result["metadata"]["is_predetermined"] = True
+                result["metadata"]["sample_id"] = entry.get("id")
+                result["metadata"]["sample_label"] = entry.get("label")
+                if normalized_mode == "predetermined_randomized":
+                    result["metadata"]["from_bank"] = True
+                # Persisted into samples.selection_data so the served cup is traceable
+                result["selection_data"] = {
+                    "sample_id": entry.get("id"),
+                    "sample_label": entry.get("label"),
+                }
+                logger.info(
+                    f"Predetermined sample for cycle {cycle_number}: "
+                    f"id={entry.get('id')} {entry['concentrations']}"
+                )
+            else:
+                logger.warning(f"No predetermined sample found for cycle {cycle_number}")
 
         elif normalized_mode == "bo_selected":
             # Get BO suggestion

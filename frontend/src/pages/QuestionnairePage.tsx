@@ -412,7 +412,7 @@ export default function QuestionnairePage() {
         const pumpEnabled = selRes.data.pump_enabled;
         navigate(pumpEnabled
           ? `/subject/${sessionId}/cup-ready`
-          : `/subject/${sessionId}/questionnaire`
+          : `/subject/${sessionId}/tasting`
         );
       } else if (isBOAutoAccept) {
         // Auto-accept BO mode should not expose manual selection.
@@ -431,7 +431,7 @@ export default function QuestionnairePage() {
             const pumpEnabled = selRes.data.pump_enabled;
             navigate(pumpEnabled
               ? `/subject/${sessionId}/cup-ready`
-              : `/subject/${sessionId}/questionnaire`
+              : `/subject/${sessionId}/tasting`
             );
             prepared = true;
             break;

@@ -46,6 +46,7 @@ export interface Protocol {
   consent_form?: ConsentFormConfig;
   instructions_screen?: InstructionsScreenConfig;
   loading_screen?: LoadingScreenConfig;
+  tasting_screen?: TastingScreenConfig;
   phase_sequence?: PhaseSequenceConfig;
   data_collection?: DataCollectionConfig;
   sample_temperature_c?: number;  // Fixed sample temperature logged for each cycle
@@ -86,11 +87,13 @@ export interface StoppingCriteria {
 // ─── SCHEDULE BLOCK ────────────────────────────────────────────────────────
 // A block in the sample selection schedule
 
-export type SelectionMode = 'predetermined' | 'predetermined_randomized' | 'user_selected' | 'bo_selected';
+export type SelectionMode = 'predetermined' | 'predetermined_absolute' | 'predetermined_randomized' | 'user_selected' | 'bo_selected';
 
 export interface PredeterminedSample {
   cycle: number;
   concentrations: Record<string, number>;  // { "Sugar": 10.0, "Salt": 2.0 }
+  id?: string;                   // Cup code shown to the subject (e.g. "A", "372")
+  label?: string;                // Moderator-only description (e.g. "Sugar 25 mM")
 }
 
 export interface SampleBankEntry {
@@ -248,6 +251,7 @@ export interface Sample {
   ingredient_concentration: Record<string, number>;  // { "Sugar": 15.0, "Salt": 3.0 }
   sample_temperature_c?: number | null;              // Protocol-level logged temperature (°C)
   questionnaire_answer?: Record<string, unknown>;    // Participant's response
+  selection_data?: Record<string, unknown> | null;   // e.g. { sample_id, sample_label } for predetermined cycles
   created_at?: string;
 }
 
@@ -606,6 +610,58 @@ export interface LoadingScreenConfig {
   show_progress?: boolean;
   show_cycle_info?: boolean;
   message_size?: 'normal' | 'large' | 'extra_large';
+}
+
+
+// ─── TASTING SCREEN CONFIG ────────────────────────────────────────────────
+// "Please taste cup X" screen before each questionnaire when samples are
+// served by hand (pumps disabled). Title/text support a {sample_id} placeholder.
+
+export interface TastingScreenConfig {
+  enabled?: boolean;             // Default true when pumps are disabled
+  title?: string;
+  text?: string;
+  button_label?: string;
+  show_sample_id?: boolean;      // Show the cup code to the subject (default true)
+}
+
+
+// ─── CYCLE INFO ───────────────────────────────────────────────────────────
+// Returned by GET /sessions/{id}/cycle-info
+
+export interface CycleInfo {
+  mode: string;
+  concentrations: Record<string, number> | null;
+  selection_data?: Record<string, unknown> | null;
+  metadata: {
+    is_predetermined?: boolean;
+    sample_id?: string | null;
+    sample_label?: string | null;
+    [key: string]: unknown;
+  };
+  pump_enabled: boolean;
+  current_cycle: number;
+}
+
+
+// ─── SERVING PLAN ─────────────────────────────────────────────────────────
+// Moderator guide: which solution to hand the participant each cycle.
+// Returned by GET /sessions/{id}/serving-plan
+
+export interface ServingPlanEntry {
+  cycle: number;
+  mode: string;
+  sample_id: string | null;
+  sample_label: string | null;
+  concentrations: Record<string, number> | null;
+  status: 'done' | 'current' | 'upcoming';
+}
+
+export interface ServingPlan {
+  current_cycle: number;
+  total_cycles: number;
+  pump_enabled: boolean;
+  entries: ServingPlanEntry[];
 }
 
 

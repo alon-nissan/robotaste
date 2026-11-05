@@ -177,7 +177,7 @@
         "min_cycles": 4
     },
     "loading_screen": {
-        "message": "Please rinse your mouth with water while the robot prepares the next sugar sample. (Sample order randomized per session)",
+        "message": "Please rinse your mouth with water before the next sugar sample. (Sample order randomized per session)",
         "duration_seconds": 10,
         "use_dynamic_duration": true,
         "show_progress": true,

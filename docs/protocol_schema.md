@@ -150,29 +150,36 @@ Defines which selection mode to use for each cycle range.
 | `cycle_range.start` | integer | ✓ | First cycle (1-indexed) |
 | `cycle_range.end` | integer | ✓ | Last cycle (1-indexed, ≥ start) |
 | `mode` | string | ✓ | Selection mode (see below) |
-| `predetermined_samples` | array | conditional | Required if mode="predetermined" |
+| `predetermined_samples` | array | conditional | Required if mode="predetermined_absolute" (legacy alias: "predetermined") |
 | `config` | object | optional | Mode-specific configuration |
 
 ### Selection Modes
 
-#### 1. **predetermined** - Fixed Sample Sequence
+#### 1. **predetermined_absolute** - Fixed Sample Sequence
 
-Pre-defined concentrations for each cycle.
+Pre-defined concentrations for each cycle. (`"predetermined"` is accepted as a legacy alias.)
 
 **Use case:** Calibration trials, validation samples, known reference points
 
 **Required fields:**
 ```json
 {
-  "mode": "predetermined",
+  "mode": "predetermined_absolute",
   "predetermined_samples": [
     {
       "cycle": 1,
+      "id": "A",
+      "label": "Low sugar, low salt",
       "concentrations": {"Sugar": 10.0, "Salt": 2.0}
     }
   ]
 }
 ```
+
+`id` (cup code, may be shown to the participant) and `label` (moderator-only
+description) are optional. Both are saved per cycle in `samples.selection_data`
+as `sample_id` / `sample_label`. Sample-bank entries (`predetermined_randomized`)
+use the same `id` / `label` fields.
 
 #### 2. **user_selected** - Manual Selection
 
@@ -391,6 +398,47 @@ Customizes the instructions screen shown to participants before the experiment b
 - If `instructions_screen` is omitted entirely, a generic default is used
 - The `text` field supports full markdown (bold, lists, links, etc.)
 - `text` max length: 5000 characters; other string fields: 200 characters max
+
+---
+
+## Questionnaire-Only Mode (Hand-Served Samples, No Pumps)
+
+To use RoboTaste purely as a questionnaire app with solutions you prepared in
+advance:
+
+1. Set `"pump_config": {"enabled": false}`.
+2. Use `predetermined_absolute` (fixed order) and/or `predetermined_randomized`
+   (randomized / Latin-square order per participant) schedule blocks. Give each
+   sample an `id` (the code written on the cup) and optionally a `label`.
+3. Optionally configure the `tasting_screen` (below).
+
+Flow per cycle: the sample is auto-selected → participant sees **"Please taste
+cup X"** → presses *Done tasting* → questionnaire. The moderator monitoring page
+shows a **Serving Guide** card ("Serve now: Cup X", next cup, full order with
+done/current/upcoming, printable). Data is saved to the same `samples` table as a
+pump experiment. See `protocols/questionnaire_only_example.json`.
+
+### Tasting Screen Configuration
+
+```json
+{
+  "tasting_screen": {
+    "enabled": true,
+    "title": "Please taste cup {sample_id}",
+    "text": "The experimenter will hand you cup {sample_id}.",
+    "button_label": "Done tasting",
+    "show_sample_id": true
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | When pumps are disabled, show this screen before each questionnaire. `false` goes straight to the questionnaire |
+| `title` | string | `"Please taste cup {sample_id}"` | Heading; `{sample_id}` is replaced by the cup code |
+| `text` | string | generic tasting text | Body text; supports `{sample_id}` |
+| `button_label` | string | `"Done tasting"` | Button text |
+| `show_sample_id` | boolean | `true` | Set `false` to hide the cup code from the participant |
 
 ---
 

@@ -198,7 +198,7 @@ export default function SelectionPage() {
           const pumpEnabled = selRes.data.pump_enabled;
           navigate(pumpEnabled
             ? `/subject/${sessionId}/cup-ready`
-            : `/subject/${sessionId}/questionnaire`
+            : `/subject/${sessionId}/tasting`
           );
         } else if (isBO) {
           const isAutoAccept = Boolean(
@@ -252,7 +252,8 @@ export default function SelectionPage() {
       if (pumpEnabled) {
         navigate(`/subject/${sessionId}/cup-ready`);
       } else {
-        navigate(`/subject/${sessionId}/questionnaire`);
+        // Hand-served samples: show "please taste cup X" before the questionnaire
+        navigate(`/subject/${sessionId}/tasting`);
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })

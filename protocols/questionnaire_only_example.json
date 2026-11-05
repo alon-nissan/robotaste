@@ -1,0 +1,160 @@
+{
+    "protocol_id": "questionnaire_only_example_001",
+    "name": "Questionnaire Only (Hand-Served Samples)",
+    "description": "Example for running RoboTaste as a questionnaire app with pre-prepared solutions served by hand (no pumps). 4 sugar solutions in coded cups, Latin-square order per participant. The participant sees 'Please taste cup X'; the moderator's monitoring page shows which cup to serve next and a printable serving plan.",
+    "version": "1.0",
+    "schema_version": "1.0",
+    "created_by": "Researcher",
+    "created_at": "2026-11-05T00:00:00Z",
+    "tags": [
+        "no_pumps",
+        "questionnaire_only",
+        "hand_served",
+        "latin_square"
+    ],
+    "ingredients": [
+        {
+            "name": "Sugar",
+            "min_concentration": 0.0,
+            "max_concentration": 100.0,
+            "unit": "mM",
+            "molecular_weight": 342.3
+        }
+    ],
+    "pump_config": {
+        "enabled": false
+    },
+    "instructions_screen": {
+        "title": "Instructions",
+        "text": "**Welcome to the Taste Experiment!**\n\nYou will taste **4 samples** served by the experimenter, one at a time.\n\nFor each sample:\n1. Taste the cup with the code shown on the screen.\n2. Answer the questions.\n3. Rinse your mouth with water before the next sample.\n\nThere are no right or wrong answers.",
+        "confirm_label": "I understand the instructions.",
+        "button_label": "Start"
+    },
+    "sample_selection_schedule": [
+        {
+            "cycle_range": {
+                "start": 1,
+                "end": 4
+            },
+            "mode": "predetermined_randomized",
+            "sample_bank": {
+                "samples": [
+                    {
+                        "id": "372",
+                        "label": "Sugar 0 mM (water)",
+                        "concentrations": {
+                            "Sugar": 0.0
+                        }
+                    },
+                    {
+                        "id": "815",
+                        "label": "Sugar 25 mM",
+                        "concentrations": {
+                            "Sugar": 25.0
+                        }
+                    },
+                    {
+                        "id": "249",
+                        "label": "Sugar 50 mM",
+                        "concentrations": {
+                            "Sugar": 50.0
+                        }
+                    },
+                    {
+                        "id": "604",
+                        "label": "Sugar 75 mM",
+                        "concentrations": {
+                            "Sugar": 75.0
+                        }
+                    }
+                ],
+                "design_type": "latin_square",
+                "constraints": {
+                    "prevent_consecutive_repeats": true,
+                    "ensure_all_used_before_repeat": true
+                }
+            }
+        }
+    ],
+    "tasting_screen": {
+        "enabled": true,
+        "title": "Please taste cup {sample_id}",
+        "text": "The experimenter will hand you cup {sample_id}. Take a sip, then press the button to answer the questions.",
+        "button_label": "Done tasting",
+        "show_sample_id": true
+    },
+    "questionnaire": {
+        "name": "Sweetness Intensity Scale",
+        "description": "Continuous 9-point intensity scale for measuring attribute strength.",
+        "version": "1.0",
+        "questions": [
+            {
+                "id": "sweetness_intensity",
+                "type": "slider",
+                "label": "How sweet is this sample?",
+                "help_text": "Rate the sweetness intensity from 1 (Not sweet at all) to 9 (Very Sweet).",
+                "scale_labels": {
+                    "1": "Not sweet at all",
+                    "3": "Light",
+                    "5": "Medium",
+                    "7": "Strong",
+                    "9": "Very Sweet"
+                },
+                "min": 1.0,
+                "max": 9.0,
+                "default": 5.0,
+                "step": 0.01,
+                "required": true,
+                "display_type": "slider_continuous"
+            }
+        ],
+        "bayesian_target": {
+            "variable": "sweetness_intensity",
+            "transform": "identity",
+            "higher_is_better": true,
+            "description": "Measure sweetness intensity.",
+            "expected_range": [
+                1.0,
+                9.0
+            ],
+            "optimal_threshold": 5.0
+        }
+    },
+    "bayesian_optimization": {
+        "enabled": false
+    },
+    "phase_sequence": {
+        "phases": [
+            {
+                "phase_id": "registration",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "instructions",
+                "phase_type": "builtin",
+                "required": true
+            },
+            {
+                "phase_id": "experiment_loop",
+                "phase_type": "loop",
+                "required": true
+            },
+            {
+                "phase_id": "completion",
+                "phase_type": "builtin",
+                "required": true
+            }
+        ]
+    },
+    "stopping_criteria": {
+        "max_cycles": 4,
+        "min_cycles": 4
+    },
+    "data_collection": {
+        "track_trajectory": true,
+        "track_interaction_times": true,
+        "collect_demographics": true,
+        "custom_metadata": {}
+    }
+}

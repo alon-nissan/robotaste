@@ -105,10 +105,20 @@ Auto-generated Swagger UI is available at [http://localhost:8000/docs](http://lo
 | 4 | `/subject/{sessionId}/instructions` | Read experiment instructions |
 | 5 | `/subject/{sessionId}/select` | Sample selection (grid or slider UI) |
 | 6 | `/subject/{sessionId}/preparing` | Wait for pump dispensing (if enabled) |
+| 6b | `/subject/{sessionId}/tasting` | "Please taste cup X" — after dispensing, or directly after selection when pumps are disabled (hand-served samples) |
 | 7 | `/subject/{sessionId}/questionnaire` | Rate the sample |
 | 8 | Steps 5–7 repeat for each cycle | |
 | 9 | `/subject/{sessionId}/complete` | Thank you / completion screen |
 | 10 | `/subject/{sessionId}/phase/{phaseId}` | Custom protocol-defined phases |
+
+### Questionnaire-Only Experiments (No Pumps)
+
+With `pump_config.enabled: false` and predetermined schedule blocks, the
+selection step is skipped, the participant is told which cup to taste
+(`tasting_screen`), and the moderator monitoring page shows a **Serving Guide**
+(current cup, next cup, printable full order) backed by
+`GET /api/sessions/{id}/serving-plan`. See `docs/protocol_schema.md`
+("Questionnaire-Only Mode") and `protocols/questionnaire_only_example.json`.
 
 ### Logo Visibility
 

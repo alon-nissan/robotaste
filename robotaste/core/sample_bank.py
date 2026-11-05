@@ -95,15 +95,15 @@ def generate_latin_square_sequence(
     return sequence
 
 
-def get_next_sample_from_bank(
+def get_next_sample_entry_from_bank(
     session_id: str,
     schedule_index: int,
     sample_bank_config: Dict[str, Any],
     cycle_number: int,
     cycle_range_start: int
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
-    Get sample from bank for a specific cycle.
+    Get the full bank entry (id, label, concentrations) for a specific cycle.
 
     Main entry point called by prepare_cycle_sample(). Handles:
     1. Initializing randomized order on first call (lazy initialization)
@@ -121,7 +121,7 @@ def get_next_sample_from_bank(
         cycle_range_start: Start of the cycle range for this schedule entry
 
     Returns:
-        Dict of {ingredient_name: concentration} for this cycle
+        Dict with keys "id", "label" (may be None) and "concentrations"
 
     Raises:
         ValueError: If sample bank is invalid or empty
@@ -192,17 +192,39 @@ def get_next_sample_from_bank(
 
         sample_id = randomized_order[position_in_sequence]
 
-        # Find the sample concentrations
-        concentrations = None
+        # Find the sample entry
+        entry = None
         for sample in samples:
             if sample["id"] == sample_id:
-                concentrations = sample["concentrations"]
+                entry = sample
                 break
 
-        if concentrations is None:
+        if entry is None:
             raise ValueError(f"Sample ID '{sample_id}' not found in bank")
 
-    return concentrations
+    return {
+        "id": entry["id"],
+        "label": entry.get("label"),
+        "concentrations": entry["concentrations"],
+    }
+
+
+def get_next_sample_from_bank(
+    session_id: str,
+    schedule_index: int,
+    sample_bank_config: Dict[str, Any],
+    cycle_number: int,
+    cycle_range_start: int
+) -> Dict[str, float]:
+    """
+    Get sample concentrations from bank for a specific cycle.
+
+    Thin wrapper around get_next_sample_entry_from_bank() that returns only
+    the {ingredient_name: concentration} dict.
+    """
+    return get_next_sample_entry_from_bank(
+        session_id, schedule_index, sample_bank_config, cycle_number, cycle_range_start
+    )["concentrations"]
 
 
 def _get_latin_square_session_number(session_id: str) -> int:
