@@ -4,7 +4,7 @@ RoboTaste React + FastAPI Launcher
 Starts FastAPI backend, Vite dev server, and optionally the pump service.
 
 Usage:
-    python start_new_ui.py [--with-pump] [--build] [--dev] [--port PORT]
+    python start_new_ui.py [--with-pump] [--build] [--dev] [--port PORT] [--tunnel] [--password PW]
 
 Modes:
     (default)       Production: builds frontend, serves everything on one port.
@@ -15,6 +15,10 @@ Modes:
 Options:
     --with-pump     Also start the pump control service (requires hardware)
     --port PORT     Server port (default: 8000)
+    --tunnel        Expose the app on a public https://*.trycloudflare.com URL
+                    via a Cloudflare quick tunnel (needs `cloudflared`, no account)
+    --password PW   Require this password on every page (sets ROBOTASTE_PASSWORD).
+                    Strongly recommended together with --tunnel.
 
 Press Ctrl+C to stop all services.
 """
@@ -25,8 +29,10 @@ import time
 import signal
 import argparse
 import os
+import re
 import socket
 import shutil
+import threading
 from pathlib import Path
 
 
@@ -191,6 +197,26 @@ def _resolve_project_python(project_root: Path) -> str:
     return sys.executable
 
 
+_TUNNEL_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+
+
+def _resolve_cloudflared() -> str | None:
+    """Return the path to the cloudflared binary, or None if not installed."""
+    candidates = ["cloudflared"]
+    if sys.platform == "win32":
+        candidates += [
+            r"C:\Program Files\cloudflared\cloudflared.exe",
+            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+        ]
+    else:
+        candidates += ["/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared"]
+    for candidate in candidates:
+        resolved = shutil.which(candidate) or (candidate if Path(candidate).is_file() else None)
+        if resolved:
+            return resolved
+    return None
+
+
 def _python_has_module(python_executable: str, module_name: str) -> bool:
     """Check whether a Python interpreter can import a module."""
     try:
@@ -208,10 +234,14 @@ def _python_has_module(python_executable: str, module_name: str) -> bool:
 class ReactLauncher:
     """Manages FastAPI, Vite, and pump service processes."""
 
-    def __init__(self, with_pump: bool = False, dev_mode: bool = False, port: int = 8000):
+    def __init__(self, with_pump: bool = False, dev_mode: bool = False, port: int = 8000,
+                 tunnel: bool = False):
         self.api_process = None
         self.vite_process = None
         self.pump_process = None
+        self.tunnel_process = None
+        self.tunnel_url: str | None = None
+        self.tunnel = tunnel
         self.with_pump = with_pump
         self.dev_mode = dev_mode
         self.port = port
@@ -222,7 +252,9 @@ class ReactLauncher:
         self.dist_dir = self.frontend_dir / "dist"
 
     def print_banner(self):
-        mode_label = "Development" if self.dev_mode else "Production (LAN)"
+        mode_label = "Development" if self.dev_mode else (
+            "Production (public tunnel)" if self.tunnel else "Production (LAN)"
+        )
         print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{f'RoboTaste — {mode_label}':^70}{Colors.END}")
         print(f"{Colors.BOLD}{Colors.CYAN}{'='*70}{Colors.END}\n")
@@ -302,6 +334,65 @@ class ReactLauncher:
             print(f"{Colors.RED}✗ npm not found (tried: {self.npm_cmd}){Colors.END}")
             print(f"{Colors.YELLOW}  Install Node.js 18+ and reopen the terminal.{Colors.END}")
             return False
+
+    def start_tunnel(self) -> bool:
+        """Start a Cloudflare quick tunnel and capture its public URL.
+
+        Runs before FastAPI so ROBOTASTE_PUBLIC_URL can be passed to the API
+        (the moderator's QR code then shows the public URL even when the
+        moderator opens http://localhost). cloudflared keeps retrying until
+        the local server is up, so starting it first is safe.
+        """
+        if not self.tunnel:
+            return True
+        print(f"{Colors.BLUE}[0] Starting Cloudflare tunnel...{Colors.END}")
+        cloudflared = _resolve_cloudflared()
+        if not cloudflared:
+            print(f"{Colors.RED}✗ cloudflared is not installed.{Colors.END}")
+            print(f"{Colors.YELLOW}  macOS:   brew install cloudflared{Colors.END}")
+            print(f"{Colors.YELLOW}  Windows: winget install --id Cloudflare.cloudflared{Colors.END}")
+            print(f"{Colors.YELLOW}  Then reopen the terminal and run again. See docs/DEPLOYMENT.md{Colors.END}")
+            return False
+        if not os.environ.get("ROBOTASTE_PASSWORD"):
+            print(f"{Colors.YELLOW}⚠ No password set — anyone with the tunnel URL can open the moderator page.{Colors.END}")
+            print(f"{Colors.YELLOW}  Re-run with --password <something> to protect it.{Colors.END}")
+
+        log = self._open_log("cloudflared_process")
+        try:
+            self.tunnel_process = subprocess.Popen(
+                [cloudflared, "tunnel", "--no-autoupdate", "--url", f"http://localhost:{self.port}"],
+                cwd=str(self.project_root),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                **_new_session_kwargs(),
+            )
+        except Exception as e:
+            print(f"{Colors.RED}✗ Error starting cloudflared: {e}{Colors.END}")
+            return False
+
+        found = threading.Event()
+
+        def _pump_output():
+            # Forward cloudflared output to the log and grab the public URL.
+            for line in self.tunnel_process.stdout:
+                log.write(line)
+                log.flush()
+                if not found.is_set():
+                    match = _TUNNEL_URL_RE.search(line)
+                    if match:
+                        self.tunnel_url = match.group(0)
+                        found.set()
+
+        threading.Thread(target=_pump_output, daemon=True).start()
+
+        if not found.wait(timeout=45):
+            print(f"{Colors.RED}✗ Tunnel did not report a public URL within 45s (see logs/cloudflared_process.log){Colors.END}")
+            return False
+        os.environ["ROBOTASTE_PUBLIC_URL"] = self.tunnel_url
+        print(f"{Colors.GREEN}✓ Tunnel ready: {self.tunnel_url}{Colors.END}")
+        return True
 
     def start_api(self) -> bool:
         """Start FastAPI backend."""
@@ -425,6 +516,22 @@ class ReactLauncher:
             print(f"  {Colors.CYAN}API docs:{Colors.END}   http://localhost:{self.port}/docs\n")
             print(f"{Colors.DIM}  Note: Vite proxies /api to FastAPI automatically.{Colors.END}")
             print(f"{Colors.DIM}  For multi-device testing, use: python start_new_ui.py{Colors.END}\n")
+        elif self.tunnel_url:
+            subject_url = f"{self.tunnel_url}/subject"
+            protected = bool(os.environ.get("ROBOTASTE_PASSWORD"))
+            print(f"{Colors.BOLD}Public URLs (work from any network):{Colors.END}\n")
+            print(f"  {Colors.CYAN}Moderator:{Colors.END}  {self.tunnel_url}/   (or http://localhost:{self.port}/ on this computer)")
+            print(f"  {Colors.CYAN}Subject:{Colors.END}    {subject_url}\n")
+            if protected:
+                user = os.environ.get("ROBOTASTE_USER", "robotaste")
+                print(f"  {Colors.GREEN}🔒 Password protected — log in as user '{user}'{Colors.END}\n")
+            else:
+                print(f"  {Colors.YELLOW}⚠ NOT password protected (use --password){Colors.END}\n")
+            qr = _generate_qr_text(subject_url)
+            if qr:
+                print(f"{Colors.BOLD}Scan this QR code on the tablet:{Colors.END}\n")
+                print(qr)
+            print(f"{Colors.DIM}  The tunnel URL changes every time you restart. Keep this computer awake.{Colors.END}\n")
         else:
             # Prefer Tailscale IP (works through client isolation)
             preferred_ip = tailscale_ip or lan_ip
@@ -463,6 +570,8 @@ class ReactLauncher:
             print(f"  • React frontend → served from FastAPI (production build)")
         if self.with_pump:
             print(f"  • Pump service   → polling robotaste.db")
+        if self.tunnel_url:
+            print(f"  • Cloudflare     → {self.tunnel_url}")
         print()
 
         print(f"{Colors.BOLD}Logs:{Colors.END}")
@@ -486,6 +595,7 @@ class ReactLauncher:
             ("FastAPI", self.api_process),
             ("Vite", self.vite_process),
             ("Pump service", self.pump_process),
+            ("Cloudflare tunnel", self.tunnel_process),
         ]:
             if proc and proc.poll() is None:
                 print(f"  Stopping {name}...")
@@ -518,6 +628,10 @@ class ReactLauncher:
         if not self.build_frontend():
             return 1
 
+        if not self.start_tunnel():
+            self.cleanup()
+            return 1
+
         if not self.start_api():
             self.cleanup()
             return 1
@@ -543,6 +657,9 @@ class ReactLauncher:
                     break
                 if self.with_pump and self.pump_process and self.pump_process.poll() is not None:
                     print(f"{Colors.RED}Pump service has stopped unexpectedly{Colors.END}")
+                    break
+                if self.tunnel_process and self.tunnel_process.poll() is not None:
+                    print(f"{Colors.RED}Cloudflare tunnel has stopped unexpectedly{Colors.END}")
                     break
                 time.sleep(1)
         except KeyboardInterrupt:
@@ -577,12 +694,28 @@ def main():
         default=8000,
         help="Server port (default: 8000)"
     )
+    parser.add_argument(
+        "--tunnel",
+        action="store_true",
+        help="Expose the app on a public HTTPS URL via a Cloudflare quick tunnel (requires cloudflared)"
+    )
+    parser.add_argument(
+        "--password",
+        default=None,
+        help="Require this password on every page (sets ROBOTASTE_PASSWORD; username 'robotaste')"
+    )
     args = parser.parse_args()
+
+    if args.password:
+        os.environ["ROBOTASTE_PASSWORD"] = args.password
+    if args.tunnel and args.dev:
+        parser.error("--tunnel is only supported in production mode (omit --dev)")
 
     # Default is production mode; --dev enables development mode
     dev_mode = args.dev
 
-    launcher = ReactLauncher(with_pump=args.with_pump, dev_mode=dev_mode, port=args.port)
+    launcher = ReactLauncher(with_pump=args.with_pump, dev_mode=dev_mode, port=args.port,
+                             tunnel=args.tunnel)
 
     def signal_handler(sig, frame):
         launcher.cleanup()

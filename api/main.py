@@ -30,7 +30,12 @@ Production (single server, multi-device):
 The interactive API docs are at http://localhost:8000/docs (auto-generated!).
 """
 
+import base64
+import binascii
+import ipaddress
 import logging
+import os
+import secrets
 import time
 import socket
 from pathlib import Path
@@ -122,6 +127,58 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+# ─── OPTIONAL PASSWORD GATE ─────────────────────────────────────────────────
+# When the app is exposed beyond the lab (e.g. through a Cloudflare tunnel),
+# set ROBOTASTE_PASSWORD to require HTTP Basic auth on every page and API call.
+# Browsers prompt once per device and then attach the credentials to all
+# same-origin requests (including axios polling), so no frontend changes are
+# needed. When ROBOTASTE_PASSWORD is unset, nothing changes.
+# /api/health stays open so tunnels / container hosts can health-check.
+_AUTH_EXEMPT_PATHS = {"/api/health"}
+
+
+def _auth_settings() -> tuple[str, str] | None:
+    """Return (user, password) if password protection is enabled."""
+    password = os.environ.get("ROBOTASTE_PASSWORD", "")
+    if not password:
+        return None
+    return os.environ.get("ROBOTASTE_USER", "robotaste"), password
+
+
+def _basic_auth_ok(header: str | None, user: str, password: str) -> bool:
+    """Validate an 'Authorization: Basic ...' header in constant time."""
+    if not header or not header.lower().startswith("basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return False
+    given_user, sep, given_password = decoded.partition(":")
+    if not sep:
+        return False
+    user_ok = secrets.compare_digest(given_user.encode(), user.encode())
+    password_ok = secrets.compare_digest(given_password.encode(), password.encode())
+    return user_ok and password_ok
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    settings = _auth_settings()
+    if (
+        settings is None
+        or request.method == "OPTIONS"
+        or request.url.path in _AUTH_EXEMPT_PATHS
+    ):
+        return await call_next(request)
+    if _basic_auth_ok(request.headers.get("authorization"), *settings):
+        return await call_next(request)
+    return Response(
+        content="Authentication required",
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="RoboTaste", charset="UTF-8"'},
+    )
+
+
 # ─── STARTUP EVENT ──────────────────────────────────────────────────────────
 # This function runs once when the server starts up.
 # We use it to initialize the database (create tables if they don't exist).
@@ -176,9 +233,51 @@ def _get_tailscale_ip() -> str | None:
     return None
 
 
+def _public_base_url(request: Request) -> str | None:
+    """Return the public base URL the app is reached through, if any.
+
+    Priority: ROBOTASTE_PUBLIC_URL env var, then the request's Host header when
+    it is a real domain name (e.g. a Cloudflare tunnel or university domain).
+    Returns None for localhost, raw IPs and .local mDNS names so the LAN /
+    Tailscale logic is used instead.
+    """
+    configured = os.environ.get("ROBOTASTE_PUBLIC_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    if not host:
+        return None
+    if host.startswith("["):  # IPv6 literal, e.g. [::1]:8000
+        return None
+    hostname = host.rsplit(":", 1)[0].lower()
+    if hostname == "localhost" or hostname.endswith((".localhost", ".local")) or "." not in hostname:
+        return None
+    try:
+        ipaddress.ip_address(hostname)
+        return None
+    except ValueError:
+        pass
+
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",")[0].strip()
+    return f"{scheme}://{host}"
+
+
 @app.get("/api/server-info")
 def server_info(request: Request):
-    """Return LAN/Tailscale connection info for multi-device setup."""
+    """Return connection info (public URL, or LAN/Tailscale) for multi-device setup."""
+    public_url = _public_base_url(request)
+    if public_url:
+        return {
+            "lan_ip": None,
+            "tailscale_ip": None,
+            "preferred_ip": None,
+            "port": None,
+            "public_url": public_url,
+            "subject_url": f"{public_url}/subject",
+            "moderator_url": f"{public_url}/",
+        }
+
     lan_ip = _get_lan_ip()
     tailscale_ip = _get_tailscale_ip()
     preferred_ip = tailscale_ip or lan_ip
@@ -188,6 +287,7 @@ def server_info(request: Request):
         "tailscale_ip": tailscale_ip,
         "preferred_ip": preferred_ip,
         "port": port,
+        "public_url": None,
         "subject_url": f"http://{preferred_ip}:{port}/subject",
         "moderator_url": f"http://{preferred_ip}:{port}/",
     }

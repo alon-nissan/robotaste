@@ -10,10 +10,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
 
 interface ServerInfo {
-  lan_ip: string;
+  lan_ip: string | null;
   tailscale_ip: string | null;
-  preferred_ip: string;
-  port: number;
+  preferred_ip: string | null;
+  port: number | null;
+  public_url: string | null;
   subject_url: string;
   moderator_url: string;
 }
@@ -43,7 +44,8 @@ export default function SubjectConnectionCard() {
 
   // QR code generated server-side (works offline, no external API)
   const qrUrl = `/api/server-info/qr?url=${encodeURIComponent(serverInfo.subject_url)}`;
-  const isLocalhost = serverInfo.preferred_ip === '127.0.0.1';
+  const isPublic = !!serverInfo.public_url;
+  const isLocalhost = !isPublic && serverInfo.preferred_ip === '127.0.0.1';
   const usingTailscale = !!serverInfo.tailscale_ip;
 
   return (
@@ -91,7 +93,9 @@ export default function SubjectConnectionCard() {
           </div>
 
           <p className="text-xs text-text-secondary text-center">
-            {usingTailscale
+            {isPublic
+              ? '🌐 Public link — works from any network'
+              : usingTailscale
               ? '🔒 Connected via Tailscale (works through firewalls)'
               : 'Both devices must be on the same WiFi network'}
           </p>

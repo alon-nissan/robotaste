@@ -68,6 +68,12 @@ For a brand-new Windows machine, start with
 See **[docs/MULTI_DEVICE_SETUP.md](docs/MULTI_DEVICE_SETUP.md)** for complete
 step-by-step instructions, including Tailscale setup for Mac/Windows/Android/iPad.
 
+### Public Web Access (demos / servers)
+
+`python start_new_ui.py --tunnel --password <pw>` exposes the app on a public HTTPS link
+via a free Cloudflare quick tunnel (no account). A `Dockerfile` is provided for permanent
+server deployment. See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 
 ### Testing
 ```bash
@@ -129,6 +135,7 @@ SQLite Database (robotaste.db)
 ## Documentation
 - **Windows setup (new machine)**: `docs/WINDOWS_SETUP.md` — runtime setup from clean Windows install to first experiment
 - **Running Experiments**: `docs/MULTI_DEVICE_SETUP.md` — step-by-step guide for moderator + tablet setup
+- **Web access / deployment**: `docs/DEPLOYMENT.md` — public tunnel for demos, Docker for servers, password protection
 - **Getting Started (dev)**: `docs/WORKFLOW_GUIDE.md`
 - **For AI Agents**: `CLAUDE.md`, `AGENTS.md`
 - **For Humans**: `docs/protocol_user_guide.md`
