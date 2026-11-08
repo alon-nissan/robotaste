@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS samples (
     ingredient_concentration TEXT NOT NULL,
     sample_temperature_c REAL,
     questionnaire_answer TEXT,
+    answer_meta TEXT,  -- JSON: per-question response metadata (interacted, rt_ms, preset, preset_version)
     selection_data TEXT,
     -- Sample selection mode tracking (for mixed-mode protocols)
     selection_mode TEXT DEFAULT 'user_selected',  -- "user_selected", "bo_selected", "predetermined"

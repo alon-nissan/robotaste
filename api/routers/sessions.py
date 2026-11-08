@@ -59,6 +59,7 @@ from robotaste.data.database import (
     get_training_data,       # Gets BO training data as DataFrame
     get_bo_config,           # Gets BO config for a session
     get_session_by_code,     # Gets session by 6-char code
+    save_survey_response,    # Stores custom-phase survey answers (no sample row)
 )
 from robotaste.data.session_repo import get_session_info
 from robotaste.data.protocol_repo import get_protocol_by_id
@@ -68,6 +69,8 @@ from robotaste.core.bo_integration import get_bo_suggestion_for_session, get_ing
 from robotaste.core.bo_engine import train_bo_model
 from robotaste.core.trials import prepare_cycle_sample
 from robotaste.core.phase_engine import PhaseEngine
+from robotaste.config.scales import resolve_questionnaire
+from robotaste.config.questionnaire import validate_questionnaire_response
 
 import json
 
@@ -145,6 +148,15 @@ class ResponseRequest(BaseModel):
     """Expected JSON body for submitting questionnaire responses."""
     answers: Dict[str, Any]
     is_final: bool = True
+    # Per-question response metadata, e.g.
+    # {"q_id": {"interacted": true, "rt_ms": 4210, "preset": "glms", ...}}
+    answer_meta: Optional[Dict[str, Any]] = None
+    # Set by custom survey phases: answers are stored on the session and do NOT
+    # create a sample row or advance the cycle.
+    phase_id: Optional[str] = None
+
+
+MAX_ANSWER_META_BYTES = 64 * 1024
 
 
 # ─── CREATE ROUTER ──────────────────────────────────────────────────────────
@@ -800,10 +812,35 @@ def submit_response(session_id: str, request: ResponseRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     cycle_number = get_current_cycle(session_id)
+    config = session.get("experiment_config", {}) or {}
+
+    # Custom survey phases: keep their answers out of the samples table
+    # (they are not tasting cycles and must not feed BO or advance the cycle).
+    if request.phase_id:
+        if not save_survey_response(
+            session_id, request.phase_id, cycle_number, request.answers
+        ):
+            raise HTTPException(status_code=500, detail="Failed to save survey response")
+        logger.info(
+            f"📝 Survey response saved for session {session_id}: phase={request.phase_id}"
+        )
+        return {"message": "Survey response saved", "phase_id": request.phase_id}
+
     logger.info(f"📝 Response submitted for session {session_id}: cycle={cycle_number}")
 
+    # Server-side answer validation against the session's (resolved) questionnaire
+    questionnaire = config.get("questionnaire")
+    if isinstance(questionnaire, dict) and questionnaire.get("questions"):
+        is_valid, error = validate_questionnaire_response(request.answers, questionnaire)
+        if not is_valid:
+            logger.warning(f"Rejected response for session {session_id}: {error}")
+            raise HTTPException(status_code=422, detail=error)
+
+    answer_meta = request.answer_meta
+    if answer_meta is not None and len(json.dumps(answer_meta)) > MAX_ANSWER_META_BYTES:
+        raise HTTPException(status_code=413, detail="answer_meta too large")
+
     # Get concentrations for this cycle: check persisted selection first, then fall back
-    config = session.get("experiment_config", {})
     sample_temperature_c = config.get("sample_temperature_c")
     if sample_temperature_c is not None:
         try:
@@ -855,6 +892,7 @@ def submit_response(session_id: str, request: ResponseRequest):
         request.is_final,
         selection_mode,
         sample_temperature_c=sample_temperature_c,
+        answer_meta=answer_meta,
     )
     increment_cycle(session_id)
 
@@ -1064,14 +1102,19 @@ def _build_experiment_config(protocol: dict, pump_volumes: Optional[Dict[str, fl
             "max_concentration_mM": ing.get("max_concentration", 100),
         })
 
-    # Get questionnaire config
+    # Get questionnaire config. Inline questionnaires are required (the legacy
+    # questionnaire_type library lookup was removed). Scale presets are resolved
+    # here so the session keeps a frozen snapshot of the exact anchors/options
+    # shown to subjects, even if the preset registry changes later.
     questionnaire_type = protocol.get("questionnaire_type", "liking_scale")
     questionnaire_config = protocol.get("questionnaire")
-
-    # If no inline questionnaire, create from type name
-    if not questionnaire_config:
-        from robotaste.config.questionnaire import get_questionnaire_config
-        questionnaire_config = get_questionnaire_config(questionnaire_type)
+    if isinstance(questionnaire_config, dict):
+        questionnaire_config = resolve_questionnaire(questionnaire_config)
+    else:
+        logger.warning(
+            f"Protocol {protocol.get('protocol_id')} has no inline questionnaire"
+        )
+        questionnaire_config = None
 
     # Build the config
     config = {

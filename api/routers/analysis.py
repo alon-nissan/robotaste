@@ -183,9 +183,13 @@ def get_dose_response_data(
                 "stats": {},
             }
             for var in response_vars_list:
-                values = [r[var] for r in response_list if var in r and r[var] is not None]
-                if values:
-                    numeric = [float(v) for v in values]
+                # Only numeric answers are aggregated; text, CATA lists, rankings
+                # and dropdown strings are skipped instead of crashing float().
+                numeric = [
+                    float(r[var]) for r in response_list
+                    if isinstance(r.get(var), (int, float)) and not isinstance(r.get(var), bool)
+                ]
+                if numeric:
                     mean = sum(numeric) / len(numeric)
                     variance = sum((x - mean) ** 2 for x in numeric) / len(numeric) if len(numeric) > 1 else 0
                     std = math.sqrt(variance)

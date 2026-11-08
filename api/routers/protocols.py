@@ -39,6 +39,12 @@ from robotaste.data.protocol_repo import (
 
 # Import protocol validation
 from robotaste.config.protocols import validate_protocol
+from robotaste.config.scales import (
+    list_scale_presets,
+    QUESTION_TYPES,
+    NUMERIC_QUESTION_TYPES,
+)
+from robotaste.config.questionnaire import TARGET_TRANSFORMS
 
 
 # ─── CREATE ROUTER ──────────────────────────────────────────────────────────
@@ -82,6 +88,24 @@ def get_protocols():
 
 
 # ─── GET SINGLE PROTOCOL ───────────────────────────────────────────────────
+# ─── SCALE PRESETS ────────────────────────────────────────────────────────
+# Declared before /{protocol_id} so "scale-presets" isn't parsed as an id.
+@router.get("/scale-presets")
+def get_scale_presets():
+    """
+    List the built-in rating-scale presets (VAS, gVAS, gLMS, LMS, LAM, LHS,
+    9-point hedonic, Likert, JAR, facial scales, magnitude estimation, CATA)
+    plus the supported question types. Used by the protocol wizard so anchor
+    tables are defined only once, in robotaste/config/scales.py.
+    """
+    return {
+        "presets": list_scale_presets(),
+        "question_types": sorted(QUESTION_TYPES),
+        "numeric_question_types": sorted(NUMERIC_QUESTION_TYPES),
+        "target_transforms": list(TARGET_TRANSFORMS),
+    }
+
+
 @router.get("/{protocol_id}")
 def get_protocol(protocol_id: str):
     """

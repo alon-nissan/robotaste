@@ -15,7 +15,7 @@ import sqlite3
 import pandas as pd
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from typing import Optional, Tuple, Dict, Any, List
 import logging
@@ -79,6 +79,9 @@ def _apply_schema_migrations(cursor: sqlite3.Cursor) -> None:
     if not _column_exists(cursor, "users", "is_smoker"):
         cursor.execute("ALTER TABLE users ADD COLUMN is_smoker INTEGER")
         logger.info("Applied migration: added users.is_smoker")
+    if not _column_exists(cursor, "samples", "answer_meta"):
+        cursor.execute("ALTER TABLE samples ADD COLUMN answer_meta TEXT")
+        logger.info("Applied migration: added samples.answer_meta")
 
 
 def init_database() -> bool:
@@ -968,6 +971,7 @@ def save_sample_cycle(
     selection_mode: str = "user_selected",
     was_bo_overridden: bool = False,
     sample_temperature_c: Optional[float] = None,
+    answer_meta: Optional[Dict] = None,
 ) -> str:
     """
     Save complete cycle data in ONE row.
@@ -984,6 +988,8 @@ def save_sample_cycle(
         selection_mode: Mode used for this sample ("user_selected", "bo_selected", "predetermined")
         was_bo_overridden: True if user overrode BO suggestion in bo_selected mode
         sample_temperature_c: Fixed protocol-level sample temperature in Celsius
+        answer_meta: Optional per-question response metadata
+            (e.g. {"q_id": {"interacted": True, "rt_ms": 4210, "preset": "glms"}})
 
     Returns:
         sample_id (UUID)
@@ -1019,11 +1025,11 @@ def save_sample_cycle(
                 INSERT INTO samples (
                     sample_id, session_id, cycle_number,
                     ingredient_concentration, sample_temperature_c, selection_data,
-                    questionnaire_answer, is_final,
+                    questionnaire_answer, answer_meta, is_final,
                     selection_mode, was_bo_overridden,
                     acquisition_function, acquisition_xi, acquisition_kappa,
                     acquisition_value, predicted_value, uncertainty
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     sample_id,
@@ -1033,6 +1039,7 @@ def save_sample_cycle(
                     sample_temperature_c,
                     json.dumps(selection_data) if selection_data else None,
                     json.dumps(questionnaire_answer),
+                    json.dumps(answer_meta) if answer_meta else None,
                     1 if is_final else 0,
                     selection_mode,
                     1 if was_bo_overridden else 0,
@@ -1064,6 +1071,62 @@ def save_sample_cycle(
         raise
 
 
+def _loads_optional(row: sqlite3.Row, column: str) -> Optional[Any]:
+    """Parse an optional JSON column, tolerating rows/DBs without it."""
+    try:
+        raw = row[column]
+    except (IndexError, KeyError):
+        return None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def save_survey_response(
+    session_id: str, phase_id: str, cycle_number: int, answers: Dict
+) -> bool:
+    """
+    Store answers from a custom survey phase on the session.
+
+    Survey answers are NOT tasting cycles: they must not create a samples row,
+    advance the cycle counter, or feed BO training. They are appended under
+    experiment_config["_survey_responses"][phase_id] as a list of
+    {"cycle": n, "answers": {...}, "submitted_at": iso}.
+    """
+    try:
+        with get_database_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT experiment_config FROM sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+            config = json.loads(row["experiment_config"]) if row["experiment_config"] else {}
+            surveys = config.setdefault("_survey_responses", {})
+            surveys.setdefault(phase_id, []).append(
+                {
+                    "cycle": cycle_number,
+                    "answers": answers,
+                    "submitted_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            cursor.execute(
+                "UPDATE sessions SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE session_id = ?",
+                (json.dumps(config), session_id),
+            )
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to save survey response for {session_id}/{phase_id}: {e}")
+        return False
+
+
 def get_sample(sample_id: str) -> Optional[Dict]:
     """
     Get sample by ID with parsed JSON fields.
@@ -1093,6 +1156,7 @@ def get_sample(sample_id: str) -> Optional[Dict]:
                     json.loads(row["selection_data"]) if row["selection_data"] else None
                 ),
                 "questionnaire_answer": json.loads(row["questionnaire_answer"]),
+                "answer_meta": _loads_optional(row, "answer_meta"),
                 "is_final": bool(row["is_final"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
@@ -1154,6 +1218,7 @@ def get_session_samples(session_id: str, only_final: bool = False) -> List[Dict]
                             else None
                         ),
                         "questionnaire_answer": json.loads(row["questionnaire_answer"]),
+                        "answer_meta": _loads_optional(row, "answer_meta"),
                         "is_final": bool(row["is_final"]),
                         "created_at": row["created_at"],
                     }
@@ -1389,62 +1454,26 @@ def get_training_data(session_id: str, only_final: bool = False) -> pd.DataFrame
             else:
                 return pd.DataFrame()
 
-        # Get target variable name from questionnaire config.
-        # Prefer the inline questionnaire stored on the experiment config (preferred
-        # per protocol schema) over the legacy library lookup by name, since the
-        # inline config is the one that actually has the correct bayesian_target
-        # for this protocol.
-        target_column_name = "target_value"  # Default fallback
+        # Target variable comes from the inline questionnaire's bayesian_target
+        # (the legacy library lookup by questionnaire name was removed).
         questionnaire_config = experiment_config.get("questionnaire")
-        if questionnaire_config and "bayesian_target" in questionnaire_config:
-            target_key = questionnaire_config.get("bayesian_target", {}).get("variable")
-            if target_key:
-                target_column_name = target_key
-                logger.info(f"Using target column name: '{target_column_name}' (inline questionnaire)")
-        else:
-            questionnaire_config = None
-            # Legacy fallback: look up by questionnaire name in the library
-            questionnaire_type = experiment_config.get("questionnaire_name") or session.get(
-                "questionnaire_name"
+        target_key = (
+            (questionnaire_config or {}).get("bayesian_target", {}) or {}
+        ).get("variable")
+        if not target_key:
+            logger.warning(
+                f"No bayesian_target configured for session {session_id}; "
+                f"no BO training data available"
             )
-            if not questionnaire_type:
-                logger.warning(f"No questionnaire type for session {session_id}")
-            else:
-                try:
-                    from robotaste.config.questionnaire import QUESTIONNAIRE_CONFIGS
-
-                    questionnaire_type_normalized = questionnaire_type.strip().lower()
-                    q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type_normalized)
-                    if not q_def:
-                        q_def = QUESTIONNAIRE_CONFIGS.get(questionnaire_type)
-                    if q_def:
-                        questionnaire_config = q_def  # Store the full config
-                        bayesian_config = q_def.get("bayesian_target", {})
-                        target_key = bayesian_config.get("variable")
-                        if target_key:
-                            target_column_name = target_key
-                            logger.info(f"Using target column name: '{target_column_name}'")
-                except Exception as e:
-                    logger.warning(
-                        f"Could not get target variable name from config: {e}, using default 'target_value'"
-                    )
+            return pd.DataFrame()
+        target_column_name = target_key
+        logger.info(f"Using target column name: '{target_column_name}' (inline questionnaire)")
 
         # Get samples
         samples = get_session_samples(session_id, only_final=only_final)
         if not samples:
             logger.info(f"No samples found for session {session_id}")
             return pd.DataFrame()
-
-        # Fallback questionnaire config if not found
-        if not questionnaire_config:
-            logger.warning(f"Using fallback questionnaire config for session {session_id}")
-            questionnaire_config = {
-                "bayesian_target": {
-                    "variable": "overall_liking",
-                    "higher_is_better": True,
-                    "expected_range": [1, 9]
-                }
-            }
 
         # Build training data with ORDERED columns matching experiment config
         data = []

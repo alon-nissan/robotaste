@@ -15,6 +15,13 @@ from typing import Dict, List, Any, Optional, Union
 import logging
 
 from robotaste.utils.safe_eval import safe_eval_expression
+from robotaste.config.scales import (
+    resolve_question,
+    validate_answer,
+    is_answered,
+    get_default_transform,
+    NUMERIC_QUESTION_TYPES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,9 +366,8 @@ def get_questionnaire_config(questionnaire: Dict[str, Any]) -> Dict[str, Any]:
     if "questions" not in questionnaire or not questionnaire["questions"]:
         raise ValueError("Questionnaire must have at least one question")
 
-    if "bayesian_target" not in questionnaire:
-        raise ValueError("Questionnaire must have 'bayesian_target' configuration")
-
+    # bayesian_target is optional: only BO protocols need it (enforced in
+    # protocols._validate_questionnaire_config).
     return questionnaire
 
 
@@ -388,44 +394,58 @@ def list_available_questionnaires() -> List[tuple]:
 
 
 def validate_questionnaire_response(
-    response: Dict[str, Any], questionnaire: Union[str, Dict[str, Any]]
+    response: Dict[str, Any], questionnaire: Dict[str, Any]
 ) -> tuple[bool, Optional[str]]:
     """
     Validate a questionnaire response against the configuration.
 
+    Questions are resolved against their scale preset (see
+    ``robotaste.config.scales``) and every answer is type-checked: numeric
+    range for sliders/line scales, membership for category/choice questions,
+    list shape for multi-select and ranking, etc. Keys in the response that
+    do not correspond to a question are ignored.
+
     Args:
         response: Dictionary of question_id -> answer
-        questionnaire: Either questionnaire config dict (preferred) or
-                      string type name (legacy)
+        questionnaire: Inline questionnaire config dict
 
     Returns:
-        Tuple of (is_valid, error_message)
+        Tuple of (is_valid, error_message). error_message joins all problems.
     """
     config = get_questionnaire_config(questionnaire)
-    if config is None:
-        return False, f"Invalid questionnaire configuration"
+    if not isinstance(response, dict):
+        return False, "Response must be an object of question_id -> answer"
 
-    # Check all required questions are answered
-    for question in config["questions"]:
-        question_id = question["id"]
+    errors: List[str] = []
+    for raw_question in config["questions"]:
+        question = resolve_question(raw_question)
+        question_id = question.get("id")
+        value = response.get(question_id)
 
-        if question.get("required", False):
-            if question_id not in response or response[question_id] is None:
-                return False, f"Required question '{question_id}' not answered"
+        if not is_answered(value):
+            if question.get("required", False):
+                errors.append(f"Required question '{question_id}' not answered")
+            continue
 
-        # Validate answer is within range (for sliders)
-        if question_id in response and question["type"] == "slider":
-            value = response[question_id]
-            min_val = question["min"]
-            max_val = question["max"]
+        error = validate_answer(question, value)
+        if error:
+            errors.append(error)
 
-            if not (min_val <= value <= max_val):
-                return (
-                    False,
-                    f"Answer for '{question_id}' out of range [{min_val}, {max_val}]",
-                )
-
+    if errors:
+        return False, "; ".join(errors)
     return True, None
+
+
+def _find_question(
+    questionnaire_config: Dict[str, Any], question_id: str
+) -> Optional[Dict[str, Any]]:
+    for question in questionnaire_config.get("questions", []) or []:
+        if isinstance(question, dict) and question.get("id") == question_id:
+            return question
+    return None
+
+
+TARGET_TRANSFORMS = ("identity", "log", "log10", "log10p1", "normalize", "ideal_point")
 
 
 def extract_target_variable(
@@ -433,6 +453,17 @@ def extract_target_variable(
 ) -> Optional[float]:
     """
     Extract the target variable for Bayesian optimization from a response.
+
+    Transforms (``bayesian_target.transform``):
+        identity     value unchanged
+        log          ln(value + 1)                       (legacy)
+        log10        log10(value)                        (value must be > 0)
+        log10p1      log10(value + 1)                    (gLMS, magnitude estimation)
+        normalize    (value - lo) / (hi - lo) using expected_range
+        ideal_point  -|value - ideal_value|              (JAR / ideal-intensity targets;
+                                                          higher is always better)
+    When ``transform`` is omitted, the target question's preset default is
+    used (e.g. gLMS → log10p1), falling back to identity.
 
     Args:
         response: Dictionary of questionnaire answers
@@ -444,6 +475,7 @@ def extract_target_variable(
     try:
         target_config = questionnaire_config["bayesian_target"]
         target_variable = target_config["variable"]
+        target_question = None
 
         # Handle composite targets (weighted combinations)
         if target_variable == "composite":
@@ -453,22 +485,56 @@ def extract_target_variable(
         else:
             # Simple single-variable target
             target_value = response.get(target_variable)
+            target_question = _find_question(questionnaire_config, target_variable)
 
         if target_value is None:
             logger.warning(f"Target variable '{target_variable}' not found in response")
             return None
+        if isinstance(target_value, bool) or not isinstance(target_value, (int, float)):
+            logger.warning(
+                f"Target variable '{target_variable}' is not numeric: {target_value!r}"
+            )
+            return None
 
-        # Apply transformation if specified
-        transform = target_config.get("transform", "identity")
+        import numpy as np
+
+        target_value = float(target_value)
+
+        # Apply transformation (explicit, else preset default)
+        transform = target_config.get("transform")
+        if not transform:
+            transform = (
+                get_default_transform(target_question) if target_question else "identity"
+            )
+
         if transform == "log":
-            import numpy as np
-
             target_value = np.log(target_value + 1)  # +1 to avoid log(0)
+        elif transform == "log10":
+            if target_value <= 0:
+                logger.warning(f"log10 transform needs value > 0, got {target_value}")
+                return None
+            target_value = np.log10(target_value)
+        elif transform == "log10p1":
+            if target_value <= -1:
+                logger.warning(f"log10p1 transform needs value > -1, got {target_value}")
+                return None
+            target_value = np.log10(target_value + 1)
         elif transform == "normalize":
             # Normalize to [0, 1] based on expected range
             expected_range = target_config.get("expected_range", [1, 9])
             min_val, max_val = expected_range
             target_value = (target_value - min_val) / (max_val - min_val)
+        elif transform == "ideal_point":
+            ideal = target_config.get("ideal_value")
+            if ideal is None and target_question:
+                ideal = resolve_question(target_question).get("ideal_value")
+            if ideal is None:
+                logger.warning("ideal_point transform requires 'ideal_value'")
+                return None
+            # Distance from ideal: closer is better, so maximise the negative distance.
+            return float(-abs(target_value - float(ideal)))
+        elif transform != "identity":
+            logger.warning(f"Unknown transform '{transform}', using identity")
 
         # If minimizing, negate the value
         if not target_config.get("higher_is_better", True):
@@ -479,6 +545,20 @@ def extract_target_variable(
     except Exception as e:
         logger.error(f"Failed to extract target variable: {e}")
         return None
+
+
+def is_numeric_question(question: Dict[str, Any]) -> bool:
+    """True if the (resolved) question yields a single numeric answer."""
+    resolved = resolve_question(question)
+    q_type = resolved.get("type")
+    if q_type != "pillbox":
+        return q_type in NUMERIC_QUESTION_TYPES
+    # Pillbox with string options yields strings; numeric range pillbox yields numbers.
+    options = resolved.get("options") or []
+    return all(
+        isinstance(o.get("value") if isinstance(o, dict) else o, (int, float))
+        for o in options
+    )
 
 
 def get_question_by_id(

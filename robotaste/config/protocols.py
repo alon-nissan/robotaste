@@ -28,6 +28,9 @@ from robotaste.config.protocol_schema import (
     protocol_from_json,
 )
 
+from robotaste.config.scales import validate_question_config, resolve_question
+from robotaste.config.questionnaire import TARGET_TRANSFORMS, is_numeric_question
+
 logger = logging.getLogger(__name__)
 
 
@@ -506,36 +509,67 @@ def _validate_questionnaire_config(protocol: Dict[str, Any]) -> List[str]:
             errors.append(f"Duplicate question id: {q_id}")
         question_ids.add(q_id)
 
-        # Type-specific validation
-        q_type = question.get("type")
-        if not q_type:
-            errors.append(f"Question '{q_id}' missing 'type' field")
-            continue
+        # Type-specific validation (incl. scale presets) lives in scales.py
+        errors.extend(validate_question_config(question))
 
-        if q_type == "slider":
-            if "min" not in question or "max" not in question:
-                errors.append(f"Slider question '{q_id}' missing min/max")
-            elif question["min"] >= question["max"]:
-                errors.append(f"Slider question '{q_id}': min must be < max")
+    questions_by_id = {
+        q.get("id"): q for q in questionnaire["questions"] if isinstance(q, dict)
+    }
 
-        elif q_type == "dropdown":
-            if "options" not in question or not question["options"]:
-                errors.append(f"Dropdown question '{q_id}' missing options")
+    display_mode = questionnaire.get("display_mode")
+    if display_mode is not None and display_mode not in ("all_at_once", "one_at_a_time"):
+        errors.append("Questionnaire display_mode must be 'all_at_once' or 'one_at_a_time'")
 
-    # Validate bayesian_target
-    if "bayesian_target" not in questionnaire:
-        errors.append("Questionnaire missing 'bayesian_target' configuration")
-    else:
-        target = questionnaire["bayesian_target"]
-        target_var = target.get("variable")
+    # Validate bayesian_target. Required only when the protocol uses BO;
+    # if present it is always validated.
+    schedule = protocol.get("sample_selection_schedule", []) or []
+    uses_bo = any(entry.get("mode") == "bo_selected" for entry in schedule)
+    target = questionnaire.get("bayesian_target")
 
-        if not target_var:
-            errors.append("bayesian_target missing 'variable' field")
-        elif target_var != "composite" and target_var not in question_ids:
-            errors.append(f"bayesian_target references unknown question: {target_var}")
+    if not target:
+        if uses_bo:
+            errors.append(
+                "Questionnaire missing 'bayesian_target' configuration "
+                "(required when using bo_selected mode)"
+            )
+        return errors
 
-        if "higher_is_better" not in target:
-            errors.append("bayesian_target missing 'higher_is_better' field")
+    if not isinstance(target, dict):
+        errors.append("bayesian_target must be an object")
+        return errors
+
+    target_var = target.get("variable")
+    if not target_var:
+        errors.append("bayesian_target missing 'variable' field")
+    elif target_var == "composite":
+        if not target.get("formula"):
+            errors.append("Composite bayesian_target requires a 'formula'")
+    elif target_var not in question_ids:
+        errors.append(f"bayesian_target references unknown question: {target_var}")
+    elif not is_numeric_question(questions_by_id[target_var]):
+        errors.append(
+            f"bayesian_target question '{target_var}' must be a numeric question "
+            f"(slider, line_scale, category_scale, magnitude_estimation)"
+        )
+
+    if "higher_is_better" not in target:
+        errors.append("bayesian_target missing 'higher_is_better' field")
+
+    transform = target.get("transform")
+    if transform is not None and transform not in TARGET_TRANSFORMS:
+        errors.append(
+            f"bayesian_target transform '{transform}' must be one of {list(TARGET_TRANSFORMS)}"
+        )
+    if transform == "ideal_point" and target.get("ideal_value") is None:
+        target_q = questions_by_id.get(target_var)
+        if not target_q or resolve_question(target_q).get("ideal_value") is None:
+            errors.append("ideal_point transform requires 'ideal_value'")
+    if transform == "normalize":
+        rng = target.get("expected_range")
+        if rng is not None and (
+            not isinstance(rng, list) or len(rng) != 2 or rng[0] >= rng[1]
+        ):
+            errors.append("bayesian_target expected_range must be [min, max] with min < max")
 
     return errors
 
