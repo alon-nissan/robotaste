@@ -1,9 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { CustomPhaseConfig, QuestionConfig } from '../types';
+import type { AnswerMeta, CustomPhaseConfig, QuestionConfig } from '../types';
 import PageLayout from '../components/PageLayout';
 import { MarkdownText } from '../components/MarkdownText';
+import QuestionRenderer, { QuestionLabel } from '../components/questions/QuestionRenderer';
+import {
+  firstUnanswered,
+  initialAnswers,
+  isAnswered,
+  mustAnswer,
+  useAnswerMeta,
+} from '../utils/questionnaire';
 
 // ─── PHASE TYPE RENDERERS ──────────────────────────────────────────────────
 
@@ -170,45 +178,76 @@ function MediaPhase({
 
 function SurveyPhase({
   config,
+  seed,
   onSubmit,
 }: {
   config: CustomPhaseConfig;
-  onSubmit: (answers: Record<string, unknown>) => void;
+  seed: string;
+  onSubmit: (answers: Record<string, unknown>, answerMeta: Record<string, AnswerMeta>) => Promise<void>;
 }) {
-  const questions = config.questions ?? [];
-  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const questions = useMemo(() => config.questions ?? [], [config.questions]);
+  const [answers, setAnswers] = useState<Record<string, unknown>>(() => initialAnswers(questions));
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const meta = useAnswerMeta();
+
+  useEffect(() => {
+    meta.markShown(questions.map((q) => q.id));
+  }, [questions, meta]);
 
   function updateAnswer(id: string, value: unknown) {
+    meta.recordChange(id);
     setAnswers((prev) => ({ ...prev, [id]: value }));
+    setError(null);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
+    const missing = firstUnanswered(questions, answers);
+    if (missing) {
+      setError(`Please answer "${missing.label}" before continuing.`);
+      return;
+    }
+    const payload: Record<string, unknown> = {};
+    for (const q of questions) {
+      if (isAnswered(q, answers[q.id])) payload[q.id] = answers[q.id];
+    }
     setSubmitting(true);
-    onSubmit(answers);
+    try {
+      await onSubmit(payload, meta.build(questions));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <div className="max-w-2xl mx-auto mt-8">
-      <div className="p-6 bg-surface rounded-xl border border-border">
+    <div className="max-w-2xl mx-auto mt-4 sm:mt-8">
+      <div className="p-4 sm:p-6 bg-surface rounded-xl border border-border">
         {config.title && (
           <h2 className="text-xl font-semibold text-text-primary mb-6">
             {config.title}
           </h2>
         )}
 
-        <div className="space-y-6">
+        <div className="space-y-8">
           {questions.map((q: QuestionConfig) => (
             <div key={q.id}>
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                {q.label}
-              </label>
-              {renderSurveyQuestion(q, answers[q.id], (v) =>
-                updateAnswer(q.id, v)
-              )}
+              <QuestionLabel question={q} sequential={false} required={mustAnswer(q)} />
+              <QuestionRenderer
+                question={q}
+                value={answers[q.id]}
+                onChange={(v) => updateAnswer(q.id, v)}
+                seed={seed}
+                onOptionOrder={(order) => meta.recordOptionOrder(q.id, order)}
+              />
             </div>
           ))}
         </div>
+
+        {error && (
+          <div role="alert" className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
+            ⚠️ {error}
+          </div>
+        )}
 
         <div className="flex justify-center mt-8">
           <button
@@ -229,115 +268,6 @@ function SurveyPhase({
       </div>
     </div>
   );
-}
-
-// Simplified question renderer for survey sub-phase
-function renderSurveyQuestion(
-  q: QuestionConfig,
-  value: unknown,
-  onChange: (v: unknown) => void
-) {
-  switch (q.type) {
-    case 'slider': {
-      const min = q.min ?? 0;
-      const max = q.max ?? 10;
-      const step = q.step ?? 1;
-      const numVal = typeof value === 'number' ? value : (q.default as number) ?? min;
-      const labels = q.scale_labels ?? {};
-      return (
-        <div>
-          <div className="flex justify-between text-sm text-text-secondary mb-1">
-            <span>{labels[String(min)] ?? min}</span>
-            <span>{labels[String(max)] ?? max}</span>
-          </div>
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={numVal}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="w-full accent-primary"
-          />
-          <div className="text-center text-sm font-medium text-text-primary mt-1">
-            {labels[String(numVal)] ?? numVal}
-          </div>
-        </div>
-      );
-    }
-
-    case 'pillbox': {
-      const labels = q.scale_labels ?? {};
-      let pills: { key: string; label: string }[] = [];
-      if (q.options?.length) {
-        pills = q.options.map((opt) => ({ key: opt, label: labels[opt] ?? opt }));
-      } else if (q.min !== undefined && q.max !== undefined) {
-        for (let i = q.min; i <= q.max; i++) {
-          pills.push({ key: String(i), label: labels[String(i)] ?? String(i) });
-        }
-      }
-      return (
-        <div className="flex flex-wrap gap-2">
-          {pills.map((p) => {
-            const selected = String(value) === p.key;
-            return (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => onChange(q.options ? p.key : Number(p.key))}
-                className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200 cursor-pointer ${
-                  selected
-                    ? 'bg-primary/10 border-2 border-primary text-primary'
-                    : 'border-border bg-white text-text-primary hover:border-primary/40'
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-      );
-    }
-
-    case 'dropdown':
-      return (
-        <select
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-        >
-          <option value="">Select...</option>
-          {(q.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-        </select>
-      );
-
-    case 'text_input':
-      return (
-        <input
-          type="text"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-        />
-      );
-
-    case 'text_area':
-      return (
-        <textarea
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.target.value)}
-          rows={3}
-          className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-y"
-        />
-      );
-
-    default:
-      return null;
-  }
 }
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────
@@ -410,11 +340,15 @@ export default function CustomPhasePage() {
     }
   }
 
-  async function handleSurveySubmit(answers: Record<string, unknown>) {
+  async function handleSurveySubmit(
+    answers: Record<string, unknown>,
+    answerMeta: Record<string, AnswerMeta>
+  ) {
     if (!sessionId) return;
     try {
       await api.post(`/sessions/${sessionId}/response`, {
         answers,
+        answer_meta: answerMeta,
         phase_id: phaseId,
         is_final: true,
       });
@@ -466,7 +400,11 @@ export default function CustomPhasePage() {
       )}
 
       {phaseConfig.type === 'survey' && (
-        <SurveyPhase config={phaseConfig} onSubmit={handleSurveySubmit} />
+        <SurveyPhase
+          config={phaseConfig}
+          seed={`${sessionId}:${phaseId}`}
+          onSubmit={handleSurveySubmit}
+        />
       )}
     </PageLayout>
   );

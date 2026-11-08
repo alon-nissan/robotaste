@@ -1086,7 +1086,11 @@ def _loads_optional(row: sqlite3.Row, column: str) -> Optional[Any]:
 
 
 def save_survey_response(
-    session_id: str, phase_id: str, cycle_number: int, answers: Dict
+    session_id: str,
+    phase_id: str,
+    cycle_number: int,
+    answers: Dict,
+    answer_meta: Optional[Dict] = None,
 ) -> bool:
     """
     Store answers from a custom survey phase on the session.
@@ -1094,7 +1098,7 @@ def save_survey_response(
     Survey answers are NOT tasting cycles: they must not create a samples row,
     advance the cycle counter, or feed BO training. They are appended under
     experiment_config["_survey_responses"][phase_id] as a list of
-    {"cycle": n, "answers": {...}, "submitted_at": iso}.
+    {"cycle": n, "answers": {...}, "answer_meta": {...}?, "submitted_at": iso}.
     """
     try:
         with get_database_connection() as conn:
@@ -1108,13 +1112,14 @@ def save_survey_response(
                 return False
             config = json.loads(row["experiment_config"]) if row["experiment_config"] else {}
             surveys = config.setdefault("_survey_responses", {})
-            surveys.setdefault(phase_id, []).append(
-                {
-                    "cycle": cycle_number,
-                    "answers": answers,
-                    "submitted_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
+            entry = {
+                "cycle": cycle_number,
+                "answers": answers,
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+            }
+            if answer_meta:
+                entry["answer_meta"] = answer_meta
+            surveys.setdefault(phase_id, []).append(entry)
             cursor.execute(
                 "UPDATE sessions SET experiment_config = ?, updated_at = CURRENT_TIMESTAMP "
                 "WHERE session_id = ?",

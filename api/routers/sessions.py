@@ -816,9 +816,12 @@ def submit_response(session_id: str, request: ResponseRequest):
 
     # Custom survey phases: keep their answers out of the samples table
     # (they are not tasting cycles and must not feed BO or advance the cycle).
+    if request.answer_meta is not None and len(json.dumps(request.answer_meta)) > MAX_ANSWER_META_BYTES:
+        raise HTTPException(status_code=413, detail="answer_meta too large")
+
     if request.phase_id:
         if not save_survey_response(
-            session_id, request.phase_id, cycle_number, request.answers
+            session_id, request.phase_id, cycle_number, request.answers, request.answer_meta
         ):
             raise HTTPException(status_code=500, detail="Failed to save survey response")
         logger.info(
@@ -837,8 +840,6 @@ def submit_response(session_id: str, request: ResponseRequest):
             raise HTTPException(status_code=422, detail=error)
 
     answer_meta = request.answer_meta
-    if answer_meta is not None and len(json.dumps(answer_meta)) > MAX_ANSWER_META_BYTES:
-        raise HTTPException(status_code=413, detail="answer_meta too large")
 
     # Get concentrations for this cycle: check persisted selection first, then fall back
     sample_temperature_c = config.get("sample_temperature_c")

@@ -349,20 +349,103 @@ export interface ConsentConfig {
 // ─── QUESTIONNAIRE CONFIG ──────────────────────────────────────────────────
 // Dynamic questionnaire form configuration
 
+export type QuestionType =
+  | 'slider'
+  | 'dropdown'
+  | 'text_input'
+  | 'text_area'
+  | 'pillbox'
+  | 'line_scale'
+  | 'category_scale'
+  | 'magnitude_estimation'
+  | 'multi_select'
+  | 'ranking';
+
+/** A labelled point on a line scale, positioned at its numeric value. */
+export interface ScaleAnchor {
+  value: number;
+  label: string;
+}
+
+/** An option of a category / multi-select / ranking / dropdown question. */
+export interface ChoiceOption {
+  value: number | string;
+  label: string;
+  icon?: string;
+}
+
+/**
+ * A questionnaire question. Sessions store questions with scale presets
+ * already resolved (see robotaste/config/scales.py), so every field the
+ * renderer needs is present on the question itself.
+ */
 export interface QuestionConfig {
   id: string;
   label: string;
-  type: 'slider' | 'dropdown' | 'text_input' | 'text_area' | 'pillbox';
+  type: QuestionType;
   required?: boolean;
   help_text?: string;
+  // Scale preset bookkeeping (resolved server-side)
+  preset?: string;
+  preset_version?: string;
+  // slider / line_scale / magnitude_estimation
   min?: number;
   max?: number;
   step?: number;
   default?: number | string;
-  options?: string[];
+  // choice-based questions
+  options?: Array<string | ChoiceOption>;
+  // legacy slider / pillbox
   scale_labels?: Record<string, string>;
   display_type?: string;
   color_scale?: string;
+  // line_scale
+  anchors?: ScaleAnchor[];
+  orientation?: 'horizontal' | 'vertical';
+  polarity?: 'unipolar' | 'bipolar';
+  show_value?: boolean;
+  start_unmarked?: boolean;
+  show_ticks?: boolean;
+  inset_anchors?: boolean;
+  require_interaction?: boolean;
+  // category_scale
+  layout?: 'horizontal' | 'vertical' | 'grid';
+  style?: 'buttons' | 'radio' | 'faces';
+  ideal_value?: number;
+  // multi_select / ranking
+  randomize_order?: boolean;
+  min_selected?: number;
+  max_selected?: number;
+  // magnitude_estimation
+  modulus?: number;
+  allow_zero?: boolean;
+  reference_label?: string;
+  // text
+  max_length?: number;
+}
+
+/** Per-question response metadata sent with each questionnaire submission. */
+export interface AnswerMeta {
+  interacted: boolean;
+  rt_ms: number | null;
+  n_changes: number;
+  preset?: string;
+  preset_version?: string;
+  option_order?: Array<string | number>;
+}
+
+/** Shape of an entry from GET /protocols/scale-presets. */
+export interface ScalePreset {
+  id: string;
+  name: string;
+  category: string;
+  version: string;
+  description: string;
+  recommended_use: string;
+  citation: string;
+  default_transform: string | null;
+  anchors_verified: boolean;
+  question: Partial<QuestionConfig>;
 }
 
 export interface QuestionnaireConfig {
@@ -535,7 +618,8 @@ export interface SessionSummary {
 export interface BayesianTarget {
   variable: string;              // Question ID to optimize, or "composite"
   formula?: string;              // Composite formula (e.g., "0.7 * liking + 0.3 * health")
-  transform: 'identity' | 'log' | 'normalize';
+  transform?: 'identity' | 'log' | 'log10' | 'log10p1' | 'normalize' | 'ideal_point';
+  ideal_value?: number;             // For ideal_point (e.g. 3 on a JAR scale)
   higher_is_better: boolean;
   description?: string;
   expected_range?: [number, number];
