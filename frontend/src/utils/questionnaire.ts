@@ -389,3 +389,68 @@ export function questionnaireErrors(
   }
   return errors;
 }
+
+// ─── DISPLAY HELPERS (moderator views) ─────────────────────────────────────
+
+/** Answer keys that are bookkeeping, not responses (mirrors ANSWER_SKIP_KEYS in Python). */
+export const ANSWER_SKIP_KEYS = new Set(['questionnaire_type', 'participant_id', 'timestamp', 'is_final']);
+
+/** Human-readable answer: numbers to 2 dp, CATA lists joined, rankings numbered. */
+export function formatAnswer(value: unknown, question?: QuestionConfig): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'none';
+    if (question?.type === 'ranking') return value.map((v, i) => `${i + 1}. ${v}`).join(', ');
+    return value.map(String).join(', ');
+  }
+  return String(value);
+}
+
+/** "key: value, key: value" summary of one sample's answers. */
+export function formatAnswers(
+  answers: Record<string, unknown> | null | undefined,
+  questions: QuestionConfig[] = [],
+  { withKeys = true }: { withKeys?: boolean } = {}
+): string {
+  if (!answers) return '—';
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  const parts = Object.entries(answers)
+    .filter(([k]) => !ANSWER_SKIP_KEYS.has(k))
+    .map(([k, v]) => (withKeys ? `${k}: ${formatAnswer(v, byId.get(k))}` : formatAnswer(v, byId.get(k))));
+  return parts.length ? parts.join(', ') : '—';
+}
+
+/**
+ * One-line description of a protocol's questionnaire, e.g.
+ * "3 questions · gLMS, 9-point hedonic, CATA". `presetNames` maps preset id → name.
+ */
+export function questionnaireSummary(
+  protocol: { questionnaire?: { questions?: QuestionConfig[] }; questionnaire_type?: string } | null | undefined,
+  presetNames: Record<string, string> = {}
+): string {
+  const questions = protocol?.questionnaire?.questions ?? [];
+  if (!questions.length) return protocol?.questionnaire_type?.replace(/_/g, ' ') || '—';
+  const kinds: string[] = [];
+  for (const q of questions) {
+    const name = (q.preset && presetNames[q.preset]) || q.type.replace(/_/g, ' ');
+    const short = name.replace(/\s*\(.*\)$/, '');
+    if (!kinds.includes(short)) kinds.push(short);
+  }
+  return `${questions.length} question${questions.length === 1 ? '' : 's'} · ${kinds.join(', ')}`;
+}
+
+/**
+ * Readable label for a flattened response column from the analysis API:
+ * "sweetness" → "Sweetness", "tastes__sweet" → "Tastes: sweet (proportion selected)",
+ * "rank__rank__juice" → "Rank: rank of juice", "tastes__n_selected" → "Tastes: number selected".
+ */
+export function responseVariableLabel(key: string): string {
+  const title = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const parts = key.split('__');
+  if (parts.length === 1) return title(key);
+  const [qid, second, third] = parts;
+  if (second === 'rank' && third !== undefined) return `${title(qid)}: rank of ${third.replace(/_/g, ' ')}`;
+  if (second === 'n_selected') return `${title(qid)}: number selected`;
+  return `${title(qid)}: ${second.replace(/_/g, ' ')} (proportion selected)`;
+}

@@ -32,6 +32,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import type { Protocol } from '../types';
+import { questionnaireSummary } from '../utils/questionnaire';
+import { useScalePresets } from '../utils/scalePresets';
 
 // Define the props (parameters) this component accepts
 interface Props {
@@ -39,6 +41,8 @@ interface Props {
 }
 
 export default function ProtocolSelector({ onSelect }: Props) {
+  const { presets } = useScalePresets();
+  const presetNames = Object.fromEntries(presets.map((p) => [p.id, p.name]));
   // ─── STATE ─────────────────────────────────────────────────────────────
   // useState creates reactive state variables.
   // When these change, React automatically re-renders the component.
@@ -185,7 +189,7 @@ export default function ProtocolSelector({ onSelect }: Props) {
             <div>
               <span className="text-text-secondary">Questionnaire: </span>
               <span className="font-medium">
-                {selected.questionnaire_type?.replace('_', ' ') || 'N/A'}
+                {questionnaireSummary(selected, presetNames)}
               </span>
             </div>
           </div>

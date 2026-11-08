@@ -43,7 +43,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { SessionStatus, PumpGlobalStatus, ModeInfo, Sample } from '../types';
+import type { SessionStatus, PumpGlobalStatus, ModeInfo, Sample, QuestionConfig } from '../types';
 
 import PageLayout from '../components/PageLayout';
 import SubjectConnectionCard from '../components/SubjectConnectionCard';
@@ -52,6 +52,7 @@ import BOProgressChart from '../components/BOProgressChart';
 import BOVisualization1D from '../components/BOVisualization1D';
 import BOVisualization2D from '../components/BOVisualization2D';
 import ServingGuideCard from '../components/ServingGuideCard';
+import { formatAnswers } from '../utils/questionnaire';
 
 /**
  * Format a concentration value with enough decimal places to show ~2–3
@@ -228,6 +229,8 @@ export default function ModeratorMonitoringPage() {
 
   // BO monitoring graphs only apply to protocols with BO enabled.
   const experimentConfig = status?.experiment_config as Record<string, unknown> | undefined;
+  const questionnaireQuestions =
+    ((experimentConfig?.questionnaire as { questions?: QuestionConfig[] } | undefined)?.questions) ?? [];
   const boEnabled = Boolean(
     (experimentConfig?.bayesian_optimization as Record<string, unknown> | undefined)?.enabled
   );
@@ -303,12 +306,7 @@ export default function ModeratorMonitoringPage() {
                           : '—'}
                       </td>
                       <td className="p-2">
-                        {sample.questionnaire_answer
-                          ? Object.entries(sample.questionnaire_answer)
-                              .filter(([k]) => !['questionnaire_type', 'participant_id', 'timestamp', 'is_final'].includes(k))
-                              .map(([k, v]) => `${k}: ${v}`)
-                              .join(', ')
-                          : '—'}
+                        {formatAnswers(sample.questionnaire_answer, questionnaireQuestions)}
                       </td>
                       <td className="p-2 text-text-secondary text-xs">
                         {sample.created_at?.slice(0, 19) || '—'}
@@ -414,12 +412,7 @@ export default function ModeratorMonitoringPage() {
                         : '—'}
                     </td>
                     <td className="p-2">
-                      {sample.questionnaire_answer
-                        ? Object.entries(sample.questionnaire_answer)
-                            .filter(([k]) => !['questionnaire_type', 'participant_id', 'timestamp', 'is_final'].includes(k))
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(', ')
-                        : '—'}
+                      {formatAnswers(sample.questionnaire_answer, questionnaireQuestions)}
                     </td>
                     <td className="p-2 text-text-secondary text-xs">
                       {sample.created_at?.slice(0, 19) || '—'}

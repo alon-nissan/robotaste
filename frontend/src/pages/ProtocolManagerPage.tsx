@@ -3,8 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Protocol } from '../types';
 import PageLayout from '../components/PageLayout';
+import { questionnaireSummary } from '../utils/questionnaire';
+import { useScalePresets } from '../utils/scalePresets';
 
 export default function ProtocolManagerPage() {
+  const { presets } = useScalePresets();
+  const presetNames = Object.fromEntries(presets.map((p) => [p.id, p.name]));
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [selectedProtocol, setSelectedProtocol] = useState<Protocol | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,7 +271,7 @@ export default function ProtocolManagerPage() {
                 <div>
                   <dt className="text-text-secondary">Questionnaire</dt>
                   <dd className="text-text-primary">
-                    {selectedProtocol.questionnaire_type ?? '—'}
+                    {questionnaireSummary(selectedProtocol, presetNames)}
                   </dd>
                 </div>
                 <div>

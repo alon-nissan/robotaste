@@ -273,7 +273,8 @@ BO algorithm suggests next sample based on previous responses.
 
 ## Questionnaire
 
-Protocols carry an **inline** `questionnaire` object. The legacy
+Protocols carry an **inline** `questionnaire` object (optional `title`: heading shown to
+subjects; `display_mode`: `all_at_once` or `one_at_a_time`). The legacy
 `questionnaire_type` string (`hedonic_continuous`, …) is no longer accepted.
 
 ```json
@@ -349,6 +350,15 @@ answers). Clients may send `answer_meta` (per-question metadata such as
 `{"interacted": true, "rt_ms": 4210}`), stored in `samples.answer_meta`.
 Requests with `phase_id` (custom survey phases) are stored on the session and
 do not create a sample or advance the cycle.
+
+
+### Exported answer columns
+
+Exports flatten answers with `flatten_answers()` (`robotaste/config/questionnaire.py`):
+single values → `<qid>` (Excel: `<qid>_rating`), CATA → `<qid>__<option>` (0/1) and
+`<qid>__n_selected`, ranking → `<qid>__rank__<option>`, response metadata →
+`<qid>__interacted`, `<qid>__rt_ms`, `<qid>__n_changes`. See
+`docs/protocol_user_guide.md` → *Exported Data*.
 
 ---
 

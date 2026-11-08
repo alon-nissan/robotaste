@@ -1,0 +1,149 @@
+{
+  "protocol_id": "proto_vas_liking_bo_example",
+  "name": "VAS Liking BO Example (1D sucrose)",
+  "description": "Example of optimizing liking measured on a hedonic VAS: 3 predetermined seed cups, then Bayesian optimization of sucrose concentration to maximize liking. A 5-point JAR sweetness question is collected alongside (not optimized). Hand-served, no pumps.",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "tags": [
+    "example",
+    "vas",
+    "jar",
+    "bayesian-optimization",
+    "1d"
+  ],
+  "ingredients": [
+    {
+      "name": "Sucrose",
+      "min_concentration": 20.0,
+      "max_concentration": 400.0,
+      "unit": "mM",
+      "molecular_weight": 342.3
+    }
+  ],
+  "pump_config": {
+    "enabled": false
+  },
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Liking Study**\n\nYou will taste up to 10 cups of sugar water. After each cup, tap the line to show how much you like it, then tell us whether the sweetness is too weak, just right or too strong.\n\nPlease rinse your mouth with water between cups.",
+    "confirm_label": "I understand the instructions.",
+    "button_label": "Start"
+  },
+  "tasting_screen": {
+    "enabled": true,
+    "title": "Please taste cup {sample_id}"
+  },
+  "sample_selection_schedule": [
+    {
+      "cycle_range": {
+        "start": 1,
+        "end": 3
+      },
+      "mode": "predetermined",
+      "predetermined_samples": [
+        {
+          "cycle": 1,
+          "id": "A",
+          "concentrations": {
+            "Sucrose": 50.0
+          }
+        },
+        {
+          "cycle": 2,
+          "id": "B",
+          "concentrations": {
+            "Sucrose": 300.0
+          }
+        },
+        {
+          "cycle": 3,
+          "id": "C",
+          "concentrations": {
+            "Sucrose": 150.0
+          }
+        }
+      ]
+    },
+    {
+      "cycle_range": {
+        "start": 4,
+        "end": 10
+      },
+      "mode": "bo_selected",
+      "config": {
+        "show_bo_suggestion": true,
+        "allow_override": false,
+        "auto_accept_suggestion": true
+      }
+    }
+  ],
+  "questionnaire": {
+    "name": "VAS liking + JAR sweetness",
+    "title": "How was this cup?",
+    "display_mode": "all_at_once",
+    "questions": [
+      {
+        "id": "liking",
+        "preset": "hedonic_vas",
+        "label": "How much do you like the sample?",
+        "required": true
+      },
+      {
+        "id": "sweetness_jar",
+        "preset": "jar_5",
+        "label": "How is the sweetness?",
+        "required": true
+      }
+    ],
+    "bayesian_target": {
+      "variable": "liking",
+      "higher_is_better": true,
+      "description": "Maximize liking on the hedonic VAS (0-100). Alternative: target sweetness_jar with transform ideal_point to optimize toward 'just about right'."
+    }
+  },
+  "bayesian_optimization": {
+    "enabled": true,
+    "min_samples_for_bo": 3,
+    "acquisition_function": "ucb",
+    "ucb_kappa": 2.5,
+    "adaptive_acquisition": true,
+    "kernel_nu": 2.5,
+    "alpha": 0.001,
+    "n_restarts_optimizer": 10
+  },
+  "stopping_criteria": {
+    "mode": "manual_only",
+    "min_cycles": 3,
+    "max_cycles": 10
+  },
+  "loading_screen": {
+    "message": "Please rinse your mouth with water.",
+    "duration_seconds": 5,
+    "show_progress": true,
+    "show_cycle_info": true
+  },
+  "phase_sequence": {
+    "phases": [
+      {
+        "phase_id": "registration",
+        "phase_type": "builtin",
+        "required": true
+      },
+      {
+        "phase_id": "instructions",
+        "phase_type": "builtin",
+        "required": true
+      },
+      {
+        "phase_id": "experiment_loop",
+        "phase_type": "loop",
+        "required": true
+      },
+      {
+        "phase_id": "completion",
+        "phase_type": "builtin",
+        "required": true
+      }
+    ]
+  }
+}

@@ -629,3 +629,119 @@ def get_questionnaire_example(name: str) -> Optional[Dict[str, Any]]:
         Example questionnaire config dict or None if not found
     """
     return QUESTIONNAIRE_EXAMPLES.get(name)
+
+
+# ============================================================================
+# EXPORT / ANALYSIS FLATTENING
+# ============================================================================
+
+# Answer keys that are bookkeeping, not responses.
+ANSWER_SKIP_KEYS = {"questionnaire_type", "participant_id", "timestamp", "is_final"}
+
+
+def _option_values(question: Dict[str, Any]) -> List[Any]:
+    values = []
+    for opt in question.get("options") or []:
+        values.append(opt.get("value") if isinstance(opt, dict) else opt)
+    return values
+
+
+def flatten_answers(
+    answers: Optional[Dict[str, Any]],
+    questions: Optional[List[Dict[str, Any]]] = None,
+    answer_meta: Optional[Dict[str, Any]] = None,
+    include_meta: bool = True,
+) -> Dict[str, Any]:
+    """
+    Flatten one sample's answers into scalar columns for export/analysis.
+
+    - Scalar answers (numbers, text) → ``{qid}``.
+    - ``multi_select`` (CATA) → ``{qid}__{option}`` = 1/0 for every configured
+      option (unselected options still get a 0), plus ``{qid}__n_selected``.
+    - ``ranking`` → ``{qid}__rank__{option}`` = rank (1 = best).
+    - ``answer_meta`` (if ``include_meta``) → ``{qid}__interacted`` (0/1),
+      ``{qid}__rt_ms``, ``{qid}__n_changes``.
+
+    Answers to questions not in ``questions`` pass through (lists are joined
+    with "; "). Bookkeeping keys in ``ANSWER_SKIP_KEYS`` are dropped.
+    Column order follows the questionnaire, then any extra keys.
+    """
+    answers = answers or {}
+    out: Dict[str, Any] = {}
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for q in questions or []:
+        if isinstance(q, dict) and q.get("id"):
+            by_id[q["id"]] = resolve_question(q)
+
+    ordered_ids = [qid for qid in by_id if qid in answers or by_id[qid].get("type") == "multi_select"]
+    extra_ids = [k for k in answers if k not in by_id and k not in ANSWER_SKIP_KEYS]
+
+    for qid in ordered_ids:
+        q = by_id[qid]
+        q_type = q.get("type")
+        value = answers.get(qid)
+
+        if q_type == "multi_select":
+            if value is None and qid not in answers:
+                continue  # question not answered at all (e.g. older sample)
+            selected = {str(v) for v in (value or [])} if isinstance(value, list) else set()
+            options = _option_values(q)
+            for opt in options:
+                out[f"{qid}__{opt}"] = 1 if str(opt) in selected else 0
+            for extra in sorted(selected - {str(o) for o in options}):
+                out[f"{qid}__{extra}"] = 1
+            out[f"{qid}__n_selected"] = len(selected)
+        elif q_type == "ranking" and isinstance(value, list):
+            ranks = {str(v): i for i, v in enumerate(value, start=1)}
+            options = _option_values(q)
+            for opt in options:  # configured order → stable columns across rows
+                out[f"{qid}__rank__{opt}"] = ranks.get(str(opt))
+            for extra in [v for v in value if str(v) not in {str(o) for o in options}]:
+                out[f"{qid}__rank__{extra}"] = ranks[str(extra)]
+        elif isinstance(value, list):
+            out[qid] = "; ".join(str(v) for v in value)
+        else:
+            out[qid] = value
+
+    for key in extra_ids:
+        value = answers[key]
+        out[key] = "; ".join(str(v) for v in value) if isinstance(value, list) else value
+
+    if include_meta and isinstance(answer_meta, dict):
+        for qid in list(by_id) + [k for k in answer_meta if k not in by_id]:
+            meta = answer_meta.get(qid)
+            if not isinstance(meta, dict):
+                continue
+            if "interacted" in meta:
+                out[f"{qid}__interacted"] = 1 if meta.get("interacted") else 0
+            if "rt_ms" in meta:
+                out[f"{qid}__rt_ms"] = meta.get("rt_ms")
+            if "n_changes" in meta:
+                out[f"{qid}__n_changes"] = meta.get("n_changes")
+
+    return out
+
+
+def is_numeric_value(value: Any) -> bool:
+    """True for real numbers (not bools / NaN)."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value == value  # NaN check
+    )
+
+
+def questions_from_experiment_config(experiment_config: Any) -> List[Dict[str, Any]]:
+    """Questions of a session's frozen questionnaire (handles JSON strings and missing data)."""
+    import json as _json
+
+    if isinstance(experiment_config, str):
+        try:
+            experiment_config = _json.loads(experiment_config)
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(experiment_config, dict):
+        return []
+    questionnaire = experiment_config.get("questionnaire") or {}
+    questions = questionnaire.get("questions") if isinstance(questionnaire, dict) else None
+    return questions if isinstance(questions, list) else []

@@ -30,6 +30,8 @@ interface DoseResponseChartProps {
   ingredientYLabel?: string;
   /** Optional per-subject color override (used by 'subjects' mode); falls back to series color. */
   subjectColor?: (sessionId: string) => string;
+  /** Logarithmic response axis (not applied to the 3D surface). */
+  logY?: boolean;
   height?: number;
 }
 
@@ -170,7 +172,7 @@ function buildSurfaceTraces(
 export default function DoseResponseChart({
   chartType, series, variable, responseLabel,
   ingredient, ingredientLabel, ingredientX, ingredientXLabel, ingredientY, ingredientYLabel,
-  subjectColor, height = 420,
+  subjectColor, logY = false, height = 420,
 }: DoseResponseChartProps) {
   const activeSeries = series.filter(s => s.points.length > 0);
 
@@ -220,7 +222,7 @@ export default function DoseResponseChart({
       ...axisStyle(ingredientLabel),
       type: 'category', categoryorder: 'array', categoryarray: categoryLabels,
     },
-    yaxis: axisStyle(responseLabel),
+    yaxis: logY ? { ...axisStyle(responseLabel), type: 'log' as const } : axisStyle(responseLabel),
   };
 
   if (chartType === 'mean') {

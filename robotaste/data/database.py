@@ -1619,7 +1619,13 @@ def export_session_csv(session_id: str) -> str:
             logger.warning(f"No samples to export for session {session_id}")
             return ""
 
+        from robotaste.config.questionnaire import (
+            flatten_answers,
+            questions_from_experiment_config,
+        )
+
         session = get_session(session_id)
+        questions = questions_from_experiment_config((session or {}).get("experiment_config"))
 
         # Flatten data for CSV
         rows = []
@@ -1640,8 +1646,15 @@ def export_session_csv(session_id: str) -> str:
                     f"selection_{k}": v
                     for k, v in (sample["selection_data"] or {}).items()
                 },
-                # Unpack questionnaire
-                **{f"q_{k}": v for k, v in sample["questionnaire_answer"].items()},
+                # Unpack questionnaire (CATA/ranking expanded, response metadata included)
+                **{
+                    f"q_{k}": v
+                    for k, v in flatten_answers(
+                        sample["questionnaire_answer"],
+                        questions,
+                        sample.get("answer_meta"),
+                    ).items()
+                },
             }
             rows.append(row)
 
