@@ -5,12 +5,16 @@
 
 import { useState } from 'react';
 import { useWizard } from '../../../context/WizardContext';
+import { questionnaireErrors } from '../../../utils/questionnaire';
+import { useScalePresets, isModifiedFromPreset } from '../../../utils/scalePresets';
 
 export default function ReviewStep() {
   const { state, needsBO } = useWizard();
   const p = state.protocol;
 
   const errors = validate(p, needsBO);
+  const qErrors = questionnaireErrors(p.questionnaire, needsBO);
+  const { byId: presetsById } = useScalePresets();
 
   function downloadJSON() {
     const json = JSON.stringify(buildFinalProtocol(p), null, 2);
@@ -108,15 +112,36 @@ export default function ReviewStep() {
 
         <Section
           title="Questionnaire"
-          status={(p.questionnaire?.questions ?? []).length > 0 ? 'ok' : 'error'}
+          status={qErrors.length === 0 ? 'ok' : 'error'}
         >
           <Row label="Name" value={p.questionnaire?.name || '(empty)'} />
           <Row
-            label="Questions"
-            value={`${(p.questionnaire?.questions ?? []).length} question(s)`}
+            label="Display"
+            value={p.questionnaire?.display_mode === 'one_at_a_time' ? 'One question at a time' : 'All on one page'}
           />
-          {p.questionnaire?.bayesian_target?.variable && (
-            <Row label="Optimization Target" value={p.questionnaire.bayesian_target.variable} />
+          {(p.questionnaire?.questions ?? []).map((q, i) => {
+            const preset = q.preset ? presetsById[q.preset] : undefined;
+            const scale = preset
+              ? `${preset.name}${isModifiedFromPreset(q, preset) ? ' (modified)' : ''}`
+              : q.type;
+            return <Row key={`${q.id}-${i}`} label={`Q${i + 1} · ${q.id}`} value={`${q.label || '(no text)'} — ${scale}`} />;
+          })}
+          <Row
+            label="Optimization Target"
+            value={
+              p.questionnaire?.bayesian_target?.variable
+                ? `${p.questionnaire.bayesian_target.variable}${
+                    p.questionnaire.bayesian_target.transform ? ` (${p.questionnaire.bayesian_target.transform})` : ''
+                  }`
+                : 'None'
+            }
+          />
+          {qErrors.length > 0 && (
+            <ul className="mt-2 text-xs text-red-700 space-y-0.5" data-testid="review-questionnaire-errors">
+              {qErrors.map((e) => (
+                <li key={e}>⚠️ {e}</li>
+              ))}
+            </ul>
           )}
         </Section>
 
@@ -174,8 +199,7 @@ function validate(p: ReturnType<typeof useWizard>['state']['protocol'], needsBO:
   if ((p.ingredients ?? []).length === 0) errors.push('At least one ingredient is required (Step 2).');
   if ((p.sample_selection_schedule ?? []).length === 0)
     errors.push('At least one schedule block is required (Step 3).');
-  if ((p.questionnaire?.questions ?? []).length === 0)
-    errors.push('At least one question is required (Step 4).');
+  questionnaireErrors(p.questionnaire, needsBO).forEach((e) => errors.push(`${e} (Step 4)`));
   if (needsBO && !p.bayesian_optimization?.enabled)
     errors.push('Bayesian optimization must be enabled for bo_selected mode (Step 5).');
 

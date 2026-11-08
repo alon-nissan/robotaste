@@ -226,6 +226,7 @@ PROTOCOL_JSON_SCHEMA = {
             "required": ["questions"],
             "properties": {
                 "name": {"type": "string", "description": "Display name"},
+                "title": {"type": "string", "description": "Heading shown to subjects on the questionnaire page"},
                 "description": {"type": "string", "description": "Purpose description"},
                 "version": {"type": "string", "description": "Version number"},
                 "questions": {

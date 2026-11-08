@@ -434,6 +434,14 @@ export interface AnswerMeta {
   option_order?: Array<string | number>;
 }
 
+/** Response of GET /protocols/scale-presets. */
+export interface ScalePresetsResponse {
+  presets: ScalePreset[];
+  question_types: string[];
+  numeric_question_types: string[];
+  target_transforms: string[];
+}
+
 /** Shape of an entry from GET /protocols/scale-presets. */
 export interface ScalePreset {
   id: string;
@@ -628,6 +636,7 @@ export interface BayesianTarget {
 
 export interface InlineQuestionnaire {
   name: string;
+  title?: string;                 // Heading shown to subjects on the questionnaire page
   description?: string;
   version?: string;
   citation?: string;

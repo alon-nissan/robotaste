@@ -207,3 +207,185 @@ export function useAnswerMeta() {
     [markShown, recordChange, recordOptionOrder, reset, build]
   );
 }
+
+// ─── AUTHORING HELPERS (protocol wizard) ──────────────────────────────────
+// These mirror robotaste/config/scales.py so the wizard can flag problems
+// before the server-side /protocols/validate call.
+
+const NUMERIC_TYPES = new Set([
+  'slider',
+  'pillbox',
+  'line_scale',
+  'category_scale',
+  'magnitude_estimation',
+]);
+
+/** True if the question yields a single number (usable as an optimisation target). */
+export function isNumericQuestion(q: QuestionConfig): boolean {
+  if (!NUMERIC_TYPES.has(q.type)) return false;
+  if (q.type === 'pillbox' && q.options?.length) {
+    return normalizeOptions(q.options).every((o) => typeof o.value === 'number');
+  }
+  return true;
+}
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** Problems with a question definition (empty list = valid). */
+export function validateQuestion(q: QuestionConfig): string[] {
+  const errors: string[] = [];
+  if (!q.id?.trim()) errors.push('Question ID is required.');
+  if (!q.label?.trim()) errors.push('Question text is required.');
+
+  if (q.type === 'slider' || q.type === 'line_scale') {
+    if (!isNum(q.min) || !isNum(q.max)) errors.push('Min and max are required.');
+    else if (q.min >= q.max) errors.push('Min must be smaller than max.');
+    if (q.step !== undefined && (!isNum(q.step) || q.step <= 0)) errors.push('Step must be a positive number.');
+  }
+
+  if (q.type === 'line_scale') {
+    const anchors = q.anchors ?? [];
+    let prev: number | null = null;
+    anchors.forEach((a, i) => {
+      if (!isNum(a.value)) errors.push(`Anchor ${i + 1} needs a numeric value.`);
+      else {
+        if (isNum(q.min) && isNum(q.max) && (a.value < q.min || a.value > q.max)) {
+          errors.push(`Anchor "${a.label}" (${a.value}) is outside ${q.min}–${q.max}.`);
+        }
+        if (prev !== null && a.value <= prev) errors.push('Anchor values must increase from top of the list to bottom.');
+        prev = a.value;
+      }
+      if (!a.label?.trim()) errors.push(`Anchor ${i + 1} needs a label.`);
+    });
+  }
+
+  if (q.type === 'category_scale' || q.type === 'multi_select' || q.type === 'ranking' || q.type === 'dropdown') {
+    const opts = normalizeOptions(q.options);
+    const min = q.type === 'multi_select' || q.type === 'dropdown' ? 1 : 2;
+    if (opts.length < min) errors.push(`Add at least ${min} option${min > 1 ? 's' : ''}.`);
+    const values = opts.map((o) => String(o.value));
+    if (new Set(values).size !== values.length) errors.push('Option values must be unique.');
+    if (opts.some((o) => !String(o.label ?? '').trim())) errors.push('Every option needs a label.');
+    if (q.type === 'category_scale' && opts.some((o) => !isNum(o.value))) {
+      errors.push('Category options need numeric values.');
+    }
+    if (q.type === 'category_scale' && q.ideal_value !== undefined && !values.includes(String(q.ideal_value))) {
+      errors.push('Ideal value must be one of the option values.');
+    }
+    if (q.type === 'multi_select') {
+      const lo = q.min_selected ?? 0;
+      if (q.max_selected !== undefined && (q.max_selected < Math.max(lo, 1) || q.max_selected > opts.length)) {
+        errors.push('Max selected must be between min selected and the number of options.');
+      }
+      if (lo > opts.length) errors.push('Min selected exceeds the number of options.');
+    }
+  }
+
+  if (q.type === 'magnitude_estimation') {
+    if (q.modulus !== undefined && (!isNum(q.modulus) || q.modulus <= 0)) errors.push('Modulus must be a positive number.');
+    if (q.max !== undefined && (!isNum(q.max) || q.max <= 0)) errors.push('Max must be a positive number.');
+  }
+  return errors;
+}
+
+/** Sensible starting fields when the moderator switches a question to `type`. */
+export function defaultsForType(type: QuestionConfig['type']): Partial<QuestionConfig> {
+  switch (type) {
+    case 'line_scale':
+      return {
+        min: 0,
+        max: 100,
+        orientation: 'horizontal',
+        polarity: 'unipolar',
+        anchors: [
+          { value: 0, label: 'Not at all' },
+          { value: 100, label: 'Extremely' },
+        ],
+        show_value: false,
+        start_unmarked: true,
+        show_ticks: true,
+        step: undefined,
+        default: undefined,
+      };
+    case 'category_scale':
+      return {
+        layout: 'horizontal',
+        style: 'buttons',
+        options: [1, 2, 3, 4, 5].map((v) => ({ value: v, label: String(v) })),
+        min: undefined,
+        max: undefined,
+        default: undefined,
+      };
+    case 'magnitude_estimation':
+      return { allow_zero: false, min: undefined, max: undefined, default: undefined };
+    case 'multi_select':
+      return {
+        randomize_order: true,
+        min_selected: 0,
+        options: [
+          { value: 'option_a', label: 'Option A' },
+          { value: 'option_b', label: 'Option B' },
+        ],
+        default: undefined,
+      };
+    case 'ranking':
+      return {
+        randomize_order: true,
+        options: [
+          { value: 'option_a', label: 'Option A' },
+          { value: 'option_b', label: 'Option B' },
+          { value: 'option_c', label: 'Option C' },
+        ],
+        default: undefined,
+      };
+    case 'dropdown':
+      return { options: ['Option A', 'Option B'], default: undefined };
+    case 'slider':
+      return { min: 1, max: 9, step: 0.01, default: 5 };
+    case 'pillbox':
+      return { min: 1, max: 5, default: undefined };
+    default:
+      return { default: undefined };
+  }
+}
+
+/** Turn a label into a safe ID / option value: "How sweet?" → "how_sweet". */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Problems with a whole questionnaire as authored in the wizard, each prefixed
+ * with the question it belongs to. `needsBO` = the schedule uses bo_selected.
+ */
+export function questionnaireErrors(
+  questionnaire: { questions: QuestionConfig[]; bayesian_target?: { variable: string; formula?: string } } | undefined,
+  needsBO: boolean
+): string[] {
+  const questions = questionnaire?.questions ?? [];
+  const errors: string[] = [];
+  if (!questions.length) errors.push('At least one question is required.');
+  const seen = new Set<string>();
+  questions.forEach((q, i) => {
+    const name = q.label?.trim() ? `"${q.label}"` : `Question ${i + 1}`;
+    if (seen.has(q.id)) errors.push(`${name}: duplicate question ID "${q.id}".`);
+    seen.add(q.id);
+    validateQuestion(q).forEach((e) => errors.push(`${name}: ${e}`));
+  });
+  const target = questionnaire?.bayesian_target;
+  if (target?.variable) {
+    if (target.variable === 'composite') {
+      if (!target.formula?.trim()) errors.push('Optimization target: the composite formula is empty.');
+    } else {
+      const tq = questions.find((q) => q.id === target.variable);
+      if (!tq) errors.push(`Optimization target "${target.variable}" is not a question in this questionnaire.`);
+      else if (!isNumericQuestion(tq)) errors.push(`Optimization target ${tq.label || tq.id} is not a numeric question.`);
+    }
+  } else if (needsBO) {
+    errors.push('Optimization target is required because the schedule uses BO-selected cycles.');
+  }
+  return errors;
+}
