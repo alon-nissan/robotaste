@@ -17,6 +17,12 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from robotaste.data.database import get_database_connection, get_session
+from robotaste.config.questionnaire import (
+    ANSWER_SKIP_KEYS,
+    flatten_answers,
+    is_numeric_value,
+    questions_from_experiment_config,
+)
 from robotaste.core.bo_surface import compute_bo_surface_2d, compute_bo_calibration
 
 logger = logging.getLogger("robotaste.api.analysis")
@@ -51,6 +57,7 @@ def get_dose_response_data(
                     ses.session_code,
                     ses.protocol_id,
                     ses.user_id,
+                    ses.experiment_config,
                     u.name as subject_name,
                     pl.name as protocol_name,
                     pl.protocol_json
@@ -90,7 +97,8 @@ def get_dose_response_data(
         ingredient_units: dict = {}  # ingredient name → unit string
         data_points = []
 
-        skip_keys = {"questionnaire_type", "participant_id", "timestamp", "is_final"}
+        # Session id → its frozen questionnaire questions (for flattening CATA/ranking)
+        questions_by_session: dict = {}
 
         for row in rows:
             conc = json.loads(row["ingredient_concentration"]) if isinstance(row["ingredient_concentration"], str) else row["ingredient_concentration"]
@@ -133,8 +141,14 @@ def get_dose_response_data(
             # Track ingredients and response variables
             for ing in conc:
                 ingredients_set.add(ing)
-            for key in answer:
-                if key not in skip_keys:
+            # Flatten: CATA → one 0/1 column per option (mean = citation
+            # proportion), ranking → one rank column per option. Only keys with
+            # a numeric value are offered as response variables.
+            if sid not in questions_by_session:
+                questions_by_session[sid] = questions_from_experiment_config(row["experiment_config"])
+            responses = flatten_answers(answer, questions_by_session[sid], include_meta=False)
+            for key, value in responses.items():
+                if is_numeric_value(value):
                     response_vars_set.add(key)
 
             # Build data point
@@ -146,7 +160,7 @@ def get_dose_response_data(
                 "sample_temperature_c": row["sample_temperature_c"],
                 "created_at": row["created_at"],
                 "concentrations": conc,
-                "responses": {k: v for k, v in answer.items() if k not in skip_keys},
+                "responses": responses,
             })
 
         # Aggregate: mean and std per unique concentration level
@@ -183,9 +197,13 @@ def get_dose_response_data(
                 "stats": {},
             }
             for var in response_vars_list:
-                values = [r[var] for r in response_list if var in r and r[var] is not None]
-                if values:
-                    numeric = [float(v) for v in values]
+                # Only numeric answers are aggregated; text, CATA lists, rankings
+                # and dropdown strings are skipped instead of crashing float().
+                numeric = [
+                    float(r[var]) for r in response_list
+                    if isinstance(r.get(var), (int, float)) and not isinstance(r.get(var), bool)
+                ]
+                if numeric:
                     mean = sum(numeric) / len(numeric)
                     variance = sum((x - mean) ** 2 for x in numeric) / len(numeric) if len(numeric) > 1 else 0
                     std = math.sqrt(variance)
@@ -664,6 +682,10 @@ _SAMPLES_RAW_SQL = """
         s.ingredient_concentration,
         s.sample_temperature_c,
         s.questionnaire_answer,
+        s.answer_meta,
+        s.session_id,
+        s.selection_mode,
+        ses.experiment_config,
         s.created_at
     FROM samples s
     JOIN sessions ses ON s.session_id = ses.session_id
@@ -671,8 +693,6 @@ _SAMPLES_RAW_SQL = """
     WHERE s.deleted_at IS NULL
       AND ses.deleted_at IS NULL
 """
-
-_EXPORT_SKIP_KEYS = {"questionnaire_type", "participant_id", "timestamp", "is_final"}
 
 
 def _rows_to_excel(columns: list[str], rows: list) -> io.BytesIO:
@@ -714,26 +734,49 @@ def export_samples_excel(
         with get_database_connection() as conn:
             rows = conn.execute(sql, params).fetchall()
 
-        # Discover ingredient and response-variable keys present in this slice of data
+        # Discover ingredient and response columns present in this slice of data.
+        # Answers are flattened per session's frozen questionnaire: plain answers
+        # keep the historical "<qid>_rating" column name; CATA/ranking/meta
+        # columns use "<qid>__<option>", "<qid>__rank__<option>", "<qid>__rt_ms"...
         ingredients_set: set[str] = set()
-        response_vars_set: set[str] = set()
+        response_cols: list[str] = []
+        seen_cols: set[str] = set()
         parsed: list[dict] = []
+        questions_by_session: dict = {}
+
+        def _col(key: str) -> str:
+            return key if "__" in key else f"{key}_rating"
 
         for row in rows:
             conc = json.loads(row["ingredient_concentration"]) if isinstance(row["ingredient_concentration"], str) else (row["ingredient_concentration"] or {})
             answer = json.loads(row["questionnaire_answer"]) if isinstance(row["questionnaire_answer"], str) else (row["questionnaire_answer"] or {})
+            meta_raw = row["answer_meta"]
+            try:
+                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else (meta_raw or None)
+            except (TypeError, ValueError):
+                meta = None
+            if not isinstance(conc, dict):
+                conc = {}
+            if not isinstance(answer, dict):
+                answer = {}
+            sid = row["session_id"]
+            if sid not in questions_by_session:
+                questions_by_session[sid] = questions_from_experiment_config(row["experiment_config"])
+            flat = {_col(k): v for k, v in flatten_answers(answer, questions_by_session[sid], meta).items()}
             ingredients_set.update(conc.keys())
-            response_vars_set.update(k for k in answer if k not in _EXPORT_SKIP_KEYS)
-            parsed.append({"_conc": conc, "_answer": answer, "_row": row})
+            for col in flat:
+                if col not in seen_cols:
+                    seen_cols.add(col)
+                    response_cols.append(col)
+            parsed.append({"_conc": conc, "_flat": flat, "_row": row})
 
         ingredients_list = sorted(ingredients_set)
-        response_vars_list = sorted(response_vars_set)
 
         columns = (
-            ["sample_id", "participant_name", "cycle_number"]
+            ["sample_id", "session_id", "participant_name", "cycle_number", "selection_mode"]
             + [f"{ing}_concentration" for ing in ingredients_list]
             + ["sample_temperature"]
-            + [f"{var}_rating" for var in response_vars_list]
+            + response_cols
             + ["timestamp"]
         )
 
@@ -741,18 +784,18 @@ def export_samples_excel(
         for p in parsed:
             row = p["_row"]
             conc = p["_conc"]
-            answer = p["_answer"]
             d: dict = {
                 "sample_id": row["sample_id"],
+                "session_id": row["session_id"],
                 "participant_name": row["participant_name"],
                 "cycle_number": row["cycle_number"],
+                "selection_mode": row["selection_mode"],
                 "sample_temperature": row["sample_temperature_c"],
                 "timestamp": row["created_at"],
             }
             for ing in ingredients_list:
                 d[f"{ing}_concentration"] = conc.get(ing)
-            for var in response_vars_list:
-                d[f"{var}_rating"] = answer.get(var)
+            d.update(p["_flat"])
             dict_rows.append(d)
 
         buf = _dicts_to_excel(dict_rows, columns)

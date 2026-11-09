@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS samples (
     ingredient_concentration TEXT NOT NULL,
     sample_temperature_c REAL,
     questionnaire_answer TEXT,
+    answer_meta TEXT,  -- JSON: per-question response metadata (interacted, rt_ms, preset, preset_version)
     selection_data TEXT,
     -- Sample selection mode tracking (for mixed-mode protocols)
     selection_mode TEXT DEFAULT 'user_selected',  -- "user_selected", "bo_selected", "predetermined"
@@ -255,8 +256,14 @@ CREATE INDEX IF NOT EXISTS idx_pump_logs_timestamp ON pump_logs(timestamp);
 -- Session sample bank state indexes
 CREATE INDEX IF NOT EXISTS idx_session_bank_state_session ON session_sample_bank_state(session_id);
 
--- Create view for Bayesian Optimization cycle analysis
-CREATE VIEW IF NOT EXISTS bo_cycle_analysis AS
+-- Create view for Bayesian Optimization cycle analysis.
+-- Dropped and recreated on every init so existing databases pick up changes.
+-- observed_rating is the raw answer to the session's bayesian_target question
+-- (read from the session's frozen questionnaire). predicted_value is in the
+-- target's transformed space, so prediction_error is only meaningful for
+-- identity transforms; composite targets yield NULL.
+DROP VIEW IF EXISTS bo_cycle_analysis;
+CREATE VIEW bo_cycle_analysis AS
 SELECT
     s.session_id,
     s.cycle_number,
@@ -267,8 +274,9 @@ SELECT
     s.predicted_value,
     s.uncertainty,
     json_extract(s.ingredient_concentration, '$') as concentrations,
-    json_extract(s.questionnaire_answer, '$.overall_liking') as observed_rating,
-    (json_extract(s.questionnaire_answer, '$.overall_liking') - s.predicted_value) as prediction_error,
+    json_extract(ses.experiment_config, '$.questionnaire.bayesian_target.variable') as target_variable,
+    json_extract(s.questionnaire_answer, '$."' || json_extract(ses.experiment_config, '$.questionnaire.bayesian_target.variable') || '"') as observed_rating,
+    (json_extract(s.questionnaire_answer, '$."' || json_extract(ses.experiment_config, '$.questionnaire.bayesian_target.variable') || '"') - s.predicted_value) as prediction_error,
     ses.current_cycle as session_current_cycle,
     bc.max_cycles_2d,
     bc.max_cycles_1d,

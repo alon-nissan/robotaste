@@ -19,6 +19,7 @@ import ChartTypeSelector, { type DRChartType } from '../components/doseResponse/
 import ProtocolMultiSelect from '../components/doseResponse/ProtocolMultiSelect';
 import { PROTOCOL_COLORS } from '../components/doseResponse/plotlyTheme';
 import { groupStatsByConcentration } from '../components/doseResponse/stats';
+import { responseVariableLabel } from '../utils/questionnaire';
 
 // ─── FORMATTERS ─────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ export default function DoseResponseDashboardPage() {
   const [ingredientX, setIngredientX] = useState<string>('');
   const [ingredientY, setIngredientY] = useState<string>('');
   const [selectedVariable, setSelectedVariable] = useState<string>('');
+  const [logY, setLogY] = useState(false);
   const [selectedSubjects, setSelectedSubjects] = useState<Set<string>>(new Set());
 
   // Fetch once — this endpoint already returns every protocol's data in one payload,
@@ -213,7 +215,7 @@ export default function DoseResponseDashboardPage() {
   const xUnit = data?.ingredient_units?.[selectedIngredient] ?? 'mM';
   const xAxisLabel = selectedIngredient ? `${selectedIngredient} (${xUnit})` : 'Concentration';
   const yAxisLabel = selectedVariable
-    ? selectedVariable.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + ' (score)'
+    ? responseVariableLabel(selectedVariable) + (selectedVariable.includes('__') ? '' : ' (score)')
     : 'Response';
   const xUnitOf = (ing: string) => data?.ingredient_units?.[ing] ?? 'mM';
 
@@ -265,7 +267,7 @@ export default function DoseResponseDashboardPage() {
                 className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               >
                 {data.response_variables.map(v => (
-                  <option key={v} value={v}>{v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                  <option key={v} value={v}>{responseVariableLabel(v)}</option>
                 ))}
               </select>
             </div>
@@ -277,8 +279,27 @@ export default function DoseResponseDashboardPage() {
               <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
                 {chartType === 'surface3d' ? `${ingredientX} × ${ingredientY}` : `${yAxisLabel} vs. ${selectedIngredient}`}
               </h3>
-              <ChartTypeSelector value={chartType} onChange={setChartType} allowSurface3d={allowSurface3d} />
+              <div className="flex items-center gap-4 flex-wrap">
+                {chartType !== 'surface3d' && (
+                  <label
+                    className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer"
+                    title="Useful for gLMS and magnitude-estimation data. Zero and negative values are not shown on a log axis."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={logY}
+                      onChange={(e) => setLogY(e.target.checked)}
+                      className="rounded border-border text-primary focus:ring-primary"
+                    />
+                    Log scale (y)
+                  </label>
+                )}
+                <ChartTypeSelector value={chartType} onChange={setChartType} allowSurface3d={allowSurface3d} />
+              </div>
             </div>
+            {logY && chartType !== 'surface3d' && (
+              <p className="text-xs text-text-secondary mb-2">Log axis: zero and negative values are hidden.</p>
+            )}
 
             {chartType === 'surface3d' && (
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -305,6 +326,7 @@ export default function DoseResponseDashboardPage() {
               ingredientY={ingredientY}
               ingredientYLabel={`${ingredientY} (${xUnitOf(ingredientY)})`}
               subjectColor={sid => subjectColorMap[sid] ?? '#521924'}
+              logY={logY}
               height={420}
             />
           </div>

@@ -218,10 +218,15 @@ PROTOCOL_JSON_SCHEMA = {
         },
         "questionnaire": {
             "type": "object",
-            "description": "Inline questionnaire configuration",
-            "required": ["questions", "bayesian_target"],
+            "description": (
+                "Inline questionnaire configuration. Questions may reference a scale "
+                "preset from robotaste/config/scales.py (e.g. 'vas', 'gvas', 'glms', "
+                "'hedonic_9pt') and override any field."
+            ),
+            "required": ["questions"],
             "properties": {
                 "name": {"type": "string", "description": "Display name"},
+                "title": {"type": "string", "description": "Heading shown to subjects on the questionnaire page"},
                 "description": {"type": "string", "description": "Purpose description"},
                 "version": {"type": "string", "description": "Version number"},
                 "questions": {
@@ -229,31 +234,96 @@ PROTOCOL_JSON_SCHEMA = {
                     "minItems": 1,
                     "items": {
                         "type": "object",
-                        "required": ["id", "type", "label"],
+                        "required": ["id", "label"],
                         "properties": {
                             "id": {"type": "string"},
-                            "type": {"enum": ["slider", "dropdown", "text_input", "text_area"]},
+                            "type": {
+                                "enum": [
+                                    "slider", "pillbox", "dropdown", "text_input", "text_area",
+                                    "line_scale", "category_scale", "magnitude_estimation",
+                                    "multi_select", "ranking",
+                                ],
+                                "description": "Required unless supplied by 'preset'",
+                            },
+                            "preset": {
+                                "type": "string",
+                                "description": "Scale preset id (see GET /api/protocols/scale-presets)",
+                            },
                             "label": {"type": "string"},
                             "required": {"type": "boolean"},
                             "help_text": {"type": "string"},
+                            # slider / line_scale
                             "min": {"type": "number"},
                             "max": {"type": "number"},
                             "step": {"type": "number"},
-                            "default": {"type": "number"},
+                            "default": {"type": ["number", "string"]},
                             "display_type": {"type": "string"},
                             "scale_labels": {"type": "object"},
-                            "options": {"type": "array", "items": {"type": "string"}},
+                            "anchors": {
+                                "type": "array",
+                                "description": "line_scale labels positioned at their value (strictly increasing)",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["value", "label"],
+                                    "properties": {
+                                        "value": {"type": "number"},
+                                        "label": {"type": "string"},
+                                    },
+                                },
+                            },
+                            "orientation": {"enum": ["horizontal", "vertical"]},
+                            "polarity": {"enum": ["unipolar", "bipolar"]},
+                            "show_value": {"type": "boolean"},
+                            "start_unmarked": {"type": "boolean"},
+                            "show_ticks": {"type": "boolean"},
+                            "inset_anchors": {"type": "boolean"},
+                            "require_interaction": {"type": "boolean"},
+                            # category_scale / multi_select / ranking / dropdown
+                            "options": {
+                                "type": "array",
+                                "items": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {
+                                            "type": "object",
+                                            "required": ["value", "label"],
+                                            "properties": {
+                                                "value": {"type": ["number", "string"]},
+                                                "label": {"type": "string"},
+                                                "icon": {"type": "string"},
+                                            },
+                                        },
+                                    ]
+                                },
+                            },
+                            "layout": {"enum": ["horizontal", "vertical", "grid"]},
+                            "style": {"enum": ["buttons", "radio", "faces"]},
+                            "ideal_value": {"type": "number"},
+                            "randomize_order": {"type": "boolean"},
+                            "min_selected": {"type": "integer"},
+                            "max_selected": {"type": "integer"},
+                            # magnitude_estimation
+                            "modulus": {"type": "number"},
+                            "allow_zero": {"type": "boolean"},
+                            "reference_label": {"type": "string"},
+                            # text
+                            "max_length": {"type": "integer"},
                         },
                     },
                 },
                 "display_mode": {"type": "string", "enum": ["all_at_once", "one_at_a_time"]},
                 "bayesian_target": {
                     "type": "object",
+                    "description": "Required only when the schedule uses bo_selected mode",
                     "required": ["variable", "higher_is_better"],
                     "properties": {
                         "variable": {"type": "string"},
                         "formula": {"type": "string"},
-                        "transform": {"enum": ["identity", "log", "normalize"]},
+                        "transform": {
+                            "enum": ["identity", "log", "log10", "log10p1", "normalize", "ideal_point"],
+                            "description": "Defaults to the target question's preset transform (e.g. gLMS → log10p1)",
+                        },
+                        "ideal_value": {"type": "number"},
                         "higher_is_better": {"type": "boolean"},
                         "expected_range": {"type": "array", "items": {"type": "number"}},
                         "optimal_threshold": {"type": "number"},

@@ -1,0 +1,139 @@
+{
+  "protocol_id": "proto_glms_sweetness_example",
+  "name": "gLMS Sweetness Example (hand-served, 4 sucrose levels)",
+  "description": "Example of the scale library: each of 4 hand-served sucrose solutions (Latin-square order) is rated on a gLMS for sweetness intensity, a 9-point hedonic scale for liking, and a check-all-that-apply list of basic tastes. Questions are shown one at a time. No optimization target (no BO cycles).",
+  "version": "1.0",
+  "schema_version": "1.0",
+  "tags": [
+    "example",
+    "glms",
+    "hedonic",
+    "cata",
+    "hand-served"
+  ],
+  "ingredients": [
+    {
+      "name": "Sucrose",
+      "min_concentration": 0.0,
+      "max_concentration": 400.0,
+      "unit": "mM",
+      "molecular_weight": 342.3
+    }
+  ],
+  "pump_config": {
+    "enabled": false
+  },
+  "instructions_screen": {
+    "title": "Instructions",
+    "text": "**Sweetness Study**\n\nYou will taste 4 cups of sugar water. After each cup you will answer three short questions.\n\nThe first scale runs from *No sensation* to *Strongest imaginable sensation of any kind* — think of the strongest sensation you have ever felt (for example, staring at the sun), not just tastes. Tap anywhere on the line, including between the labels.\n\nPlease rinse your mouth with water between cups.",
+    "confirm_label": "I understand the instructions.",
+    "button_label": "Start"
+  },
+  "tasting_screen": {
+    "enabled": true,
+    "title": "Please taste cup {sample_id}"
+  },
+  "sample_selection_schedule": [
+    {
+      "cycle_range": {
+        "start": 1,
+        "end": 4
+      },
+      "mode": "predetermined_randomized",
+      "sample_bank": {
+        "design_type": "latin_square",
+        "samples": [
+          {
+            "id": "214",
+            "label": "Sucrose 50 mM",
+            "concentrations": {
+              "Sucrose": 50.0
+            }
+          },
+          {
+            "id": "587",
+            "label": "Sucrose 100 mM",
+            "concentrations": {
+              "Sucrose": 100.0
+            }
+          },
+          {
+            "id": "903",
+            "label": "Sucrose 200 mM",
+            "concentrations": {
+              "Sucrose": 200.0
+            }
+          },
+          {
+            "id": "346",
+            "label": "Sucrose 400 mM",
+            "concentrations": {
+              "Sucrose": 400.0
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "questionnaire": {
+    "name": "Sweetness, liking and taste profile",
+    "title": "Rate this cup",
+    "display_mode": "one_at_a_time",
+    "questions": [
+      {
+        "id": "sweetness",
+        "preset": "glms",
+        "label": "How sweet is the sample?",
+        "required": true
+      },
+      {
+        "id": "liking",
+        "preset": "hedonic_9pt",
+        "label": "How much do you like the sample?",
+        "required": true
+      },
+      {
+        "id": "tastes",
+        "preset": "cata_basic_tastes",
+        "label": "Which tastes do you notice?",
+        "min_selected": 1,
+        "required": true
+      }
+    ]
+  },
+  "stopping_criteria": {
+    "mode": "manual_only",
+    "min_cycles": 4,
+    "max_cycles": 4
+  },
+  "loading_screen": {
+    "message": "Please rinse your mouth with water.",
+    "duration_seconds": 5,
+    "show_progress": true,
+    "show_cycle_info": true
+  },
+  "phase_sequence": {
+    "phases": [
+      {
+        "phase_id": "registration",
+        "phase_type": "builtin",
+        "required": true
+      },
+      {
+        "phase_id": "instructions",
+        "phase_type": "builtin",
+        "required": true
+      },
+      {
+        "phase_id": "experiment_loop",
+        "phase_type": "loop",
+        "required": true
+      },
+      {
+        "phase_id": "completion",
+        "phase_type": "builtin",
+        "required": true
+      }
+    ]
+  }
+}

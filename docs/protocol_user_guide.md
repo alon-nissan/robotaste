@@ -14,7 +14,8 @@
 4. [Managing Protocols](#managing-protocols)
 5. [Running Experiments with Protocols](#running-experiments-with-protocols)
 6. [Best Practices](#best-practices)
-7. [Troubleshooting](#troubleshooting)
+7. [Exported Data](#exported-data)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -61,7 +62,8 @@ A **protocol** is a reusable experiment template that defines:
 - Basic Settings (name, version, description, tags)
 - Ingredient Configuration
 - Sample Selection Schedule
-- Advanced Settings (questionnaire type, BO config)
+- Questionnaire (scale library, question editor, optimization target)
+- Advanced Settings (BO config)
 
 ---
 
@@ -269,14 +271,60 @@ This is where you define **when to use each selection mode**.
 
 ### Step 4: Configure Questionnaire
 
-Select which questionnaire participants will answer after each sample:
+The questionnaire is what participants answer after each sample. In the protocol
+wizard (Step 4) you can:
 
-- **hedonic_continuous** - 9-point hedonic scale with slider (recommended)
-- **hedonic_discrete** - 9-point hedonic scale with buttons
-- **intensity** - Intensity rating
-- **liking** - Simple liking scale
+1. **Start from a template** — e.g. *gLMS Intensity*, *gVAS Intensity*, *VAS Liking*,
+   *9-point Hedonic*, *LHS Liking*, *Liking + CATA*, or the classic 1–9 sliders.
+   Templates replace the current questions; everything stays editable.
+2. **Add questions from the scale library** (*+ Add Question*). Each scale shows a
+   live preview, its intended use and citation. Scales marked **anchors unverified**
+   (LMS, LAM, LHS) use label positions that should be checked against the original
+   paper before a study.
+3. **Edit any question**: text, help text, required, and type-specific settings —
+   anchor positions and labels (line scales), options and icons (category scales,
+   CATA, ranking), orientation, whether the line starts without a marker, whether the
+   number is shown, CATA min/max selections, option randomization, magnitude-estimation
+   modulus. A question built from a library scale shows *Based on gLMS v1.0*; if you
+   change its anchors/options it is marked **Modified** and can be reset.
+4. **Questionnaire settings**: the page title subjects see, and the display mode
+   (*all questions on one page* or *one question at a time*).
+5. **Optimization target** (only needed if the schedule has BO cycles): pick a numeric
+   question (or a composite formula) and a transform. *Scale default* uses the scale's
+   recommended transform — e.g. `log10(x + 1)` for gLMS and magnitude estimation. For
+   JAR questions use `ideal_point` with the "just about right" value to optimize toward
+   the ideal rather than "more".
 
-**Recommendation:** Use `hedonic_continuous` for most preference studies.
+Subjects never see a pre-placed marker or a number on line scales by default, and
+must answer every required question before continuing.
+
+#### Choosing a scale
+
+| Scale | Type | Use it for | Notes |
+|---|---|---|---|
+| **VAS** | horizontal line, 0–100, end labels only | Within-subject intensity or liking | Edit the end labels to your attribute (e.g. *Not sweet at all* / *Extremely sweet*). Stone et al. 1974 |
+| **gVAS** | line, *no sensation* → *strongest imaginable sensation of any kind* | Comparing intensity **between groups** (e.g. taster status) | No intermediate labels → no clustering at labels. Hayes et al. 2013 |
+| **gLMS** | vertical line, 0 / 1.4 / 6 / 17 / 35 / 53 / 100 | Intensity with cross-group validity (supertasters, clinical groups) | Ratio-like; log-transformed by default. Tell subjects to rate relative to *all* sensations. Bartoshuk et al. 2004 |
+| **LMS** | vertical line, oral top anchor | Replicating older LMS studies | Prefer gLMS for group comparisons. Anchors unverified. Green et al. 1993 |
+| **Hedonic VAS** | horizontal line, dislike → like extremely | Within-subject liking | |
+| **Hedonic gLMS** | vertical bipolar line, −100…+100 | Liking compared between groups | Kalva et al. 2014 |
+| **LHS** | vertical bipolar line, −100…+100 | Ratio-level liking with little ceiling effect | Anchors unverified. Lim, Wood & Green 2009 |
+| **LAM** | vertical line, 0–100 | Liking of well-liked products where the 9-point scale hits the ceiling | Anchors unverified. Schutz & Cardello 2001 |
+| **9-point hedonic** | 9 labelled categories | Consumer liking; comparable with decades of data | Peryam & Pilgrim 1957 |
+| **Likert (5/7)**, **5-point intensity** | labelled categories | Attitudes, statements, quick intensity screening | Ordinal data |
+| **JAR (5-point)** | bipolar categories, 3 = just about right | Diagnosing whether an attribute is too weak/strong | Use `ideal_point` transform to optimize toward JAR |
+| **Facial scales (3/5/7)** | emoji faces | Children (~3, ~4, 5+ years) | Chen et al. 1996 |
+| **Magnitude estimation** | free number (optional fixed modulus) | Ratio-scaled intensity with trained panels | Log-transformed by default. Stevens 1956 |
+| **CATA** | check-all-that-apply list | Qualitative profile next to a liking question | Option order randomized per subject. Ares & Jaeger 2013 |
+| **Ranking** | tap items in order | Preference order among named options | |
+| **Classic 1–9 slider** | slider with visible value | Backwards compatibility with older protocols | Starts at a default position and shows the number (not recommended for new psychophysics studies) |
+
+The full anchor tables live in `robotaste/config/scales.py` and are served at
+`GET /api/protocols/scale-presets`. See `docs/protocol_schema.md` for the JSON format.
+
+Example protocols: `protocols/glms_sweetness_example.json` (gLMS + 9-point hedonic +
+CATA, hand-served, one question at a time) and `protocols/vas_liking_bo_example.json`
+(hedonic VAS liking optimized with BO, plus a JAR question).
 
 ### Step 5: Configure Bayesian Optimization (if using BO mode)
 
@@ -393,7 +441,7 @@ The protocol controls:
 - ✅ Which ingredients are used (from protocol)
 - ✅ Concentration ranges (from protocol)
 - ✅ Sample selection mode per cycle (from protocol)
-- ✅ Questionnaire type (from protocol)
+- ✅ Questionnaire (questions and scales from the protocol, frozen for the session)
 - ✅ When to stop (from protocol)
 
 **Cycle 1-2 (Predetermined):**
@@ -487,6 +535,30 @@ The protocol controls:
 
 ---
 
+## Exported Data
+
+**Analysis → Export samples** (`GET /api/analysis/export/samples`) downloads one row per
+tasted sample. Each session's answers are expanded using that session's questionnaire:
+
+| Column | Meaning |
+|---|---|
+| `session_id`, `participant_name`, `cycle_number`, `selection_mode` | Which subject/cycle, and how the sample was chosen |
+| `<ingredient>_concentration`, `sample_temperature` | What was tasted |
+| `<question>_rating` | Single-value answers (line scales, category scales, sliders, magnitude estimation, dropdown, text) |
+| `<question>__<option>` | CATA: 1 if the option was ticked, 0 otherwise (every option gets a column) |
+| `<question>__n_selected` | CATA: number of options ticked |
+| `<question>__rank__<option>` | Ranking: rank given to the option (1 = most preferred) |
+| `<question>__interacted` | 1 if the subject touched the question (0 = left untouched) |
+| `<question>__rt_ms` | Milliseconds from the question appearing to the subject's last change |
+| `<question>__n_changes` | How many times the subject changed the answer |
+
+The session CSV export uses the same columns with a `q_` prefix. In the dose-response
+dashboard, CATA options appear as response variables whose mean is the **proportion of
+subjects selecting the attribute** at each concentration, and a *Log scale (y)* toggle is
+available for gLMS / magnitude-estimation data.
+
+---
+
 ## Troubleshooting
 
 ### Common Issues
@@ -496,7 +568,8 @@ The protocol controls:
 **Problem:** Protocol is missing a required field
 
 **Solution:**
-- Check that you have: name, version, ingredients, sample_selection_schedule, questionnaire_type
+- Check that you have: name, version, ingredients, sample_selection_schedule, and a questionnaire with at least one question
+- If the schedule uses BO-selected cycles, the questionnaire also needs an optimization target that is a numeric question
 - All fields must be filled in before saving
 
 #### "Cycle ranges overlap"
@@ -577,7 +650,7 @@ The protocol controls:
    - Cycles 6-20: BO Selected (UCB, kappa=2.5)
 
 3. **Settings:**
-   - Questionnaire: hedonic_continuous
+   - Questionnaire: 9-point hedonic (or hedonic VAS) liking as the optimization target
    - Max Cycles: 20
 
 4. **Run 10 participants** using this protocol
@@ -596,7 +669,7 @@ The protocol controls:
    - Cycles 11-25: BO Selected (optimize based on exploration)
 
 3. **Settings:**
-   - Questionnaire: hedonic_continuous
+   - Questionnaire: hedonic VAS liking (target) + CATA basic tastes
    - Max Cycles: 25
    - Min Cycles: 15
 

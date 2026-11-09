@@ -12,6 +12,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import { questionnaireErrors } from '../utils/questionnaire';
 import type { ProtocolDraft } from '../types';
 import { WizardProvider, useWizard, WIZARD_STEPS } from '../context/WizardContext';
 import WizardShell from '../components/wizard/WizardShell';
@@ -30,12 +31,17 @@ interface ProtocolValidationResponse {
 }
 
 function WizardContent({ isEdit, protocolId }: { isEdit: boolean; protocolId?: string }) {
-  const { state } = useWizard();
+  const { state, needsBO } = useWizard();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
+    const qErrors = questionnaireErrors(state.protocol.questionnaire, needsBO);
+    if (qErrors.length) {
+      setError(`Questionnaire: ${qErrors.join(' | ')}`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -64,7 +70,7 @@ function WizardContent({ isEdit, protocolId }: { isEdit: boolean; protocolId?: s
     } finally {
       setSaving(false);
     }
-  }, [state.protocol, navigate, isEdit, protocolId]);
+  }, [state.protocol, navigate, isEdit, protocolId, needsBO]);
 
   const stepId = WIZARD_STEPS[state.currentStep]?.id;
 

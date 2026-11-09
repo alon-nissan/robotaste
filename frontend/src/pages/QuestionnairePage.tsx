@@ -4,6 +4,14 @@ import { api } from '../api/client';
 import { phaseToPath } from '../utils/phases';
 import type { QuestionConfig, QuestionnaireConfig } from '../types';
 import PageLayout from '../components/PageLayout';
+import QuestionRenderer, { QuestionLabel } from '../components/questions/QuestionRenderer';
+import {
+  firstUnanswered,
+  initialAnswers,
+  isAnswered,
+  mustAnswer,
+  useAnswerMeta,
+} from '../utils/questionnaire';
 
 function delay(ms: number) {
   return new Promise((resolve) => {
@@ -28,295 +36,6 @@ const DEFAULT_QUESTIONS: QuestionConfig[] = [
   },
 ];
 
-function SliderQuestion({
-  question,
-  value,
-  onChange,
-}: {
-  question: QuestionConfig;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const min = question.min ?? 0;
-  const max = question.max ?? 10;
-  const step = question.step ?? 1;
-  const labels = question.scale_labels ?? {};
-
-  // Collect all labeled keys sorted numerically
-  const labelKeys = Object.keys(labels)
-    .map(Number)
-    .filter((n) => !isNaN(n))
-    .sort((a, b) => a - b);
-
-  // Thumb position as a percentage
-  const thumbPercent = ((value - min) / (max - min)) * 100;
-
-  return (
-    <div>
-      {/* Scale labels evenly spaced above the slider */}
-      {labelKeys.length > 0 && (
-        <div className="flex justify-between text-sm text-text-secondary mb-1">
-          {labelKeys.map((key) => (
-            <span key={key} className="text-center flex-1">
-              {labels[String(key)]}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Current value floating above the thumb */}
-      <div className="relative mb-1">
-        <div
-          className="text-center text-sm font-semibold text-primary"
-          style={{ marginLeft: `calc(${thumbPercent}% - 1rem)`, width: '2rem' }}
-        >
-          {typeof value === 'number' ? value.toFixed(step < 1 ? 2 : 0) : value}
-        </div>
-      </div>
-
-      {/* Styled range slider */}
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="slider-range w-full"
-      />
-
-      {/* Fallback: show only min/max if no scale labels defined */}
-      {labelKeys.length === 0 && (
-        <div className="flex justify-between text-sm text-text-secondary mt-1">
-          <span>{min}</span>
-          <span>{max}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PillboxQuestion({
-  question,
-  value,
-  onChange,
-}: {
-  question: QuestionConfig;
-  value: number | string | undefined;
-  onChange: (v: number | string) => void;
-}) {
-  const labels = question.scale_labels ?? {};
-
-  // Build pills from options or min/max range
-  let pills: { key: string; label: string }[] = [];
-  if (question.options && question.options.length > 0) {
-    pills = question.options.map((opt) => ({
-      key: opt,
-      label: labels[opt] ?? opt,
-    }));
-  } else if (question.min !== undefined && question.max !== undefined) {
-    for (let i = question.min; i <= question.max; i++) {
-      pills.push({ key: String(i), label: labels[String(i)] ?? String(i) });
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2 justify-center">
-      {pills.map((pill) => {
-        const selected = String(value) === pill.key;
-        return (
-          <button
-            key={pill.key}
-            type="button"
-            onClick={() =>
-              onChange(question.options ? pill.key : Number(pill.key))
-            }
-            className={`
-              px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200
-              border cursor-pointer
-              ${
-                selected
-                  ? 'bg-primary/10 border-2 border-primary text-primary'
-                  : 'border-border bg-white text-text-primary hover:border-primary/40'
-              }
-            `}
-          >
-            {pill.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function DropdownQuestion({
-  question,
-  value,
-  onChange,
-}: {
-  question: QuestionConfig;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-    >
-      <option value="">Select...</option>
-      {(question.options ?? []).map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function TextInputQuestion({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-    />
-  );
-}
-
-function TextAreaQuestion({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <textarea
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      rows={3}
-      className="w-full p-3 border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-y"
-    />
-  );
-}
-
-/**
- * For questions like "How sweet is the sample?" extracts "sweet" as the
- * key concept. Returns null if the pattern doesn't match.
- */
-function parseModality(label: string): { before: string; modality: string; after: string } | null {
-  const match = label.match(/^(how\s+)(\w+)(\s+.+)/i);
-  if (!match) return null;
-  return { before: match[1], modality: match[2], after: match[3] };
-}
-
-function QuestionLabel({
-  label,
-  helpText,
-  sequential,
-  questionId,
-}: {
-  label: string;
-  helpText?: string;
-  sequential: boolean;
-  questionId?: string;
-}) {
-  const parsed = parseModality(label);
-
-  if (sequential && parsed) {
-    const displayName = questionId
-      ? questionId.charAt(0).toUpperCase() + questionId.slice(1)
-      : parsed.modality.charAt(0).toUpperCase() + parsed.modality.slice(1);
-    const instructionText = questionId
-      ? `Move the slider according to the ${questionId} of the sample`
-      : label;
-    return (
-      <div className="mb-6 text-center">
-        <div className="text-5xl font-extrabold text-primary tracking-wide mb-3">
-          {displayName}
-        </div>
-        <div className="text-xl text-text-secondary">{instructionText}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mb-3">
-      <label className="block text-sm font-medium text-text-primary">
-        {parsed ? (
-          <>
-            {parsed.before}
-            <span className="font-bold text-primary">{parsed.modality}</span>
-            {parsed.after}
-          </>
-        ) : (
-          label
-        )}
-      </label>
-      {helpText && (
-        <div className="mt-0.5 text-xs text-text-secondary italic">{helpText}</div>
-      )}
-    </div>
-  );
-}
-
-function renderQuestion(
-  question: QuestionConfig,
-  value: unknown,
-  onChange: (v: unknown) => void
-) {
-  switch (question.type) {
-    case 'slider':
-      return (
-        <SliderQuestion
-          question={question}
-          value={typeof value === 'number' ? value : question.default as number ?? question.min ?? 5}
-          onChange={onChange}
-        />
-      );
-    case 'pillbox':
-      return (
-        <PillboxQuestion
-          question={question}
-          value={value as number | string | undefined}
-          onChange={onChange}
-        />
-      );
-    case 'dropdown':
-      return (
-        <DropdownQuestion
-          question={question}
-          value={typeof value === 'string' ? value : ''}
-          onChange={onChange}
-        />
-      );
-    case 'text_input':
-      return (
-        <TextInputQuestion
-          value={typeof value === 'string' ? value : ''}
-          onChange={onChange}
-        />
-      );
-    case 'text_area':
-      return (
-        <TextAreaQuestion
-          value={typeof value === 'string' ? value : ''}
-          onChange={onChange}
-        />
-      );
-    default:
-      return null;
-  }
-}
-
 export default function QuestionnairePage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -328,57 +47,93 @@ export default function QuestionnairePage() {
   const [error, setError] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<'all_at_once' | 'one_at_a_time'>('all_at_once');
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [seed, setSeed] = useState('');
+  const meta = useAnswerMeta();
 
   useEffect(() => {
     if (!sessionId) return;
 
     api
-      .get(`/sessions/${sessionId}`)
+      .get(`/sessions/${sessionId}/status`)
       .then((res) => {
         const config = res.data.experiment_config;
+        // Seed for randomised option orders: stable within a cycle, different across cycles.
+        setSeed(`${sessionId}:${res.data.current_cycle ?? ''}`);
 
         const qConfig: QuestionnaireConfig | undefined = config?.questionnaire;
         if (qConfig?.questions?.length) {
           setQuestions(qConfig.questions);
           if (qConfig.title) setTitle(qConfig.title);
           if (qConfig.display_mode) setDisplayMode(qConfig.display_mode);
-
-          // Initialize default values
-          const defaults: Record<string, unknown> = {};
-          qConfig.questions.forEach((q) => {
-            if (q.default !== undefined) defaults[q.id] = q.default;
-          });
-          setAnswers(defaults);
+          setAnswers(initialAnswers(qConfig.questions));
+          meta.reset();
         }
       })
       .catch(() => {
         // Use defaults on error
       });
-  }, [sessionId]);
+  }, [sessionId, meta]);
+
+  // Start each question's response-time clock when it appears on screen.
+  useEffect(() => {
+    if (displayMode === 'one_at_a_time') {
+      const q = questions[currentIndex];
+      if (q) meta.markShown([q.id]);
+    } else {
+      meta.markShown(questions.map((q) => q.id));
+    }
+  }, [questions, displayMode, currentIndex, meta]);
 
   function updateAnswer(id: string, value: unknown) {
+    meta.recordChange(id);
     setAnswers((prev) => ({ ...prev, [id]: value }));
+    setError(null);
+  }
+
+  function missingMessage(q: QuestionConfig) {
+    return `Please answer "${q.label}" before continuing.`;
   }
 
   function handleNext() {
     const q = questions[currentIndex];
-    if (q.required !== false && answers[q.id] === undefined) {
-      setError('Please answer this question before continuing.');
+    if (mustAnswer(q) && !isAnswered(q, answers[q.id])) {
+      setError(missingMessage(q));
       return;
     }
     setError(null);
     setCurrentIndex((i) => i + 1);
   }
 
+  function handleBack() {
+    setError(null);
+    setCurrentIndex((i) => Math.max(0, i - 1));
+  }
+
   async function handleSubmit() {
     if (!sessionId) return;
+
+    const missing = firstUnanswered(questions, answers);
+    if (missing) {
+      if (displayMode === 'one_at_a_time') {
+        setCurrentIndex(questions.findIndex((q) => q.id === missing.id));
+      }
+      setError(missingMessage(missing));
+      return;
+    }
+
+    // Only send answers to configured questions; drop unanswered optional ones.
+    const payload: Record<string, unknown> = {};
+    for (const q of questions) {
+      if (isAnswered(q, answers[q.id])) payload[q.id] = answers[q.id];
+    }
 
     setSubmitting(true);
     setError(null);
 
     try {
       const res = await api.post(`/sessions/${sessionId}/response`, {
-        answers,
+        answers: payload,
+        answer_meta: meta.build(questions),
         is_final: true,
       });
 
@@ -458,8 +213,8 @@ export default function QuestionnairePage() {
 
   return (
     <PageLayout showLogo={false}>
-      <div className="max-w-4xl mx-auto mt-8">
-        <div className="p-6 bg-surface rounded-xl border border-border">
+      <div className="max-w-4xl mx-auto mt-4 sm:mt-8">
+        <div className="p-4 sm:p-6 bg-surface rounded-xl border border-border">
           <h2 className="text-xl font-semibold text-text-primary mb-6">
             {title}
           </h2>
@@ -467,14 +222,14 @@ export default function QuestionnairePage() {
           {isSequential ? (
             <>
               <div className="flex items-center justify-between mb-6">
-                <span className="text-sm text-text-secondary">
+                <span className="text-sm text-text-secondary whitespace-nowrap mr-3">
                   Question {currentIndex + 1} of {questions.length}
                 </span>
-                <div className="flex gap-1">
+                <div className="flex gap-1 min-w-0">
                   {questions.map((_, i) => (
                     <div
                       key={i}
-                      className={`h-1.5 w-6 rounded-full transition-colors duration-200 ${
+                      className={`h-1.5 w-3 sm:w-6 shrink rounded-full transition-colors duration-200 ${
                         i <= currentIndex ? 'bg-primary' : 'bg-border'
                       }`}
                     />
@@ -482,40 +237,49 @@ export default function QuestionnairePage() {
                 </div>
               </div>
 
-              <div>
-                <QuestionLabel
-                  label={questions[currentIndex].label}
-                  helpText={questions[currentIndex].help_text}
-                  questionId={questions[currentIndex].id}
-                  sequential
+              <div key={questions[currentIndex].id}>
+                <QuestionLabel question={questions[currentIndex]} sequential />
+                <QuestionRenderer
+                  question={questions[currentIndex]}
+                  value={answers[questions[currentIndex].id]}
+                  onChange={(v) => updateAnswer(questions[currentIndex].id, v)}
+                  seed={seed}
+                  onOptionOrder={(order) => meta.recordOptionOrder(questions[currentIndex].id, order)}
                 />
-                {renderQuestion(
-                  questions[currentIndex],
-                  answers[questions[currentIndex].id],
-                  (v) => updateAnswer(questions[currentIndex].id, v)
-                )}
               </div>
             </>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-10">
               {questions.map((q) => (
                 <div key={q.id}>
-                  <QuestionLabel label={q.label} helpText={q.help_text} sequential={false} />
-                  {renderQuestion(q, answers[q.id], (v) =>
-                    updateAnswer(q.id, v)
-                  )}
+                  <QuestionLabel question={q} sequential={false} required={mustAnswer(q)} />
+                  <QuestionRenderer
+                    question={q}
+                    value={answers[q.id]}
+                    onChange={(v) => updateAnswer(q.id, v)}
+                    seed={seed}
+                    onOptionOrder={(order) => meta.recordOptionOrder(q.id, order)}
+                  />
                 </div>
               ))}
             </div>
           )}
 
           {error && (
-            <div className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
-              {error}
+            <div role="alert" className="mt-6 p-3 bg-red-50 text-red-700 rounded-lg text-base">
+              ⚠️ {error}
             </div>
           )}
 
-          <div className="mt-8 flex justify-center">
+          <div className="mt-8 flex justify-center gap-3">
+            {isSequential && currentIndex > 0 && (
+              <button
+                onClick={handleBack}
+                className="py-4 px-6 rounded-xl text-lg font-medium border border-border bg-white text-text-primary hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Back
+              </button>
+            )}
             {isSequential && !isLastQuestion ? (
               <button
                 onClick={handleNext}

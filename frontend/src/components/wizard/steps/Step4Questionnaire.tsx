@@ -1,11 +1,17 @@
 /**
  * Step 4: Questionnaire — What subjects will rate.
- * Template presets, question list editor, and bayesian target selector.
+ * Starting templates, questionnaire settings, question list (scale library
+ * picker + per-question editor) and the optimization target editor.
  */
 
 import { useState } from 'react';
 import { useWizard } from '../../../context/WizardContext';
 import type { QuestionConfig, InlineQuestionnaire, BayesianTarget } from '../../../types';
+import { questionFromPreset, useScalePresets } from '../../../utils/scalePresets';
+import QuestionEditor from '../questionnaire/QuestionEditor';
+import ScaleLibraryPicker from '../questionnaire/ScaleLibraryPicker';
+import TargetEditor from '../questionnaire/TargetEditor';
+import { uniqueId } from '../questionnaire/questionTemplates';
 
 // ─── Questionnaire presets ──────────────────────────────────────────────────
 
@@ -169,267 +175,201 @@ const PRESETS: { id: string; label: string; description: string; questionnaire: 
   },
 ];
 
-// ─── Question templates (for "Add Question" picker) ──────────────────────────
+// ─── Library-based starting templates (built from backend scale presets) ────
 
-const QUESTION_TEMPLATES: { id: string; label: string; question: QuestionConfig }[] = [
+const LIBRARY_TEMPLATES: {
+  id: string;
+  label: string;
+  description: string;
+  name: string;
+  questions: { preset: string; id: string; label: string }[];
+  targetId?: string;
+}[] = [
   {
-    id: 'blank_slider',
-    label: 'Blank Slider (1–9)',
-    question: {
-      id: 'new_question',
-      type: 'slider',
-      label: '',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-    },
+    id: 'glms_intensity',
+    label: 'gLMS Intensity',
+    description: 'General Labeled Magnitude Scale — valid across subject groups.',
+    name: 'gLMS Intensity',
+    questions: [{ preset: 'glms', id: 'intensity', label: 'How intense is the taste?' }],
+    targetId: 'intensity',
   },
   {
-    id: 'liking',
-    label: 'Overall Liking',
-    question: {
-      id: 'overall_liking',
-      type: 'slider',
-      label: 'How much do you like this sample?',
-      help_text: 'Rate from 1 (Dislike Extremely) to 9 (Like Extremely)',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Dislike Extremely',
-        '3': 'Dislike Moderately',
-        '5': 'Neither Like nor Dislike',
-        '7': 'Like Moderately',
-        '9': 'Like Extremely',
-      },
-    },
+    id: 'gvas_intensity',
+    label: 'gVAS Intensity',
+    description: 'Generalized VAS — unlabeled line to "strongest imaginable".',
+    name: 'gVAS Intensity',
+    questions: [{ preset: 'gvas', id: 'intensity', label: 'How intense is the taste?' }],
+    targetId: 'intensity',
   },
   {
-    id: 'intensity',
-    label: 'General Intensity',
-    question: {
-      id: 'intensity',
-      type: 'slider',
-      label: 'How intense is the taste?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Intense',
-      },
-    },
+    id: 'vas_liking',
+    label: 'VAS Liking',
+    description: 'Hedonic visual analogue scale, dislike → like extremely.',
+    name: 'VAS Liking',
+    questions: [{ preset: 'hedonic_vas', id: 'liking', label: 'How much do you like this sample?' }],
+    targetId: 'liking',
   },
   {
-    id: 'sweetness',
-    label: 'Sweetness',
-    question: {
-      id: 'sweetness',
-      type: 'slider',
-      label: 'How sweet is the sample?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Strong',
-      },
-    },
+    id: 'hedonic_9pt',
+    label: '9-point Hedonic',
+    description: 'Peryam & Pilgrim category scale — the industry standard.',
+    name: '9-point Hedonic',
+    questions: [{ preset: 'hedonic_9pt', id: 'liking', label: 'How much do you like this sample?' }],
+    targetId: 'liking',
   },
   {
-    id: 'bitterness',
-    label: 'Bitterness',
-    question: {
-      id: 'bitterness',
-      type: 'slider',
-      label: 'How bitter is the sample?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Strong',
-      },
-    },
+    id: 'lhs_liking',
+    label: 'LHS Liking',
+    description: 'Labeled Hedonic Scale — ratio-level liking.',
+    name: 'LHS Liking',
+    questions: [{ preset: 'lhs', id: 'liking', label: 'How much do you like this sample?' }],
+    targetId: 'liking',
   },
   {
-    id: 'saltiness',
-    label: 'Saltiness',
-    question: {
-      id: 'saltiness',
-      type: 'slider',
-      label: 'How salty is the sample?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Strong',
-      },
-    },
-  },
-  {
-    id: 'sourness',
-    label: 'Sourness',
-    question: {
-      id: 'sourness',
-      type: 'slider',
-      label: 'How sour is the sample?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Strong',
-      },
-    },
-  },
-  {
-    id: 'umami',
-    label: 'Umami / Savouriness',
-    question: {
-      id: 'umami',
-      type: 'slider',
-      label: 'How savoury (umami) is the sample?',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-      scale_labels: {
-        '1': 'Not at All',
-        '3': 'Light',
-        '5': 'Moderate',
-        '7': 'Strong',
-        '9': 'Extremely Strong',
-      },
-    },
-  },
-  {
-    id: 'dropdown',
-    label: 'Multiple Choice (Dropdown)',
-    question: {
-      id: 'choice_question',
-      type: 'dropdown',
-      label: '',
-      options: ['Option A', 'Option B', 'Option C'],
-      required: true,
-    },
-  },
-  {
-    id: 'text',
-    label: 'Free Text',
-    question: {
-      id: 'comments',
-      type: 'text_input',
-      label: 'Any additional comments?',
-      required: false,
-    },
+    id: 'liking_cata',
+    label: 'Liking + CATA',
+    description: '9-point liking plus check-all-that-apply basic tastes.',
+    name: 'Liking and taste profile',
+    questions: [
+      { preset: 'hedonic_9pt', id: 'liking', label: 'How much do you like this sample?' },
+      { preset: 'cata_basic_tastes', id: 'tastes', label: 'Which tastes do you notice?' },
+    ],
+    targetId: 'liking',
   },
 ];
 
+let uidCounter = 0;
+const newUid = () => `q${++uidCounter}`;
+
 export default function Step4Questionnaire() {
-  const { state, dispatch } = useWizard();
+  const { state, dispatch, needsBO } = useWizard();
   const questionnaire = state.protocol.questionnaire ?? PRESETS[0].questionnaire;
+  const questions = questionnaire.questions;
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [showTemplates, setShowTemplates] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const { presets, byId, loading, error } = useScalePresets();
+
+  // Stable React keys for questions (IDs are editable, indexes shift on reorder).
+  const [uids, setUids] = useState<string[]>(() => questions.map(() => newUid()));
+  // Questions replaced from outside (e.g. protocol loaded for editing): re-key.
+  if (uids.length !== questions.length) {
+    setUids(questions.map((_, i) => `loaded_${questions.length}_${i}`));
+  }
 
   function setQuestionnaire(q: InlineQuestionnaire) {
     dispatch({ type: 'SET_QUESTIONNAIRE', payload: q });
   }
 
+  /** Update questions; pass `target` explicitly (incl. `undefined` to clear it) or omit to keep it. */
+  function setQuestions(next: QuestionConfig[], ...targetArg: [BayesianTarget | undefined] | []) {
+    const target = targetArg.length ? targetArg[0] : questionnaire.bayesian_target;
+    const updated: InlineQuestionnaire = { ...questionnaire, questions: next };
+    if (target) updated.bayesian_target = target;
+    else delete updated.bayesian_target;
+    setQuestionnaire(updated);
+  }
+
   function applyPreset(presetId: string) {
     const preset = PRESETS.find((p) => p.id === presetId);
     if (preset) {
-      setQuestionnaire(preset.questionnaire);
+      setUids(preset.questionnaire.questions.map(() => newUid()));
+      setQuestionnaire(JSON.parse(JSON.stringify(preset.questionnaire)));
       setSelectedPreset(presetId);
     }
   }
 
-  function updateQuestion(index: number, updates: Partial<QuestionConfig>) {
-    const updated = questionnaire.questions.map((q, i) => (i === index ? { ...q, ...updates } : q));
-    setQuestionnaire({ ...questionnaire, questions: updated });
-  }
-
-  function addBlankQuestion() {
-    const newQ: QuestionConfig = {
-      id: `question_${questionnaire.questions.length + 1}`,
-      type: 'slider',
-      label: '',
-      min: 1,
-      max: 9,
-      default: 5,
-      step: 0.01,
-      required: true,
-    };
-    setQuestionnaire({ ...questionnaire, questions: [...questionnaire.questions, newQ] });
-    setShowTemplates(false);
-  }
-
-  function addFromTemplate(templateId: string) {
-    const tpl = QUESTION_TEMPLATES.find((t) => t.id === templateId);
+  function applyLibraryTemplate(templateId: string) {
+    const tpl = LIBRARY_TEMPLATES.find((t) => t.id === templateId);
     if (!tpl) return;
-    // Make ID unique by appending index if already used
-    const existingIds = new Set(questionnaire.questions.map((q) => q.id));
-    let newId = tpl.question.id;
-    let counter = 2;
-    while (existingIds.has(newId)) {
-      newId = `${tpl.question.id}_${counter++}`;
+    const built = tpl.questions
+      .filter((q) => byId[q.preset])
+      .map((q) => questionFromPreset(byId[q.preset], q.id, q.label));
+    if (!built.length) return;
+    setUids(built.map(() => newUid()));
+    const next: InlineQuestionnaire = {
+      name: tpl.name,
+      description: tpl.description,
+      version: '1.0',
+      display_mode: questionnaire.display_mode,
+      title: questionnaire.title,
+      questions: built,
+    };
+    if (tpl.targetId) next.bayesian_target = { variable: tpl.targetId, higher_is_better: true };
+    setQuestionnaire(next);
+    setSelectedPreset(templateId);
+  }
+
+  function updateQuestion(index: number, updates: Partial<QuestionConfig>) {
+    const before = questions[index];
+    const next = questions.map((q, i) => (i === index ? { ...q, ...updates } : q));
+    // Keep the optimization target pointing at a renamed question.
+    let target = questionnaire.bayesian_target;
+    if (updates.id !== undefined && target?.variable === before.id) {
+      target = { ...target, variable: updates.id };
     }
-    const newQ: QuestionConfig = { ...tpl.question, id: newId };
-    setQuestionnaire({ ...questionnaire, questions: [...questionnaire.questions, newQ] });
-    setShowTemplates(false);
+    setQuestions(next, target);
+  }
+
+  function replaceQuestion(index: number, question: QuestionConfig) {
+    setQuestions(questions.map((q, i) => (i === index ? question : q)));
+  }
+
+  function addQuestion(question: QuestionConfig) {
+    setUids([...uids, newUid()]);
+    setQuestions([...questions, question]);
+    setShowLibrary(false);
+  }
+
+  function moveQuestion(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= questions.length) return;
+    const next = [...questions];
+    [next[index], next[target]] = [next[target], next[index]];
+    const nextUids = [...uids];
+    [nextUids[index], nextUids[target]] = [nextUids[target], nextUids[index]];
+    setUids(nextUids);
+    setQuestions(next);
+  }
+
+  function duplicateQuestion(index: number) {
+    const original = questions[index];
+    const copy: QuestionConfig = {
+      ...JSON.parse(JSON.stringify(original)),
+      id: uniqueId(`${original.id}_copy`, questions.map((q) => q.id)),
+    };
+    const next = [...questions.slice(0, index + 1), copy, ...questions.slice(index + 1)];
+    const nextUids = [...uids];
+    nextUids.splice(index + 1, 0, newUid());
+    setUids(nextUids);
+    setQuestions(next);
   }
 
   function removeQuestion(index: number) {
-    setQuestionnaire({
-      ...questionnaire,
-      questions: questionnaire.questions.filter((_, i) => i !== index),
-    });
+    const removed = questions[index];
+    setUids(uids.filter((_, i) => i !== index));
+    const target =
+      questionnaire.bayesian_target?.variable === removed.id ? undefined : questionnaire.bayesian_target;
+    setQuestions(questions.filter((_, i) => i !== index), target);
   }
 
-  function updateTarget(updates: Partial<BayesianTarget>) {
-    setQuestionnaire({
-      ...questionnaire,
-      bayesian_target: {
-        ...(questionnaire.bayesian_target ?? {
-          variable: '',
-          transform: 'identity' as const,
-          higher_is_better: true,
-        }),
-        ...updates,
-      },
-    });
+  function setTarget(target: BayesianTarget | undefined) {
+    setQuestions(questions, target);
   }
+
+  const templateButton = (id: string, label: string, description: string, onClick: () => void, disabled = false) => (
+    <button
+      key={id}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`text-left p-3 border rounded-lg transition-colors disabled:opacity-50 ${
+        selectedPreset === id ? 'border-blue-300 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+      }`}
+    >
+      <div className="text-sm font-medium text-gray-700">{label}</div>
+      <div className="text-xs text-gray-500 mt-0.5">{description}</div>
+    </button>
+  );
 
   return (
     <div className="space-y-8">
@@ -440,30 +380,20 @@ export default function Step4Questionnaire() {
         </p>
       </div>
 
-      {/* Template presets */}
+      {/* Starting templates */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">Start from a template</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Start from a template</label>
+        <p className="text-xs text-gray-500 mb-3">Replaces the current questions. You can edit everything afterwards.</p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => applyPreset(preset.id)}
-              className={`text-left p-3 border rounded-lg transition-colors ${
-                selectedPreset === preset.id
-                  ? 'border-blue-300 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div className="text-sm font-medium text-gray-700">{preset.label}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{preset.description}</div>
-            </button>
-          ))}
+          {LIBRARY_TEMPLATES.map((t) =>
+            templateButton(t.id, t.label, t.description, () => applyLibraryTemplate(t.id), loading || !!error)
+          )}
+          {PRESETS.map((p) => templateButton(p.id, p.label, p.description, () => applyPreset(p.id)))}
         </div>
       </div>
 
-      {/* Questionnaire name */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Questionnaire settings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Questionnaire Name</label>
           <input
@@ -484,61 +414,67 @@ export default function Step4Questionnaire() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Page title shown to subjects</label>
+          <input
+            type="text"
+            value={questionnaire.title ?? ''}
+            onChange={(e) => setQuestionnaire({ ...questionnaire, title: e.target.value || undefined })}
+            placeholder="How did you find this sample?"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Display mode</label>
+          <select
+            value={questionnaire.display_mode ?? 'all_at_once'}
+            aria-label="Display mode"
+            onChange={(e) =>
+              setQuestionnaire({
+                ...questionnaire,
+                display_mode: e.target.value as 'all_at_once' | 'one_at_a_time',
+              })
+            }
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="all_at_once">All questions on one page</option>
+            <option value="one_at_a_time">One question at a time</option>
+          </select>
+        </div>
       </div>
 
       {/* Questions */}
       <div>
-        <h3 className="text-sm font-medium text-gray-700 mb-3">
-          Questions ({questionnaire.questions.length})
-        </h3>
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Questions ({questions.length})</h3>
         <div className="space-y-4">
-          {questionnaire.questions.map((q, index) => (
+          {questions.map((q, index) => (
             <QuestionEditor
-              key={index}
+              key={uids[index] ?? `q_${index}`}
               question={q}
-              canRemove={questionnaire.questions.length > 1}
+              preset={q.preset ? byId[q.preset] : undefined}
+              index={index}
+              total={questions.length}
               onChange={(updates) => updateQuestion(index, updates)}
+              onReplace={(question) => replaceQuestion(index, question)}
+              onMove={(delta) => moveQuestion(index, delta)}
+              onDuplicate={() => duplicateQuestion(index)}
               onRemove={() => removeQuestion(index)}
             />
           ))}
 
-          {/* Add question area */}
-          {showTemplates ? (
-            <div className="border-2 border-dashed border-blue-300 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Choose a template</span>
-                <button
-                  type="button"
-                  onClick={() => setShowTemplates(false)}
-                  className="text-gray-400 hover:text-gray-600 text-sm"
-                >
-                  ✕ Cancel
-                </button>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {QUESTION_TEMPLATES.map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    onClick={() => addFromTemplate(tpl.id)}
-                    className="text-left p-2.5 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                  >
-                    <div className="text-sm font-medium text-gray-700">{tpl.label}</div>
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addBlankQuestion}
-                className="mt-3 text-sm text-gray-500 hover:text-blue-600"
-              >
-                + Add blank question instead
-              </button>
-            </div>
+          {showLibrary ? (
+            <ScaleLibraryPicker
+              presets={presets}
+              loading={loading}
+              error={error}
+              existingIds={questions.map((q) => q.id)}
+              onPick={addQuestion}
+              onCancel={() => setShowLibrary(false)}
+            />
           ) : (
             <button
               type="button"
-              onClick={() => setShowTemplates(true)}
+              onClick={() => setShowLibrary(true)}
               className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
             >
               + Add Question
@@ -547,282 +483,10 @@ export default function Step4Questionnaire() {
         </div>
       </div>
 
-      {/* Bayesian target */}
-      {questionnaire.questions.length > 0 && (
-        <div className="border-t border-gray-200 pt-6">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Optimization Target</h3>
-          <p className="text-xs text-gray-500 mb-3">
-            If using algorithm optimization, which question should it try to maximize (or minimize)?
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Target Question</label>
-              <select
-                value={questionnaire.bayesian_target?.variable ?? ''}
-                onChange={(e) => updateTarget({ variable: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">Select a question...</option>
-                {questionnaire.questions.map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.label || q.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end pb-0.5">
-              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={questionnaire.bayesian_target?.higher_is_better ?? true}
-                  onChange={(e) => updateTarget({ higher_is_better: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                Higher values are better
-              </label>
-            </div>
-          </div>
-        </div>
+      {/* Optimization target */}
+      {questions.length > 0 && (
+        <TargetEditor questionnaire={questionnaire} presetsById={byId} needsBO={needsBO} onChange={setTarget} />
       )}
     </div>
   );
 }
-
-
-// ─── Question Editor ─────────────────────────────────────────────────────────
-
-function QuestionEditor({
-  question,
-  canRemove,
-  onChange,
-  onRemove,
-}: {
-  question: QuestionConfig;
-  canRemove: boolean;
-  onChange: (updates: Partial<QuestionConfig>) => void;
-  onRemove: () => void;
-}) {
-  const [showScaleLabels, setShowScaleLabels] = useState(
-    Object.keys(question.scale_labels ?? {}).length > 0
-  );
-
-  function autoId(label: string): string {
-    return label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      || question.id;
-  }
-
-  return (
-    <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        {/* Editable question ID */}
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-xs text-gray-400 shrink-0">ID:</span>
-          <input
-            type="text"
-            value={question.id}
-            onChange={(e) => onChange({ id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') })}
-            className="text-xs font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 w-40 focus:outline-none focus:ring-1 focus:ring-blue-400"
-            placeholder="question_id"
-          />
-        </div>
-        {canRemove && (
-          <button type="button" onClick={onRemove} className="text-gray-400 hover:text-red-500 text-sm shrink-0">
-            Remove
-          </button>
-        )}
-      </div>
-
-      {/* Label */}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Question Text</label>
-        <input
-          type="text"
-          value={question.label}
-          onChange={(e) => {
-            const updates: Partial<QuestionConfig> = { label: e.target.value };
-            if (!question.label) updates.id = autoId(e.target.value);
-            onChange(updates);
-          }}
-          placeholder="e.g., How much do you like this sample?"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="grid grid-cols-5 gap-3">
-        {/* Type */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-          <select
-            value={question.type}
-            onChange={(e) => onChange({ type: e.target.value as QuestionConfig['type'] })}
-            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="slider">Slider</option>
-            <option value="dropdown">Dropdown</option>
-            <option value="text_input">Text</option>
-          </select>
-        </div>
-
-        {question.type === 'slider' && (
-          <>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Min</label>
-              <input
-                type="number"
-                value={question.min ?? 1}
-                onChange={(e) => onChange({ min: parseFloat(e.target.value) || 1 })}
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Max</label>
-              <input
-                type="number"
-                value={question.max ?? 9}
-                onChange={(e) => onChange({ max: parseFloat(e.target.value) || 9 })}
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Step</label>
-              <input
-                type="number"
-                value={question.step ?? 0.01}
-                onChange={(e) => onChange({ step: parseFloat(e.target.value) || 0.01 })}
-                step="any"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Default</label>
-              <input
-                type="number"
-                value={question.default as number ?? 5}
-                onChange={(e) => onChange({ default: parseFloat(e.target.value) || 5 })}
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </>
-        )}
-
-        {question.type === 'dropdown' && (
-          <div className="col-span-4">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Options (one per line)</label>
-            <textarea
-              value={(question.options ?? []).join('\n')}
-              onChange={(e) => onChange({ options: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })}
-              rows={3}
-              placeholder="Option A&#10;Option B&#10;Option C"
-              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Scale labels toggle */}
-      {question.type === 'slider' && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowScaleLabels(!showScaleLabels)}
-            className="text-xs text-gray-400 hover:text-gray-600"
-          >
-            {showScaleLabels ? '▾ Hide scale labels' : '▸ Add scale labels (anchor points)'}
-          </button>
-          {showScaleLabels && (
-            <ScaleLabelEditor
-              labels={question.scale_labels ?? {}}
-              onChange={(labels) => onChange({ scale_labels: labels })}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Required */}
-      <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={question.required ?? true}
-          onChange={(e) => onChange({ required: e.target.checked })}
-          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-        />
-        Required
-      </label>
-    </div>
-  );
-}
-
-
-// ─── Scale Label Editor ──────────────────────────────────────────────────────
-
-function ScaleLabelEditor({
-  labels,
-  onChange,
-}: {
-  labels: Record<string, string>;
-  onChange: (labels: Record<string, string>) => void;
-}) {
-  const entries = Object.entries(labels).sort(([a], [b]) => parseFloat(a) - parseFloat(b));
-  const [newValue, setNewValue] = useState('');
-  const [newLabel, setNewLabel] = useState('');
-
-  function addLabel() {
-    if (newValue && newLabel) {
-      onChange({ ...labels, [newValue]: newLabel });
-      setNewValue('');
-      setNewLabel('');
-    }
-  }
-
-  function removeLabel(value: string) {
-    const updated = { ...labels };
-    delete updated[value];
-    onChange(updated);
-  }
-
-  return (
-    <div className="mt-2 space-y-1">
-      {entries.map(([value, label]) => (
-        <div key={value} className="flex items-center gap-2 text-xs">
-          <span className="w-8 text-gray-500 font-mono text-right">{value}:</span>
-          <span className="text-gray-700">{label}</span>
-          <button
-            type="button"
-            onClick={() => removeLabel(value)}
-            className="text-gray-400 hover:text-red-500 ml-auto"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-      <div className="flex items-center gap-2 text-xs mt-1">
-        <input
-          type="number"
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-          placeholder="Value"
-          className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
-        />
-        <input
-          type="text"
-          value={newLabel}
-          onChange={(e) => setNewLabel(e.target.value)}
-          placeholder="Label text"
-          className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
-          onKeyDown={(e) => e.key === 'Enter' && addLabel()}
-        />
-        <button
-          type="button"
-          onClick={addLabel}
-          className="text-blue-600 hover:text-blue-700 font-medium"
-        >
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}
-

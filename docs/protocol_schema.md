@@ -271,26 +271,94 @@ BO algorithm suggests next sample based on previous responses.
 
 ---
 
-## Questionnaire Type
+## Questionnaire
 
-Specifies which questionnaire to use for participant responses.
-
-### Supported Types
-
-| Type | Description |
-|------|-------------|
-| `hedonic_continuous` | 9-point hedonic scale (continuous slider) |
-| `hedonic_discrete` | 9-point hedonic scale (discrete buttons) |
-| `intensity` | Intensity rating scale |
-| `liking` | Simple liking scale |
-
-### Example
+Protocols carry an **inline** `questionnaire` object (optional `title`: heading shown to
+subjects; `display_mode`: `all_at_once` or `one_at_a_time`). The legacy
+`questionnaire_type` string (`hedonic_continuous`, …) is no longer accepted.
 
 ```json
 {
-  "questionnaire_type": "hedonic_continuous"
+  "questionnaire": {
+    "display_mode": "all_at_once",
+    "questions": [
+      {"id": "sweetness", "label": "How sweet is the sample?", "preset": "glms", "required": true},
+      {"id": "liking", "label": "How much do you like it?", "preset": "hedonic_9pt", "required": true},
+      {"id": "tastes", "label": "Which tastes do you notice?", "preset": "cata_basic_tastes"}
+    ],
+    "bayesian_target": {"variable": "sweetness", "higher_is_better": true}
+  }
 }
 ```
+
+### Question types
+
+| Type | Answer | Key fields |
+|------|--------|------------|
+| `line_scale` | number | `min`, `max`, `anchors[{value,label}]` (placed at their value, strictly increasing), `orientation` (`horizontal`/`vertical`), `polarity`, `show_value` (default false), `start_unmarked` (default true), `show_ticks`, `inset_anchors`, `require_interaction` |
+| `category_scale` | number (an option value) | `options[{value,label,icon?}]`, `layout` (`horizontal`/`vertical`/`grid`), `style` (`buttons`/`radio`/`faces`), `ideal_value` |
+| `magnitude_estimation` | positive number | `modulus` (fixed-modulus ME), `allow_zero`, `max`, `reference_label` |
+| `multi_select` (CATA) | list of option values | `options`, `randomize_order`, `min_selected`, `max_selected` |
+| `ranking` | list of all option values, best first | `options`, `randomize_order` |
+| `slider`, `pillbox`, `dropdown`, `text_input`, `text_area` | legacy | unchanged |
+
+### Scale presets
+
+Set `"preset": "<id>"` on a question to start from a validated scale; every
+field can still be overridden on the question (e.g. replace VAS end labels with
+"Not sweet at all" / "Extremely sweet"). The full list, with anchors and
+citations, is served by `GET /api/protocols/scale-presets` and defined in
+`robotaste/config/scales.py`. When a session starts, presets are resolved and
+frozen into the session's `experiment_config`.
+
+| Preset | Type | Anchors / notes | Default BO transform |
+|--------|------|-----------------|----------------------|
+| `vas` | line_scale, horizontal 0–100 | end labels only | identity |
+| `hedonic_vas` | line_scale, horizontal 0–100 | dislike extremely / neutral / like extremely | identity |
+| `gvas` | line_scale, horizontal 0–100 | no sensation / strongest imaginable sensation of any kind | identity |
+| `glms` | line_scale, vertical 0–100 | 0, 1.4, 6, 17, 35, **53**, 100 | log10p1 |
+| `lms` | line_scale, vertical 0–100 | oral LMS (positions unverified) | log10p1 |
+| `hedonic_glms` | line_scale, vertical −100–100 | strongest imaginable disliking/liking of any kind | identity |
+| `lhs` | line_scale, vertical −100–100 | Labeled Hedonic Scale (inner positions unverified) | identity |
+| `lam` | line_scale, vertical 0–100 | Labeled Affective Magnitude (inner positions unverified) | identity |
+| `hedonic_9pt` | category_scale 1–9 | Peryam & Pilgrim labels | identity |
+| `intensity_5pt`, `likert_5`, `likert_7` | category_scale | category labels | identity |
+| `jar_5` | category_scale 1–5, `ideal_value: 3` | use `transform: "ideal_point"` | identity |
+| `faces_3`, `faces_5`, `faces_7` | category_scale, faces | children's facial scales | identity |
+| `magnitude_estimation` | magnitude_estimation | free modulus | log10p1 |
+| `cata_basic_tastes` | multi_select | sweet/sour/salty/bitter/umami | — |
+
+### `bayesian_target`
+
+Required **only** when the schedule uses `bo_selected`. The target question must
+be numeric (`slider`, `line_scale`, `category_scale`, `magnitude_estimation`, or
+`"composite"` with a `formula`).
+
+| Field | Description |
+|-------|-------------|
+| `variable` | Question id, or `"composite"` |
+| `formula` | For composite targets, e.g. `"0.7 * liking + 0.3 * sweetness"` |
+| `higher_is_better` | `false` negates the value (minimisation) |
+| `transform` | `identity`, `log` (ln(x+1)), `log10`, `log10p1` (log10(x+1)), `normalize` (uses `expected_range`), `ideal_point` (−\|x − `ideal_value`\|). Omitted → the preset's default |
+| `ideal_value` | For `ideal_point`; falls back to the question's `ideal_value` |
+
+### Responses
+
+`POST /api/sessions/{id}/response` validates answers against the session's
+questionnaire (422 on out-of-range values, unknown options or missing required
+answers). Clients may send `answer_meta` (per-question metadata such as
+`{"interacted": true, "rt_ms": 4210}`), stored in `samples.answer_meta`.
+Requests with `phase_id` (custom survey phases) are stored on the session and
+do not create a sample or advance the cycle.
+
+
+### Exported answer columns
+
+Exports flatten answers with `flatten_answers()` (`robotaste/config/questionnaire.py`):
+single values → `<qid>` (Excel: `<qid>_rating`), CATA → `<qid>__<option>` (0/1) and
+`<qid>__n_selected`, ranking → `<qid>__rank__<option>`, response metadata →
+`<qid>__interacted`, `<qid>__rt_ms`, `<qid>__n_changes`. See
+`docs/protocol_user_guide.md` → *Exported Data*.
 
 ---
 

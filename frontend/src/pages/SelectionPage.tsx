@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { formatAnswers } from '../utils/questionnaire';
 import type {
   Session,
   SessionStatus,
@@ -376,12 +377,7 @@ export default function SelectionPage() {
               const concs = Object.entries(s.ingredient_concentration || {})
                 .map(([, v]) => (v as number).toFixed(1))
                 .join(', ');
-              const response = s.questionnaire_answer
-                ? Object.entries(s.questionnaire_answer)
-                    .filter(([k]) => !['questionnaire_type', 'participant_id', 'timestamp', 'is_final'].includes(k))
-                    .map(([, v]) => String(v))
-                    .join(', ')
-                : '—';
+              const response = formatAnswers(s.questionnaire_answer, [], { withKeys: false });
               return (
                 <p key={s.cycle_number}>
                   Cycle {s.cycle_number}: ({concs}) → {response}
